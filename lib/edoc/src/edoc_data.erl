@@ -1,18 +1,23 @@
 %% =====================================================================
-%% This library is free software; you can redistribute it and/or modify
-%% it under the terms of the GNU Lesser General Public License as
-%% published by the Free Software Foundation; either version 2 of the
-%% License, or (at your option) any later version.
+%% Licensed under the Apache License, Version 2.0 (the "License"); you may
+%% not use this file except in compliance with the License. You may obtain
+%% a copy of the License at <http://www.apache.org/licenses/LICENSE-2.0>
 %%
-%% This library is distributed in the hope that it will be useful, but
-%% WITHOUT ANY WARRANTY; without even the implied warranty of
-%% MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-%% Lesser General Public License for more details.
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
-%% You should have received a copy of the GNU Lesser General Public
-%% License along with this library; if not, write to the Free Software
-%% Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307
-%% USA
+%% Alternatively, you may use this file under the terms of the GNU Lesser
+%% General Public License (the "LGPL") as published by the Free Software
+%% Foundation; either version 2.1, or (at your option) any later version.
+%% If you wish to allow use of your version of this file only under the
+%% terms of the LGPL, you should delete the provisions above and replace
+%% them with the notice and other provisions required by the LGPL; see
+%% <http://www.gnu.org/licenses/>. If you do not delete the provisions
+%% above, a recipient may use your version of this file under the terms of
+%% either the Apache License or the LGPL.
 %%
 %% @private
 %% @copyright 2003 Richard Carlsson
@@ -26,7 +31,7 @@
 
 -module(edoc_data).
 
--export([module/4, package/4, overview/4, type/2]).
+-export([module/4, overview/4, type/2]).
 
 -export([hidden_filter/2, get_all_tags/1]).
 
@@ -83,7 +88,8 @@ module(Module, Entries, Env, Opts) ->
     AllTags = get_all_tags(Entries),
     Functions = function_filter(Entries, Opts),
     Out = {module, ([{name, Name},
-		     {root, Env#env.root}]
+		     {root, Env#env.root},
+                     {encoding, Module#module.encoding}]
 		    ++ case is_private(HeaderTags) of
 			   true -> [{private, "yes"}];
 			   false -> []
@@ -172,19 +178,32 @@ callbacks(Es, Module, Env, Opts) ->
 	lists:keymember(callback, 1, Module#module.attributes)
     of
 	true ->
-	    try (Module#module.name):behaviour_info(callbacks) of
-		Fs ->
-		    Fs1 = [{F,A} || {F,A} <- Fs, is_atom(F), is_integer(A)],
-		    if Fs1 =:= [] ->
-			    [];
-		       true ->
-			    [{callbacks,
-			      [callback(F, Env, Opts) || F <- Fs1]}]
-		    end
-	    catch
-		_:_ -> []
-	    end;
+            M = Module#module.name,
+            Fs = get_callback_functions(M, callbacks),
+            Os1 = get_callback_functions(M, optional_callbacks),
+            Fs1 = [FA || FA <- Fs, not lists:member(FA, Os1)],
+            Req = if Fs1 =:= [] ->
+                          [];
+                     true ->
+                          [{callbacks,
+                            [callback(FA, Env, Opts) || FA <- Fs1]}]
+                  end,
+            Opt = if Os1 =:= [] ->
+                          [];
+                     true ->
+                          [{optional_callbacks,
+                            [callback(FA, Env, Opts) || FA <- Os1]}]
+                  end,
+            Req ++ Opt;
 	false -> []
+    end.
+
+get_callback_functions(M, Callbacks) ->
+    try
+        [FA || {F, A} = FA <- M:behaviour_info(Callbacks),
+               is_atom(F), is_integer(A), A >= 0]
+    catch
+        _:_ -> []
     end.
 
 %% <!ELEMENT callback EMPTY>
@@ -496,41 +515,14 @@ get_tags(_, []) -> [].
 type(T, Env) ->
     xmerl_lib:expand_element({type, [edoc_types:to_xml(T, Env)]}).
 
-%% <!ELEMENT package (description?, author*, copyright?, version?,
-%% 		   since?, deprecated?, see*, reference*, todo?,
-%% 		   modules)>
-%% <!ATTLIST package
-%%   name CDATA #REQUIRED
-%%   root CDATA #IMPLIED>
-%% <!ELEMENT modules (module+)>
-
-package(Package, Tags, Env, Opts) ->
-    Env1 = Env#env{package = Package,
-		   root = edoc_refs:relative_package_path('', Package)},
-    xmerl_lib:expand_element(package_1(Package, Tags, Env1, Opts)).
-
-package_1(Package, Tags, Env, Opts) ->
-    {package, [{root, Env#env.root}],
-     ([{packageName, [atom_to_list(Package)]}]
-      ++ get_doc(Tags)
-      ++ authors(Tags)
-      ++ get_copyright(Tags)
-      ++ get_version(Tags)
-      ++ get_since(Tags)
-      ++ get_deprecated(Tags)
-      ++ sees(Tags, Env)
-      ++ references(Tags)
-      ++ todos(Tags, Opts))
-    }.
-
 %% <!ELEMENT overview (title, description?, author*, copyright?, version?,
-%%                     since?, see*, reference*, todo?, packages, modules)>
+%%                     since?, see*, reference*, todo?, modules)>
 %% <!ATTLIST overview
 %%   root CDATA #IMPLIED>
 %% <!ELEMENT title (#PCDATA)>
 
 overview(Title, Tags, Env, Opts) ->
-    Env1 = Env#env{package = '',
+    Env1 = Env#env{
 		   root = ""},
     xmerl_lib:expand_element(overview_1(Title, Tags, Env1, Opts)).
 

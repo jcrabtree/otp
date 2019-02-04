@@ -1,23 +1,24 @@
-<?xml version="1.0" encoding="latin1" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <!DOCTYPE erlref SYSTEM "erlref.dtd">
 
 <erlref>
   <header>
     <copyright>
-      <year>1996</year><year>2012</year>
+      <year>1996</year><year>2016</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
-      The contents of this file are subject to the Erlang Public License,
-      Version 1.1, (the "License"); you may not use this file except in
-      compliance with the License. You should have received a copy of the
-      Erlang Public License along with this software. If not, it can be
-      retrieved online at http://www.erlang.org/.
-    
-      Software distributed under the License is distributed on an "AS IS"
-      basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-      the License for the specific language governing rights and limitations
-      under the License.
+      Licensed under the Apache License, Version 2.0 (the "License");
+      you may not use this file except in compliance with the License.
+      You may obtain a copy of the License at
+ 
+          http://www.apache.org/licenses/LICENSE-2.0
+
+      Unless required by applicable law or agreed to in writing, software
+      distributed under the License is distributed on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+      See the License for the specific language governing permissions and
+      limitations under the License.
     
     </legalnotice>
 
@@ -31,7 +32,7 @@
     <rev>A</rev>
     <file>dyntrace.xml</file>
   </header>
-  <module>dyntrace</module>
+  <module since="OTP R15B01">dyntrace</module>
   <modulesummary>Interface to dynamic tracing</modulesummary>
   <description>
     <p>This module implements interfaces to dynamic tracing, should such be compiled into the virtual machine. For a standard and/or commercial build, no dynamic tracing is available, in which case none of the functions in this module is usable or give any effect.</p>
@@ -42,11 +43,11 @@
     </list>
       <p>Both building with dynamic trace probes and using them is experimental and unsupported by Erlang/OTP. It is included as an option for the developer to trace and debug performance issues in their systems.</p>
       <p>The original implementation is mostly done by Scott Lystiger Fritchie as an Open Source Contribution and it should be viewed as such even though the source for dynamic tracing as well as this module is included in the main distribution. However, the ability to use dynamic tracing of the virtual machine is a very valuable contribution which OTP has every intention to maintain as a tool for the developer.</p>
-      <p>How to write <c>d</c> programs or <c>systemtap</c> scripts can be learned from books and from a lot of pages on the Internet. This manual page does not include any documentation about using the dynamic trace tools of respective platform. The <c>examples</c> directory of the <c>runtime_tools</c> application however contains comprehensive examples of both <c>d</c> and <c>systemtap</c> programs that will help you get started. Another source of information is the <c>README.dtrace(.md)</c> and <c>README.systemtap(.md)</c> files in the Erlang source top directory.</p> 
+      <p>How to write <c>d</c> programs or <c>systemtap</c> scripts can be learned from books and from a lot of pages on the Internet. This manual page does not include any documentation about using the dynamic trace tools of respective platform. The <c>examples</c> directory of the <c>runtime_tools</c> application however contains comprehensive examples of both <c>d</c> and <c>systemtap</c> programs that will help you get started. Another source of information is the <seealso marker="DTRACE">dtrace</seealso> and <seealso marker="SYSTEMTAP">systemtap</seealso> chapters in the Runtime Tools Users' Guide.</p>
   </description>
   <funcs>
     <func>
-      <name>available() -> boolean()</name>
+      <name since="OTP R15B01">available() -> boolean()</name>
       <fsummary>Check if dynamic tracing is available</fsummary>
       <desc>
 	<p>This function uses the NIF library to determine if dynamic
@@ -58,42 +59,42 @@
       </desc>
     </func>
     <func>
-      <name>p() -> true | false | error | badarg</name>
+      <name since="OTP R15B01">p() -> true | false | error | badarg</name>
       <fsummary>Trigger the user trace probe.</fsummary>
       <desc>
         <p>Calling this function will trigger the "user" trace probe user_trace_i4s4 in the dyntrace NIF module, sending a trace message only containing the user tag and zeroes/empty strings in all other fields.</p>
       </desc>
     </func>
     <func>
-      <name>p(integer() | string()) -> true | false | error | badarg</name>
+      <name since="OTP R15B01">p(integer() | string()) -> true | false | error | badarg</name>
       <fsummary>Trigger the user trace probe.</fsummary>
       <desc>
         <p>Calling this function will trigger the "user" trace probe user_trace_i4s4 in the dyntrace NIF module, sending a trace message containing the user tag and the integer or string parameter in the first integer/string field.</p>
       </desc>
     </func>
     <func>
-      <name>p(integer() | string(), integer() | string()) -> true | false | error | badarg</name>
+      <name since="OTP R15B01">p(integer() | string(), integer() | string()) -> true | false | error | badarg</name>
       <fsummary>Trigger the user trace probe.</fsummary>
       <desc>
         <p>Calling this function will trigger the "user" trace probe user_trace_i4s4 in the dyntrace NIF module, sending a trace message containing the user tag and the integer() or string() parameters as the first fields of respective type. integer() parameters should be put before any string() parameters. I.e. <c>p(1,"Hello")</c> is ok, as is <c>p(1,1)</c> and <c>p("Hello","Again")</c>, but not <c>p("Hello",1)</c>.</p>
       </desc>
     </func>
     <func>
-      <name>p(integer() | string(), integer() | string(), integer() | string()) -> true | false | error | badarg</name>
+      <name since="OTP R15B01">p(integer() | string(), integer() | string(), integer() | string()) -> true | false | error | badarg</name>
       <fsummary>Trigger the user trace probe.</fsummary>
       <desc>
         <p>Calling this function will trigger the "user" trace probe user_trace_i4s4 in the dyntrace NIF module, sending a trace message containing the user tag and the integer() or string() parameters as the first fields of respective type. integer() parameters should be put before any string() parameters, as in <seealso marker="#p/2">p/2</seealso>.</p>
       </desc>
     </func>
     <func>
-      <name>p(integer() | string(), integer() | string(), integer() | string(), integer() | string()) -> true | false | error | badarg</name>
+      <name since="OTP R15B01">p(integer() | string(), integer() | string(), integer() | string(), integer() | string()) -> true | false | error | badarg</name>
       <fsummary>Trigger the user trace probe.</fsummary>
       <desc>
         <p>Calling this function will trigger the "user" trace probe user_trace_i4s4 in the dyntrace NIF module, sending a trace message containing the user tag and the integer() or string() parameters as the first fields of respective type. integer() parameters should be put before any string() parameters, as in <seealso marker="#p/2">p/2</seealso>.</p>
       </desc>
     </func>
     <func>
-      <name>p(integer(), integer() | string(), integer() | string(), integer() | string(), string()) -> true | false | error | badarg</name>
+      <name since="OTP R15B01">p(integer(), integer() | string(), integer() | string(), integer() | string(), string()) -> true | false | error | badarg</name>
       <fsummary>Trigger the user trace probe.</fsummary>
       <desc>
         <p>Calling this function will trigger the "user" trace probe user_trace_i4s4 in the dyntrace NIF module, sending a trace message containing the user tag and the integer() or string() parameters as the first fields of respective type. integer() parameters should be put before any string() parameters, as in <seealso marker="#p/2">p/2</seealso>.</p>
@@ -101,7 +102,7 @@
       </desc>
     </func>
      <func>
-      <name>p(integer(), integer(), integer() | string(), integer() | string(), string(), string()) -> true | false | error | badarg</name>
+      <name since="OTP R15B01">p(integer(), integer(), integer() | string(), integer() | string(), string(), string()) -> true | false | error | badarg</name>
       <fsummary>Trigger the user trace probe.</fsummary>
       <desc>
         <p>Calling this function will trigger the "user" trace probe user_trace_i4s4 in the dyntrace NIF module, sending a trace message containing the user tag and the integer() or string() parameters as the first fields of respective type. integer() parameters should be put before any string() parameters, as in <seealso marker="#p/2">p/2</seealso>.</p>
@@ -109,7 +110,7 @@
       </desc>
     </func>
      <func>
-      <name>p(integer(), integer(), integer(), integer() | string(), string(), string(), string()) -> true | false | error | badarg</name>
+      <name since="OTP R15B01">p(integer(), integer(), integer(), integer() | string(), string(), string(), string()) -> true | false | error | badarg</name>
       <fsummary>Trigger the user trace probe.</fsummary>
       <desc>
         <p>Calling this function will trigger the "user" trace probe user_trace_i4s4 in the dyntrace NIF module, sending a trace message containing the user tag and the integer() or string() parameters as the first fields of respective type. integer() parameters should be put before any string() parameters, as in <seealso marker="#p/2">p/2</seealso>.</p>
@@ -117,14 +118,14 @@
       </desc>
     </func>
      <func>
-      <name>p(integer(), integer(), integer(), integer(), string(), string(), string(), string()) -> true | false | error | badarg</name>
+      <name since="OTP R15B01">p(integer(), integer(), integer(), integer(), string(), string(), string(), string()) -> true | false | error | badarg</name>
       <fsummary>Trigger the user trace probe.</fsummary>
       <desc>
         <p>Calling this function will trigger the "user" trace probe user_trace_i4s4 in the dyntrace NIF module, sending a trace message containing all the integer()'s and string()'s provided, as well as any user tag set in the current process.</p> 
       </desc>
     </func>
     <func>
-      <name>get_tag() -> binary() | undefined</name>
+      <name since="OTP R15B01">get_tag() -> binary() | undefined</name>
       <fsummary>Get the user tag set in the process.</fsummary>
       <desc>
 	<p>This function returns the user tag set in the current
@@ -133,7 +134,7 @@
       </desc>
     </func>
     <func>
-      <name>get_tag() -> binary() | undefined</name>
+      <name since="OTP R15B01">get_tag() -> binary() | undefined</name>
       <fsummary>Get the user tag set in the process or sent to the process.</fsummary>
       <desc>
 	<p>This function returns the user tag set in the current
@@ -150,7 +151,7 @@
     </func>
     
     <func>
-      <name>put_tag(Item) -> binary() | undefined </name>
+      <name since="OTP R15B01">put_tag(Item) -> binary() | undefined </name>
       <fsummary>Set the user tag of the current process.</fsummary>
       <type>
         <v>Item = iodata()</v>
@@ -162,7 +163,7 @@
       </desc>
     </func>
     <func>
-      <name>spread_tag(boolean()) -> TagData</name>
+      <name since="OTP R15B01">spread_tag(boolean()) -> TagData</name>
       <fsummary>Start or stop spreading dynamic trace user tags with the next message.</fsummary>
       <type>
         <v>TagData = opaque data that can be used as parameter to <seealso marker="#restore_tag/1">restore_tag/1</seealso></v>
@@ -184,7 +185,7 @@ f() ->
       </desc>
     </func>
     <func>
-    <name>restore_tag(TagData) -> true</name>
+    <name since="OTP R15B01">restore_tag(TagData) -> true</name>
       <fsummary>Restore to a previous state of user tag spreading.</fsummary>
       <type>
         <v>TagData = opaque data returned by <seealso marker="#spread_tag/1">spread_tag/1</seealso></v>

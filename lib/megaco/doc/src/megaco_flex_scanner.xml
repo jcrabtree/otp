@@ -1,23 +1,24 @@
-<?xml version="1.0" encoding="latin1" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <!DOCTYPE erlref SYSTEM "erlref.dtd">
 
 <erlref>
   <header>
     <copyright>
-      <year>2001</year><year>2011</year>
+      <year>2001</year><year>2016</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
-      The contents of this file are subject to the Erlang Public License,
-      Version 1.1, (the "License"); you may not use this file except in
-      compliance with the License. You should have received a copy of the
-      Erlang Public License along with this software. If not, it can be
-      retrieved online at http://www.erlang.org/.
-    
-      Software distributed under the License is distributed on an "AS IS"
-      basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-      the License for the specific language governing rights and limitations
-      under the License.
+      Licensed under the Apache License, Version 2.0 (the "License");
+      you may not use this file except in compliance with the License.
+      You may obtain a copy of the License at
+ 
+          http://www.apache.org/licenses/LICENSE-2.0
+
+      Unless required by applicable law or agreed to in writing, software
+      distributed under the License is distributed on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+      See the License for the specific language governing permissions and
+      limitations under the License.
     
     </legalnotice>
 
@@ -31,7 +32,7 @@
     <rev>%VSN%</rev>
     <file>megaco_flex_scanner.xml</file>
   </header>
-  <module>megaco_flex_scanner</module>
+  <module since="">megaco_flex_scanner</module>
   <modulesummary>Interface module to the flex scanner linked in driver.</modulesummary>
   <description>
     <p>This module contains the public interface to the flex scanner 
@@ -71,7 +72,7 @@ megaco_version() = integer() >= 1
 
   <funcs>
     <func>
-      <name>start() -> {ok, PortOrPorts} | {error, Reason}</name>
+      <name since="">start() -> {ok, PortOrPorts} | {error, Reason}</name>
       <fsummary></fsummary>
       <type>
         <v>PortOrPorts = megaco_ports()</v>
@@ -93,7 +94,7 @@ megaco_version() = integer() >= 1
     </func>
 
     <func>
-      <name>stop(PortOrPorts) -> stopped</name>
+      <name since="">stop(PortOrPorts) -> stopped</name>
       <fsummary></fsummary>
       <type>
         <v>PortOrPorts = megaco_ports()</v>
@@ -107,7 +108,7 @@ megaco_version() = integer() >= 1
     </func>
 
     <func>
-      <name>is_reentrant_enabled() -> Boolean</name>
+      <name since="">is_reentrant_enabled() -> Boolean</name>
       <fsummary></fsummary>
       <type>
         <v>Boolean = boolean()</v>
@@ -120,7 +121,7 @@ megaco_version() = integer() >= 1
     </func>
 
     <func>
-      <name>is_scanner_port(Port, PortOrPorts) -> Boolean</name>
+      <name since="">is_scanner_port(Port, PortOrPorts) -> Boolean</name>
       <fsummary></fsummary>
       <type>
         <v>Port = port()</v>
@@ -136,7 +137,7 @@ megaco_version() = integer() >= 1
     </func>
 
     <func>
-      <name>scan(Binary, PortOrPorts) -> {ok, Tokens, Version, LatestLine} | {error, Reason, LatestLine} </name>
+      <name since="">scan(Binary, PortOrPorts) -> {ok, Tokens, Version, LatestLine} | {error, Reason, LatestLine} </name>
       <fsummary></fsummary>
       <type>
         <v>Binary = binary()</v>

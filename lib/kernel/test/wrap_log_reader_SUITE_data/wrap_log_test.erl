@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1998-2009. All Rights Reserved.
+%% Copyright Ericsson AB 1998-2018. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -35,9 +36,9 @@
 -endif.
 
 init() ->
-    spawn(fun() -> start(logger) end),
+    spawn(fun() -> start(wlr_logger) end),
     spawn(fun() -> start2(wlt) end),
-    wait_registered(logger),
+    wait_registered(wlr_logger),
     wait_registered(wlt),
     ok.
 
@@ -51,9 +52,9 @@ wait_registered(Name) ->
     end.
 
 stop() ->
-    catch logger ! exit,
+    catch wlr_logger ! exit,
     catch wlt ! exit,
-    wait_unregistered(logger),
+    wait_unregistered(wlr_logger),
     wait_unregistered(wlt),
     ok.
 
@@ -81,47 +82,47 @@ loop() ->
 	{open, Pid, Name, File} ->
 	    R = disk_log:open([{name, Name}, {type, wrap}, {file, File},
 			       {size, {?fsize, ?fno}}]),
-	    ?format("logger: open ~p -> ~p~n", [Name, R]),
+	    ?format("wlr_logger: open ~p -> ~p~n", [Name, R]),
 	    Pid ! R,
 	    loop();
 	
 	{open_ext, Pid, Name, File} ->
 	    R = disk_log:open([{name, Name}, {type, wrap}, {file, File},
 			       {format, external}, {size, {?fsize, ?fno}}]),
-	    ?format("logger: open ~p -> ~p~n", [Name, R]),
+	    ?format("wlr_logger: open ~p -> ~p~n", [Name, R]),
 	    Pid ! R,
 	    loop();
 	
 	{close, Pid, Name} ->
 	    R = disk_log:close(Name),
-	    ?format("logger: close ~p -> ~p~n", [Name, R]),
+	    ?format("wlr_logger: close ~p -> ~p~n", [Name, R]),
 	    Pid ! R,
 	    loop();
 	
 	{sync, Pid, Name} ->
 	    R = disk_log:sync(Name),
-	    ?format("logger: sync ~p -> ~p~n", [Name, R]),
+	    ?format("wlr_logger: sync ~p -> ~p~n", [Name, R]),
 	    Pid ! R,
 	    loop();
 	
 	{log_terms, Pid, Name, Terms} ->
 	    R = disk_log:log_terms(Name, Terms),
-	    ?format("logger: log_terms ~p -> ~p~n", [Name, R]),
+	    ?format("wlr_logger: log_terms ~p -> ~p~n", [Name, R]),
 	    Pid ! R,
 	    loop();
 
 	{blog_terms, Pid, Name, Terms} ->
 	    R = disk_log:blog_terms(Name, Terms),
-	    ?format("logger: blog_terms ~p -> ~p~n", [Name, R]),
+	    ?format("wlr_logger: blog_terms ~p -> ~p~n", [Name, R]),
 	    Pid ! R,
 	    loop();
 
 	exit ->
-	    ?format("Stopping logger~n", []),
+	    ?format("Stopping wlr_logger~n", []),
 	    exit(normal);
 
 	_Else ->
-	    ?format("logger: ignored: ~p~n", [_Else]),
+	    ?format("wlr_logger: ignored: ~p~n", [_Else]),
 	    loop()
     end.
 

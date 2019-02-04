@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2008-2009. All Rights Reserved.
+%% Copyright Ericsson AB 2008-2017. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -29,6 +30,21 @@
 -include_lib("wx/include/wx.hrl").
 
 -define(stc, wxStyledTextCtrl).
+
+%% For wx-2.9 usage
+-ifndef(wxSTC_ERLANG_COMMENT_FUNCTION).
+-define(wxSTC_ERLANG_COMMENT_FUNCTION, 14).
+-define(wxSTC_ERLANG_COMMENT_MODULE, 15).
+-define(wxSTC_ERLANG_COMMENT_DOC, 16).
+-define(wxSTC_ERLANG_COMMENT_DOC_MACRO, 17).
+-define(wxSTC_ERLANG_ATOM_QUOTED, 18).
+-define(wxSTC_ERLANG_MACRO_QUOTED, 19).
+-define(wxSTC_ERLANG_RECORD_QUOTED, 20).
+-define(wxSTC_ERLANG_NODE_NAME_QUOTED, 21).
+-define(wxSTC_ERLANG_BIFS, 22).
+-define(wxSTC_ERLANG_MODULES, 23).
+-define(wxSTC_ERLANG_MODULES_ATT, 24).
+-endif.
 
 code_area(Parent) ->
     FixedFont = wxFont:new(10, ?wxFONTFAMILY_TELETYPE, ?wxNORMAL, ?wxNORMAL,[]),
@@ -58,7 +74,21 @@ code_area(Parent) ->
 	       {?wxSTC_ERLANG_MACRO,    {40,144,170}},
 	       {?wxSTC_ERLANG_RECORD,   {40,100,20}},
 	       {?wxSTC_ERLANG_SEPARATOR,{0,0,0}},
-	       {?wxSTC_ERLANG_NODE_NAME,{0,0,0}}],
+	       {?wxSTC_ERLANG_NODE_NAME,{0,0,0}},
+	       %% Optional 2.9 stuff
+	       {?wxSTC_ERLANG_COMMENT_FUNCTION, {160,53,35}},
+	       {?wxSTC_ERLANG_COMMENT_MODULE, {160,53,35}},
+	       {?wxSTC_ERLANG_COMMENT_DOC, {160,53,35}},
+	       {?wxSTC_ERLANG_COMMENT_DOC_MACRO, {160,53,35}},
+	       {?wxSTC_ERLANG_ATOM_QUOTED, {0,0,0}},
+	       {?wxSTC_ERLANG_MACRO_QUOTED, {40,144,170}},
+	       {?wxSTC_ERLANG_RECORD_QUOTED, {40,100,20}},
+	       {?wxSTC_ERLANG_NODE_NAME_QUOTED, {0,0,0}},
+	       {?wxSTC_ERLANG_BIFS, {130,40,172}},
+	       {?wxSTC_ERLANG_MODULES, {64,102,244}},
+	       {?wxSTC_ERLANG_MODULES_ATT, {64,102,244}}
+	      ],
+
     SetStyle = fun({Style, Color}) ->
 		       ?stc:styleSetFont(Ed, Style, FixedFont),
 		       ?stc:styleSetForeground(Ed, Style, Color)
@@ -97,20 +127,22 @@ load_code(Ed, Code) ->
     %%io:format("~p ~p ~p~n", [Lines, Sz, LW]),
     ?stc:setMarginWidth(Ed, 0, LW+5),
     ?stc:setReadOnly(Ed, true),
-    Ed.
+    ok.
 
 unload_code(Ed) ->
     ?stc:setReadOnly(Ed, false),
     ?stc:setTextRaw(Ed, <<0:8>>),
     ?stc:setReadOnly(Ed, true),
-    Ed.
+    ok.
 
 add_break_to_code(Ed, Line, active) ->
     ?stc:markerDelete(Ed, Line-1, 1),
-    ?stc:markerAdd(Ed, Line-1, 0);
+    ?stc:markerAdd(Ed, Line-1, 0),
+    ok;
 add_break_to_code(Ed, Line, inactive) ->
     ?stc:markerDelete(Ed, Line-1, 0),
-    ?stc:markerAdd(Ed, Line-1, 1).
+    ?stc:markerAdd(Ed, Line-1, 1),
+    ok.
 
 del_break_from_code(Ed,Line) ->
     ?stc:markerDelete(Ed, Line-1, 0),
@@ -158,6 +190,6 @@ find(Ed, Str, Case, Next) ->
    
 keyWords() ->
     L = ["after","begin","case","try","cond","catch","andalso","orelse",
-	 "end","fun","if","let","of","query","receive","when","bnot","not",
+	 "end","fun","if","let","of","receive","when","bnot","not",
 	 "div","rem","band","and","bor","bxor","bsl","bsr","or","xor"],
     lists:flatten([K ++ " " || K <- L] ++ [0]).

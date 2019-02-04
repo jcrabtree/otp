@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2009-2010. All Rights Reserved.
+%% Copyright Ericsson AB 2009-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -21,15 +22,20 @@
 
 -module(ssh_shell).
 
+-include("ssh.hrl").
 -include("ssh_connect.hrl").
 
--behaviour(ssh_channel).
+%%% As this is an user interactive client it behaves like a daemon
+%%% channel inspite of it being a client. 
+-behaviour(ssh_server_channel).
 
-%% ssh_channel callbacks
+%% ssh_server_channel callbacks
 -export([init/1, handle_msg/2, handle_ssh_msg/2, terminate/2]).
 
 %% Spawn export
 -export([input_loop/2]).
+
+-export([dbg_trace/3]).
 
 -record(state, 
 	{
@@ -40,7 +46,7 @@
        ).
 
 %%====================================================================
-%% ssh_channel callbacks
+%% ssh_server_channel callbacks
 %%====================================================================
 
 %%--------------------------------------------------------------------
@@ -123,7 +129,7 @@ handle_ssh_msg({ssh_cm, _, {exit_status, ChannelId, Status}}, State) ->
     {stop, ChannelId, State}.
 
 %%--------------------------------------------------------------------
-%% Function: handle_ssh_msg(Args) -> {ok, State} | {stop, ChannelId, State}
+%% Function: handle_msg(Args) -> {ok, State} | {stop, ChannelId, State}
 %%                        
 %% Description: Handles other channel messages
 %%--------------------------------------------------------------------
@@ -176,3 +182,20 @@ get_ancestors() ->
 	A when is_list(A) -> A;
 	_              -> []
     end.
+
+%%%################################################################
+%%%#
+%%%# Tracing
+%%%#
+
+dbg_trace(points,         _,  _) -> [terminate];
+
+dbg_trace(flags,  terminate,  _) -> [c];
+dbg_trace(on,     terminate,  _) -> dbg:tp(?MODULE,  terminate, 2, x);
+dbg_trace(off,    terminate,  _) -> dbg:ctpg(?MODULE, terminate, 2);
+dbg_trace(format, terminate, {call, {?MODULE,terminate, [Reason, State]}}) ->
+    ["Shell Terminating:\n",
+     io_lib:format("Reason: ~p,~nState:~n~s", [Reason, wr_record(State)])
+    ].
+
+?wr_record(state).

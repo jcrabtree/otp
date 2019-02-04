@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2000-2010. All Rights Reserved.
+%% Copyright Ericsson AB 2000-2017. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -41,17 +42,16 @@
 	 %% experimental; -xref(FunEdge) is recognized.
 	 lattrs=[],            % local calls, {{mfa(),mfa()},Line}
 	 xattrs=[],            % external calls, -"-
-	 battrs=[]             % badly formed xref attributes, term().
+	 battrs=[],	       % badly formed xref attributes, term().
+         on_load               % function name
 	 }).
 
 -include("xref.hrl").
 
-%% sys_pre_expand has modified the forms slightly compared to what
-%% erl_id_trans recognizes.
-
 %% The versions of the abstract code are as follows:
-%% R7: abstract_v1
-%% R8: abstract_v2
+%% R7:  abstract_v1
+%% R8:  abstract_v2
+%% R9C: raw_abstract_v1
 
 %% -> {ok, Module, {DefAt, CallAt, LC, XC, X, Attrs}, Unresolved}} | EXIT
 %% Attrs = {ALC, AXC, Bad}
@@ -69,34 +69,45 @@ forms([F | Fs], S) ->
 forms([], S) ->
     #xrefr{module = M, def_at = DefAt,
 	   l_call_at = LCallAt, x_call_at = XCallAt,
-	   el = LC, ex = XC, x = X, df = Depr,
+	   el = LC, ex = XC, x = X, df = Depr, on_load = OnLoad,
+	   lattrs = AL, xattrs = AX, battrs = B, unresolved = U} = S,
+    OL = case OnLoad of
+             undefined -> [];
+             F ->
+                 [{M, F, 0}]
+         end,
+    #xrefr{def_at = DefAt,
+	   l_call_at = LCallAt, x_call_at = XCallAt,
+	   el = LC, ex = XC, x = X, df = Depr, on_load = OnLoad,
 	   lattrs = AL, xattrs = AX, battrs = B, unresolved = U} = S,
     Attrs = {lists:reverse(AL), lists:reverse(AX), lists:reverse(B)},
-    {ok, M, {DefAt, LCallAt, XCallAt, LC, XC, X, Attrs, Depr}, U}.
+    {ok, M, {DefAt, LCallAt, XCallAt, LC, XC, X, Attrs, Depr, OL}, U}.
 
 form({attribute, Line, xref, Calls}, S) -> % experimental
     #xrefr{module = M, function = Fun,
 	   lattrs = L, xattrs = X, battrs = B} = S,
-    attr(Calls, Line, M, Fun, L, X, B, S);
+    attr(Calls, erl_anno:line(Line), M, Fun, L, X, B, S);
+form({attribute, _, on_load, {F, 0}}, S) ->
+    S#xrefr{on_load = F};
 form({attribute, _Line, _Attr, _Val}, S) ->
     S;
-form({function, 0, 'MNEMOSYNE RULE', 1, _Clauses}, S) ->
+form({function, _, module_info, 0, _Clauses}, S) ->
     S;
-form({function, 0, 'MNEMOSYNE QUERY', 2, _Clauses}, S) ->
+form({function, _, module_info, 1, _Clauses}, S) ->
     S;
-form({function, 0, 'MNEMOSYNE RECFUNDEF', 1, _Clauses}, S) ->
-    S;
-form({function, 0, module_info, 0, _Clauses}, S) ->
-    S;
-form({function, 0, module_info, 1, _Clauses}, S) ->
-    S;
-form({function, Line, Name, Arity, Clauses}, S) ->
+form({function, Anno, Name, Arity, Clauses}, S) ->
     MFA0 = {S#xrefr.module, Name, Arity},
     MFA = adjust_arity(S, MFA0),
     S1 = S#xrefr{function = MFA},
+    Line = erl_anno:line(Anno),
     S2 = S1#xrefr{def_at = [{MFA,Line} | S#xrefr.def_at]},
     S3 = clauses(Clauses, S2),
-    S3#xrefr{function = []}.
+    S3#xrefr{function = []};
+form(_, S) ->
+    %% OTP 20. Other uninteresting forms such as {eof, _} and {warning, _}.
+    %% Exposed because sys_pre_expand is no longer run.
+    S.
+
 
 clauses(Cls, S) ->
     #xrefr{funvars = FunVars, matches = Matches} = S,
@@ -113,6 +124,8 @@ clauses([{clause, _Line, _H, G, B} | Cs], FunVars, Matches, S) ->
 clauses([], _FunVars, _Matches, S) ->
     S.
 
+attr(NotList, Ln, M, Fun, AL, AX, B, S) when not is_list(NotList) ->
+    attr([NotList], Ln, M, Fun, AL, AX, B, S);
 attr([E={From, To} | As], Ln, M, Fun, AL, AX, B, S) ->
     case mfa(From, M) of
 	{_, _, MFA} when MFA =:= Fun; [] =:= Fun ->
@@ -158,6 +171,15 @@ expr({'try',_Line,Es,Scs,Ccs,As}, S) ->
     S2 = clauses(Scs, S1),
     S3 = clauses(Ccs, S2),
     expr(As, S3);
+expr({'fun', Line, {function,M,F,A}}, S)
+  when is_atom(M), is_atom(F), is_integer(A) ->
+    %% This is the old format for external funs, generated by a pre-R15
+    %% compiler. Exposed in OTP 20 because sys_pre_expand is no longer
+    %% run.
+    Fun = {'fun', Line, {function, {atom,Line,M},
+			 {atom,Line,F},
+			 {integer,Line,A}}},
+    expr(Fun, S);
 expr({'fun', Line, {function, {atom,_,Mod},
 		    {atom,_,Name},
 		    {integer,_,Arity}}}, S) ->
@@ -172,11 +194,23 @@ expr({'fun', Line, {function, Mod, Name, _Arity}}, S) ->
     %% New format in R15. M:F/A (one or more variables).
     As = {var, Line, '_'},
     external_call(erlang, apply, [Mod, Name, As], Line, true, S);
+%% Only abstract_v1 and abstract_v2.
 expr({'fun', Line, {function, Name, Arity}, _Extra}, S) ->
     %% Added in R8.
     handle_call(local, S#xrefr.module, Name, Arity, Line, S);
 expr({'fun', _Line, {clauses, Cs}, _Extra}, S) ->
     clauses(Cs, S);
+%% End abstract_v1 and abstract_v2.
+expr({'fun', Line, {function, Name, Arity}}, S) ->
+    %% Added in OTP 20.
+    handle_call(local, S#xrefr.module, Name, Arity, Line, S);
+expr({'fun', _Line, {clauses, Cs}}, S) ->
+    clauses(Cs, S);
+expr({named_fun, _Line, '_', Cs}, S) ->
+    clauses(Cs, S);
+expr({named_fun, _Line, Name, Cs}, S) ->
+    S1 = S#xrefr{funvars = [Name | S#xrefr.funvars]},
+    clauses(Cs, S1);
 expr({call, Line, {atom, _, Name}, As}, S) ->
     S1 = handle_call(local, S#xrefr.module, Name, length(As), Line, S),
     expr(As, S1);
@@ -192,6 +226,14 @@ expr({match, _Line, {var,_,Var}, {'fun', _, {clauses, Cs}, _Extra}}, S) ->
     %% that are passed around by the "expansion" of list comprehension.
     S1 = S#xrefr{funvars = [Var | S#xrefr.funvars]},
     clauses(Cs, S1);
+expr({match, _Line, {var,_,Var}, {'fun', _, {clauses, Cs}}}, S) ->
+    %% OTP 20. Exposed because sys_pre_expand is no longer run.
+    S1 = S#xrefr{funvars = [Var | S#xrefr.funvars]},
+    clauses(Cs, S1);
+expr({match, _Line, {var,_,Var}, {named_fun, _, _, _} = Fun}, S) ->
+    %% OTP 20. Exposed because sys_pre_expand is no longer run.
+    S1 = S#xrefr{funvars = [Var | S#xrefr.funvars]},
+    expr(Fun, S1);
 expr({match, _Line, {var,_,Var}, E}, S) ->
     %% Used for resolving code like
     %%     Args = [A,B], apply(m, f, Args)
@@ -291,8 +333,17 @@ check_funarg(W, ArgsList, Line, S) ->
     expr(ArgsList, S1).
 
 funarg({'fun', _, _Clauses, _Extra}, _S) -> true;
+funarg({'fun', _, {clauses, _}}, _S) ->
+    %% OTP 20. sys_pre_expand not run.
+    true;
+funarg({'fun', _, {function, _, _}}, _S) ->
+    %% OTP 20. sys_pre_expand not run.
+    true;
 funarg({'fun', _, {function,_,_,_}}, _S) ->
     %% New abstract format for fun M:F/A in R15.
+    true;
+funarg({named_fun, _, _, _}, _S) ->
+    %% OTP 20. sys_pre_expand not run.
     true;
 funarg({var, _, Var}, S) -> member(Var, S#xrefr.funvars);
 funarg(_, _S) -> false.
@@ -301,10 +352,14 @@ fun_args(apply2, [FunArg, Args]) -> {FunArg, Args};
 fun_args(1, [FunArg | Args]) -> {FunArg, Args};
 fun_args(2, [_Node, FunArg | Args]) -> {FunArg, Args}.
 
-list2term([A | As]) ->
-    {cons, 0, A, list2term(As)};
-list2term([]) ->
-    {nil, 0}.
+list2term(L) ->
+    A = erl_anno:new(0),
+    list2term(L, A).
+
+list2term([A | As], Anno) ->
+    {cons, Anno, A, list2term(As)};
+list2term([], Anno) ->
+    {nil, Anno}.
 
 term2list({cons, _Line, H, T}, L, S) ->
     term2list(T, [H | L], S);
@@ -331,13 +386,11 @@ handle_call(Locality, Module, Name, Arity, Line, S) ->
 	    handle_call(Locality, To, Line, S, false)
     end.
 
-handle_call(_Locality, {_, 'MNEMOSYNE RULE',1}, _Line, S, _) -> S;
-handle_call(_Locality, {_, 'MNEMOSYNE QUERY', 2}, _Line, S, _) -> S;
-handle_call(_Locality, {_, 'MNEMOSYNE RECFUNDEF',1}, _Line, S, _) -> S;
-handle_call(Locality, To0, Line, S, IsUnres) ->
+handle_call(Locality, To0, Anno, S, IsUnres) ->
     From = S#xrefr.function,
     To = adjust_arity(S, To0),
     Call = {From, To},
+    Line = erl_anno:line(Anno),
     CallAt = {Call, Line},
     S1 = if
              IsUnres ->

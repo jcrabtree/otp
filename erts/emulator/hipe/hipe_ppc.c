@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2004-2011. All Rights Reserved.
+ * Copyright Ericsson AB 2004-2016. All Rights Reserved.
  *
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  * %CopyrightEnd%
  */
@@ -24,7 +25,6 @@
 #endif
 #include "global.h"
 #include "erl_binary.h"
-#include <sys/mman.h>
 
 #include "hipe_arch.h"
 #include "hipe_native_bif.h"	/* nbif_callemu() */
@@ -67,34 +67,6 @@ void hipe_flush_icache_range(void *address, unsigned int nbytes)
     asm volatile("sync\n\tisync");
 }
 
-/*
- * Management of 32MB code segments for regular code and trampolines.
- */
-
-#define SEGMENT_NRBYTES	(32*1024*1024)	/* named constant, _not_ a tunable */
-
-static struct segment {
-    unsigned int *base;		/* [base,base+32MB[ */
-    unsigned int *code_pos;	/* INV: base <= code_pos <= tramp_pos  */
-    unsigned int *tramp_pos;	/* INV: tramp_pos <= base+32MB */
-} curseg;
-
-#define in_area(ptr,start,nbytes)	\
-	((UWord)((char*)(ptr) - (char*)(start)) < (nbytes))
-
-/* Darwin breakage */
-#if !defined(MAP_ANONYMOUS) && defined(MAP_ANON)
-#define MAP_ANONYMOUS MAP_ANON
-#endif
-
-static void *new_code_mapping(void)
-{
-    return mmap(0, SEGMENT_NRBYTES,
-		PROT_EXEC|PROT_READ|PROT_WRITE,
-		MAP_PRIVATE|MAP_ANONYMOUS,
-		-1, 0);
-}
-
 static int check_callees(Eterm callees)
 {
     Eterm *tuple;
@@ -118,126 +90,71 @@ static int check_callees(Eterm callees)
     return arity;
 }
 
-static unsigned int *try_alloc(Uint nrwords, int nrcallees, Eterm callees, unsigned int **trampvec)
+
+static void generate_trampolines(Uint32* address,
+                                 int nrcallees, Eterm callees,
+                                 Uint32** trampvec)
 {
-    unsigned int *base, *address, *tramp_pos, nrfreewords;
-    int trampnr;
+    Uint32* trampoline = address;
+    int i;
 
-    tramp_pos = curseg.tramp_pos;
-    address = curseg.code_pos;
-    nrfreewords = tramp_pos - address;
-    if (nrwords > nrfreewords)
-	return NULL;
-    curseg.code_pos = address + nrwords;
-    nrfreewords -= nrwords;
-
-    base = curseg.base;
-    for (trampnr = 1; trampnr <= nrcallees; ++trampnr) {
-	Eterm mfa = tuple_val(callees)[trampnr];
-	Eterm m = tuple_val(mfa)[1];
-	Eterm f = tuple_val(mfa)[2];
-	unsigned int a = unsigned_val(tuple_val(mfa)[3]);
-	unsigned int *trampoline = hipe_mfa_get_trampoline(m, f, a);
-	if (!in_area(trampoline, base, SEGMENT_NRBYTES)) {
+    for (i = 0; i < nrcallees; ++i) {
 #if defined(__powerpc64__)
-	    if (nrfreewords < 7)
-		return NULL;
-	    nrfreewords -= 7;
-	    tramp_pos = trampoline = tramp_pos - 7;
-	    trampoline[0] = 0x3D600000; /* addis r11,r0,0 */
-	    trampoline[1] = 0x616B0000; /* ori r11,r11,0 */
-	    trampoline[2] = 0x796B07C6; /* rldicr r11,r11,32,31 */
-	    trampoline[3] = 0x656B0000; /* oris r11,r11,0 */
-	    trampoline[4] = 0x616B0000; /* ori r11,r11,0 */
-	    trampoline[5] = 0x7D6903A6; /* mtctr r11 */
-	    trampoline[6] = 0x4E800420; /* bctr */
-	    hipe_flush_icache_range(trampoline, 7*sizeof(int));
+# define TRAMPOLINE_WORDS 7
+        trampoline[0] = 0x3D600000; /* addis r11,r0,0 */
+        trampoline[1] = 0x616B0000; /* ori r11,r11,0 */
+        trampoline[2] = 0x796B07C6; /* rldicr r11,r11,32,31 */
+        trampoline[3] = 0x656B0000; /* oris r11,r11,0 */
+        trampoline[4] = 0x616B0000; /* ori r11,r11,0 */
+        trampoline[5] = 0x7D6903A6; /* mtctr r11 */
+        trampoline[6] = 0x4E800420; /* bctr */
 #else
-	    if (nrfreewords < 4)
-		return NULL;
-	    nrfreewords -= 4;
-	    tramp_pos = trampoline = tramp_pos - 4;
-	    trampoline[0] = 0x39600000; /* addi r11,r0,0 */
-	    trampoline[1] = 0x3D6B0000; /* addis r11,r11,0 */
-	    trampoline[2] = 0x7D6903A6; /* mtctr r11 */
-	    trampoline[3] = 0x4E800420; /* bctr */
-	    hipe_flush_icache_range(trampoline, 4*sizeof(int));
+# define TRAMPOLINE_WORDS 4
+        trampoline[0] = 0x39600000; /* addi r11,r0,0 */
+        trampoline[1] = 0x3D6B0000; /* addis r11,r11,0 */
+        trampoline[2] = 0x7D6903A6; /* mtctr r11 */
+        trampoline[3] = 0x4E800420; /* bctr */
 #endif
-	    hipe_mfa_set_trampoline(m, f, a, trampoline);
-	}
-	trampvec[trampnr-1] = trampoline;
+        trampvec[i] = trampoline;
+        trampoline += TRAMPOLINE_WORDS;
     }
-    curseg.tramp_pos = tramp_pos;
-    return address;
+    hipe_flush_icache_range(address, nrcallees*TRAMPOLINE_WORDS*sizeof(Uint32));
 }
 
 void *hipe_alloc_code(Uint nrbytes, Eterm callees, Eterm *trampolines, Process *p)
 {
-    Uint nrwords;
+    Uint code_words;
     int nrcallees;
     Eterm trampvecbin;
-    unsigned int **trampvec;
-    unsigned int *address;
-    unsigned int *base;
-    struct segment oldseg;
+    Uint32 **trampvec;
+    Uint32 *address;
 
     if (nrbytes & 0x3)
 	return NULL;
-    nrwords = nrbytes >> 2;
+    code_words = nrbytes / sizeof(Uint32);
 
     nrcallees = check_callees(callees);
     if (nrcallees < 0)
 	return NULL;
-    trampvecbin = new_binary(p, NULL, nrcallees*sizeof(unsigned int*));
-    trampvec = (unsigned int**)binary_bytes(trampvecbin);
+    trampvecbin = new_binary(p, NULL, nrcallees*sizeof(Uint32*));
+    trampvec = (Uint32**)binary_bytes(trampvecbin);
 
-    address = try_alloc(nrwords, nrcallees, callees, trampvec);
-    if (!address) {
-	base = new_code_mapping();
-	if (base == MAP_FAILED)
-	    return NULL;
-	oldseg = curseg;
-	curseg.base = base;
-	curseg.code_pos = base;
-	curseg.tramp_pos = (unsigned int*)((char*)base + SEGMENT_NRBYTES);
+    address = erts_alloc(ERTS_ALC_T_HIPE_EXEC,
+                         (code_words + nrcallees*TRAMPOLINE_WORDS)*sizeof(Uint32));
 
-	address = try_alloc(nrwords, nrcallees, callees, trampvec);
-	if (!address) {
-	    munmap(base, SEGMENT_NRBYTES);
-	    curseg = oldseg;
-	    return NULL;
-	}
-	/* commit to new segment, ignore leftover space in old segment */
-    }
+    generate_trampolines(address + code_words, nrcallees, callees, trampvec);
     *trampolines = trampvecbin;
     return address;
 }
 
-static unsigned int *alloc_stub(Uint nrwords)
+void hipe_free_code(void* code, unsigned int bytes)
 {
-    unsigned int *address;
-    unsigned int *base;
-    struct segment oldseg;
+    erts_free(ERTS_ALC_T_HIPE_EXEC, code);
+}
 
-    address = try_alloc(nrwords, 0, NIL, NULL);
-    if (!address) {
-	base = new_code_mapping();
-	if (base == MAP_FAILED)
-	    return NULL;
-	oldseg = curseg;
-	curseg.base = base;
-	curseg.code_pos = base;
-	curseg.tramp_pos = (unsigned int*)((char*)base + SEGMENT_NRBYTES);
-
-	address = try_alloc(nrwords, 0, NIL, NULL);
-	if (!address) {
-	    munmap(base, SEGMENT_NRBYTES);
-	    curseg = oldseg;
-	    return NULL;
-	}
-	/* commit to new segment, ignore leftover space in old segment */
-    }
-    return address;
+void hipe_free_native_stub(void* stub)
+{
+    erts_free(ERTS_ALC_T_HIPE_EXEC, stub);
 }
 
 static void patch_imm16(Uint32 *address, unsigned int imm16)
@@ -285,31 +202,33 @@ int hipe_patch_insn(void *address, Uint64 value, Eterm type)
     }
 }
 
-void *hipe_make_native_stub(void *beamAddress, unsigned int beamArity)
+void *hipe_make_native_stub(void *callee_exp, unsigned int beamArity)
 {
-    unsigned int *code;
+    Uint32 *code;
 
     if ((unsigned long)&nbif_callemu & ~0x01FFFFFCUL)
 	abort();
 
-    code = alloc_stub(7);
+    code = erts_alloc(ERTS_ALC_T_HIPE_EXEC, 7*sizeof(Uint32));
+    if (!code)
+	return NULL;
 
-    /* addis r12,0,beamAddress@highest */
-    code[0] = 0x3d800000 | (((unsigned long)beamAddress >> 48) & 0xffff);
-    /* ori r12,r12,beamAddress@higher */
-    code[1] = 0x618c0000 | (((unsigned long)beamAddress >> 32) & 0xffff);
+    /* addis r12,0,callee_exp@highest */
+    code[0] = 0x3d800000 | (((unsigned long)callee_exp >> 48) & 0xffff);
+    /* ori r12,r12,callee_exp@higher */
+    code[1] = 0x618c0000 | (((unsigned long)callee_exp >> 32) & 0xffff);
     /* sldi r12,r12,32 (rldicr r12,r12,32,31) */
     code[2] = 0x798c07c6;
-    /* oris r12,r12,beamAddress@h */
-    code[3] = 0x658c0000 | (((unsigned long)beamAddress >> 16) & 0xffff);
-    /* ori r12,r12,beamAddress@l */
-    code[4] = 0x618c0000 | ((unsigned long)beamAddress & 0xffff);
+    /* oris r12,r12,callee_exp@h */
+    code[3] = 0x658c0000 | (((unsigned long)callee_exp >> 16) & 0xffff);
+    /* ori r12,r12,callee_exp@l */
+    code[4] = 0x618c0000 | ((unsigned long)callee_exp & 0xffff);
     /* addi r0,0,beamArity */
     code[5] = 0x38000000 | (beamArity & 0x7FFF);
     /* ba nbif_callemu */
     code[6] = 0x48000002 | (unsigned long)&nbif_callemu;
 
-    hipe_flush_icache_range(code, 7*sizeof(int));
+    hipe_flush_icache_range(code, 7*sizeof(Uint32));
 
     return code;
 }
@@ -355,18 +274,16 @@ int hipe_patch_insn(void *address, Uint32 value, Eterm type)
     return 0;
 }
 
-/* called from hipe_bif0.c:hipe_bifs_make_native_stub_2()
-   and hipe_bif0.c:hipe_make_stub() */
-void *hipe_make_native_stub(void *beamAddress, unsigned int beamArity)
+void *hipe_make_native_stub(void *callee_exp, unsigned int beamArity)
 {
-    unsigned int *code;
+    Uint32 *code;
 
     /*
      * Native code calls BEAM via a stub looking as follows:
      *
-     * addi r12,0,beamAddress@l
+     * addi r12,0,callee_exp@l
      * addi r0,0,beamArity
-     * addis r12,r12,beamAddress@ha
+     * addis r12,r12,callee_exp@ha
      * ba nbif_callemu
      *
      * I'm using r0 and r12 since the standard SVR4 ABI allows
@@ -382,18 +299,20 @@ void *hipe_make_native_stub(void *beamAddress, unsigned int beamArity)
     if ((unsigned long)&nbif_callemu & ~0x01FFFFFCUL)
 	abort();
 
-    code = alloc_stub(4);
+    code = erts_alloc(ERTS_ALC_T_HIPE_EXEC, 4*sizeof(Uint32));
+    if (!code)
+	return NULL;
 
-    /* addi r12,0,beamAddress@l */
-    code[0] = 0x39800000 | ((unsigned long)beamAddress & 0xFFFF);
+    /* addi r12,0,callee_exp@l */
+    code[0] = 0x39800000 | ((unsigned long)callee_exp & 0xFFFF);
     /* addi r0,0,beamArity */
     code[1] = 0x38000000 | (beamArity & 0x7FFF);
-    /* addis r12,r12,beamAddress@ha */
-    code[2] = 0x3D8C0000 | at_ha((unsigned long)beamAddress);
+    /* addis r12,r12,callee_exp@ha */
+    code[2] = 0x3D8C0000 | at_ha((unsigned long)callee_exp);
     /* ba nbif_callemu */
     code[3] = 0x48000002 | (unsigned long)&nbif_callemu;
 
-    hipe_flush_icache_range(code, 4*sizeof(int));
+    hipe_flush_icache_range(code, 4*sizeof(Uint32));
 
     return code;
 }

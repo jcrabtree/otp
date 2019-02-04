@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1997-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2017. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -104,7 +105,7 @@ init() ->
     %% Add inetrc config entries
     case inet_db:add_rc_list(CfgList) of
 	ok -> ok;
-	_  -> error("syntax error in ~s~n", [RcFile])
+	_  -> error("syntax error in ~ts~n", [RcFile])
     end,
 
     %% Set up a resolver configuration file for inet_res,
@@ -113,13 +114,7 @@ init() ->
 	{unix,_} ->
 	    %% The Etc variable enables us to run tests with other 
 	    %% configuration files than the normal ones 
-	    Etc =
-		case os:getenv("ERL_INET_ETC_DIR") of
-		    false ->
-			?DEFAULT_ETC;
-		    _EtcDir ->
-			_EtcDir
-		end,
+	    Etc = os:getenv("ERL_INET_ETC_DIR", ?DEFAULT_ETC),
 	    case inet_db:res_option(resolv_conf) of
 		undefined ->
 		    inet_db:res_option(
@@ -152,11 +147,7 @@ erl_dist_mode() ->
 do_load_resolv({unix,Type}, longnames) ->
     %% The Etc variable enables us to run tests with other 
     %% configuration files than the normal ones 
-    Etc = case os:getenv("ERL_INET_ETC_DIR") of
-	      false -> ?DEFAULT_ETC;
-	      _EtcDir -> 
-		  _EtcDir				 
-	  end,
+    Etc = os:getenv("ERL_INET_ETC_DIR", ?DEFAULT_ETC),
     load_resolv(filename:join(Etc, ?DEFAULT_RESOLV), resolv),
     case Type of
 	freebsd ->	    %% we may have to check version (2.2.2)
@@ -196,16 +187,6 @@ do_load_resolv({unix,Type}, longnames) ->
 do_load_resolv({win32,Type}, longnames) ->	
     win32_load_from_registry(Type),
     inet_db:set_lookup([native]);
-
-do_load_resolv(vxworks, _) ->	
-    vxworks_load_hosts(),
-    inet_db:set_lookup([file, dns]),
-    case os:getenv("ERLRESCONF") of
-	false ->
-	    no_ERLRESCONF;
-	Resolv ->
-	    load_resolv(Resolv, resolv)
-    end;
 
 do_load_resolv(_, _) ->
     inet_db:set_lookup([native]).
@@ -276,10 +257,10 @@ load_resolv(File, Func) ->
 		{ok, Ls} ->
 		    inet_db:add_rc_list(Ls);
 		{error, Reason} ->
-		    error("parse error in file ~s: ~p", [File, Reason])
+		    error("parse error in file ~ts: ~p", [File, Reason])
 	    end;
 	Error ->
-	    warning("file not found ~s: ~p~n", [File, Error])
+	    warning("file not found ~ts: ~p~n", [File, Error])
     end.
 
 %%
@@ -295,12 +276,12 @@ load_hosts(File,Os) ->
 			      inet_db:add_host(IP, [Name|Aliases]) end,
 		      Ls);
 		{error, Reason} ->
-		    error("parse error in file ~s: ~p", [File, Reason])
+		    error("parse error in file ~ts: ~p", [File, Reason])
 	    end;
 	Error ->
 	    case Os of
 		unix ->
-		    error("file not found ~s: ~p~n", [File, Error]);
+		    error("file not found ~ts: ~p~n", [File, Error]);
 		_ -> 
 		    %% for windows or nt the hosts file is not always there
 		    %% and we don't require it
@@ -314,10 +295,7 @@ load_hosts(File,Os) ->
 win32_load_from_registry(Type) ->
     %% The TcpReg variable enables us to run tests with other registry configurations than
     %% the normal ones 
-    TcpReg = case os:getenv("ERL_INET_ETC_DIR") of
-		 false -> [];
-		 _TReg -> _TReg
-	     end,
+    TcpReg = os:getenv("ERL_INET_ETC_DIR", ""),
     {ok, Reg} = win32reg:open([read]),
     {TcpIp,HFileKey} =
     case Type of
@@ -391,7 +369,7 @@ win32_load1(Reg,Type,HFileKey) ->
     end.
 
 win32_split_line(Line,nt) -> inet_parse:split_line(Line);
-win32_split_line(Line,windows) -> string:tokens(Line, ",").
+win32_split_line(Line,windows) -> string:lexemes(Line, ",").
 
 win32_get_strings(Reg, Names) ->
     win32_get_strings(Reg, Names, []).
@@ -407,55 +385,6 @@ win32_get_strings(Reg, [Name|Rest], Result) ->
     end;
 win32_get_strings(_, [], Result) ->
     lists:reverse(Result).
-
-%%
-%% Load host data from VxWorks hostShow command
-%%
-
-vxworks_load_hosts() ->
-    HostShow = os:cmd("hostShow"),
-    case check_hostShow(HostShow) of
-	Hosts when is_list(Hosts) ->
-	    case inet_parse:hosts_vxworks({chars, Hosts}) of
-		{ok, Ls} ->
-		    foreach(
-		      fun({IP, Name, Aliases}) -> 
-			      inet_db:add_host(IP, [Name|Aliases])
-		      end,
-		      Ls);
-		{error,Reason} ->
-		    error("parser error VxWorks hostShow ~s", [Reason])
-	    end;
-	_Error ->
-	    error("error in VxWorks hostShow~s~n", [HostShow])
-    end.
-
-%%
-%% Check if hostShow yields at least two line; the first one
-%% starting with "hostname", the second one starting with
-%% "--------".
-%% Returns: list of hosts in VxWorks notation
-%% rows of 'Name          IP                [Aliases]  \n'
-%% if hostShow yielded these two lines, false otherwise.
-check_hostShow(HostShow) ->
-    check_hostShow(["hostname", "--------"], HostShow).
-
-check_hostShow([], HostShow) ->
-    HostShow;
-check_hostShow([String_match|Rest], HostShow) ->
-    case lists:prefix(String_match, HostShow) of
-	true ->
-	    check_hostShow(Rest, next_line(HostShow));
-	false ->
-	    false
-    end.
-
-next_line([]) ->
-    [];
-next_line([$\n|Rest]) ->
-    Rest;
-next_line([_First|Rest]) ->
-    next_line(Rest).
 
 read_rc() ->
     {RcFile,CfgList} = read_inetrc(),
@@ -521,11 +450,11 @@ get_rc(File) ->
 		{ok,Ls} -> 
 		    Ls;
 		_Error -> 
-		    error("parse error in ~s~n", [File]),
+		    error("parse error in ~ts~n", [File]),
 		    error
 	    end;
 	_Error -> 
-	    error("file ~s not found~n", [File]),
+	    error("file ~ts not found~n", [File]),
 	    error
     end.
 
@@ -554,8 +483,12 @@ warning(Fmt, Args) ->
 %% Ignore leading whitespace before a token (due to bug in erl_scan) !
 %% 
 parse_inetrc(Bin) ->
-    Str = binary_to_list(Bin) ++ "\n", 
-    parse_inetrc(Str, 1, []).
+    case file_binary_to_list(Bin) of
+        {ok, String} ->
+            parse_inetrc(String ++ "\n", 1, []);
+        error ->
+            {error, 'bad_encoding'}
+    end.
 
 parse_inetrc_skip_line([], _Line, Ack) ->
     {ok, reverse(Ack)};
@@ -594,3 +527,16 @@ parse_inetrc(Str, Line, Ack) ->
 	{more, _} -> %% Bug in erl_scan !!
 	    {error, {'scan_inetrc', {eof, Line}}}
     end.
+
+file_binary_to_list(Bin) ->
+    Enc = case epp:read_encoding_from_binary(Bin) of
+              none -> epp:default_encoding();
+              Encoding -> Encoding
+          end,
+    case catch unicode:characters_to_list(Bin, Enc) of
+        String when is_list(String) ->
+            {ok, String};
+        _ ->
+            error
+    end.
+

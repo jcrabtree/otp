@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2001-2010. All Rights Reserved.
+%% Copyright Ericsson AB 2001-2017. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -639,7 +640,7 @@ run_reset_res() ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
-%% Kod för att sätta ihop RANAP-meddelanden 
+%% Code for constructing RANAP messages
 %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -883,7 +884,7 @@ initial_ue_ies() ->
 
 
 cn_domain_indicator() ->
-    {'CN-DomainIndicator', 'ps-domain'}.
+    'ps-domain'.
     
 init_lai() ->
   #'ProtocolIE-Field'{
@@ -966,7 +967,7 @@ pdu_pdp() ->
      116,101,115,116,  % lable1 = test
      4,                % length lable2
      116,101,115,116,  % lable2 = test
-     4,                % lenght lable3
+     4,                % length lable3
      116,101,115,116,  % lable3 = test
      4,                % length lable3
      116,101,115,116,  % lable4 = test
@@ -1279,11 +1280,11 @@ reset() ->
        protocolIEs = reset_ies()
       }.
 reset_ies() ->
-    {'Reset_protocolIEs', % this identifier is very unneccesary here 
-     [reset_cause(),
-      cn_domain_ind(),     % Se initial Ue
-      init_global_rnc_id() %  ---- " ----
-			     ]}.
+    [reset_cause(),
+     cn_domain_ind(),     % Se initial Ue
+     init_global_rnc_id() %  ---- " ----
+    ].
+
 init_global_rnc_id() ->
   #'ProtocolIE-Field'{
     id = 86,                              % 86 = id-GlobalRNC-ID 
@@ -1323,8 +1324,7 @@ reset_ack() ->
 	   protocolIEs = reset_ack_ies()
 	  }.
 reset_ack_ies() ->
-    {'ResetAcknowledge_protocolIEs', % very unneccesary 
-     [cn_domain_ind()]}.    % Se initial Ue
+    [cn_domain_ind()].    % Se initial Ue
 
 
 
@@ -1336,13 +1336,12 @@ reset_res(IuSCId) ->
 	  }.
 
 reset_res_ies(IuSCId) ->
-    {'ResetResource_protocolIEs', % very unneccesary
-     [
-      cn_domain_ind()       % Se initial Ue
-      ,reset_cause()        % Se reset
-      ,reset_res_list(IuSCId)
-      ,init_global_rnc_id_reset_res() %  ---- " ----
-     ]}.
+    [
+     cn_domain_ind()       % Se initial Ue
+     ,reset_cause()        % Se reset
+     ,reset_res_list(IuSCId)
+     ,init_global_rnc_id_reset_res() %  ---- " ----
+    ].
 
 init_global_rnc_id_reset_res() ->
   #'ProtocolIE-Field'{
@@ -1411,33 +1410,14 @@ int2bin(Int) ->
 %%%%%%%%%%%%%%%%% wrappers %%%%%%%%%%%%%%%%%%%%%%%%
 
 wrapper_encode(Module,Type,Value) ->
-    case asn1rt:encode(Module,Type,Value) of
-	{ok,X} when binary(X) ->
+    case Module:encode(Type, Value) of
+	{ok,X} when is_binary(X) ->
 	    {ok, binary_to_list(X)};
-	{ok,X} ->
-	    {ok, binary_to_list(list_to_binary(X))};
 	Error ->
 	    Error
     end.
 
-wrapper_decode(Module,Type,Bytes) ->
-    case Module:encoding_rule() of
-	ber ->
-	    asn1rt:decode(Module,Type,Bytes);
-	ber_bin when binary(Bytes) ->
-	    asn1rt:decode(Module,Type,Bytes);
-	ber_bin ->
-	    asn1rt:decode(Module,Type,list_to_binary(Bytes));
-	ber_bin_v2 when binary(Bytes) ->
-	    asn1rt:decode(Module,Type,Bytes);
-	ber_bin_v2 ->
-	    asn1rt:decode(Module,Type,list_to_binary(Bytes));
-	per ->
-	    asn1rt:decode(Module,Type,Bytes);
-	per_bin when binary(Bytes) ->
-	    asn1rt:decode(Module,Type,Bytes);
-	per_bin ->
-	    asn1rt:decode(Module,Type,list_to_binary(Bytes));
-	uper_bin ->
-	    asn1rt:decode(Module,Type,list_to_binary(Bytes))
-    end.
+wrapper_decode(Module, Type, Bytes) when is_binary(Bytes) ->
+    Module:decode(Type, Bytes);
+wrapper_decode(Module, Type, Bytes) when is_list(Bytes) ->
+    Module:decode(Type, list_to_binary(Bytes)).

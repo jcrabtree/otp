@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2007-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2007-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 
@@ -37,7 +38,7 @@
 -record(state, {file         :: file:filename(),
                 module       :: module(),
                 forms_or_bin,
-                source       :: source(),
+                source       :: source() | 'undefined',
                 n_errors     :: non_neg_integer(),
                 mode         :: mode(),
                 exports_main :: boolean(),
@@ -48,9 +49,9 @@
 -type emu_args() :: string().
 
 -record(sections, {type,
-		   shebang  :: shebang(),
-		   comment  :: comment(),
-		   emu_args :: emu_args(),
+		   shebang  :: shebang() | 'undefined',
+		   comment  :: comment() | 'undefined',
+		   emu_args :: emu_args() | 'undefined',
 		   body}).
 
 -record(extract_options, {compile_source}).
@@ -59,7 +60,6 @@
 	  file:filename()
 	| {file:filename(), binary()}
 	| {file:filename(), binary(), file:file_info()}.
--type zip_create_option() :: term().
 -type section() ::
 	  shebang
 	| {shebang, shebang() | default | undefined}
@@ -68,8 +68,8 @@
 	| {emu_args, emu_args() | undefined}
 	| {source, file:filename() | binary()}
 	| {beam, file:filename() | binary()}
-	| {archive, file:filename() | binary()}
-	| {archive, [zip_file()], [zip_create_option()]}.
+	| {archive, zip:filename() | binary()}
+	| {archive, [zip_file()], [zip:create_option()]}.
 
 %%-----------------------------------------------------------------------
 
@@ -224,8 +224,8 @@ return_sections(S, Bin) ->
 normalize_section(Name, undefined) ->
     {Name, undefined};
 normalize_section(shebang, "#!" ++ Chars) ->
-    Chopped = string:strip(Chars, right, $\n),
-    Stripped = string:strip(Chopped, both),
+    Chopped = string:trim(Chars, trailing, "$\n"),
+    Stripped = string:trim(Chopped, both),
     if
 	Stripped =:= ?SHEBANG ->
 	    {shebang, default};
@@ -233,8 +233,8 @@ normalize_section(shebang, "#!" ++ Chars) ->
 	    {shebang, Stripped}
     end;
 normalize_section(comment, Chars) ->
-    Chopped = string:strip(Chars, right, $\n),
-    Stripped = string:strip(string:strip(Chopped, left, $%), both),
+    Chopped = string:trim(Chars, trailing, "$\n"),
+    Stripped = string:trim(string:trim(Chopped, leading, "$%"), both),
     if
 	Stripped =:= ?COMMENT ->
 	    {comment, default};
@@ -242,8 +242,8 @@ normalize_section(comment, Chars) ->
 	    {comment, Stripped}
     end;
 normalize_section(emu_args, "%%!" ++ Chars) ->
-    Chopped = string:strip(Chars, right, $\n),
-    Stripped = string:strip(Chopped, both),
+    Chopped = string:trim(Chars, trailing, "$\n"),
+    Stripped = string:trim(Chopped, both),
     {emu_args, Stripped};
 normalize_section(Name, Chars) ->
     {Name, Chars}.
@@ -281,13 +281,15 @@ start(EscriptOptions) ->
         end
     catch
         throw:Str ->
-            io:format("escript: ~s\n", [Str]),
+            io:format("escript: ~ts\n", [Str]),
             my_halt(127);
-        _:Reason ->
-            io:format("escript: Internal error: ~p\n", [Reason]),
-            io:format("~p\n", [erlang:get_stacktrace()]),
+        _:Reason:Stk ->
+            io:format("escript: Internal error: ~tp\n", [Reason]),
+            io:format("~tp\n", [Stk]),
             my_halt(127)
     end.
+
+-spec parse_and_run(_, _, _) -> no_return().
 
 parse_and_run(File, Args, Options) ->
     CheckOnly = lists:member("s", Options),
@@ -479,46 +481,49 @@ find_first_body_line(Fd, HeaderSz0, LineNo, KeepFirst, Sections) ->
     %% Look for special comment on second line
     Line2 = get_line(Fd),
     {ok, HeaderSz2} = file:position(Fd, cur),
-    case classify_line(Line2) of
-	emu_args ->
-	    %% Skip special comment on second line
-	    Line3 = get_line(Fd),
-	    {HeaderSz2, LineNo + 2, Fd,
-	     Sections#sections{type = guess_type(Line3),
-			       comment = undefined,
-			       emu_args = Line2}};
-	Line2Type ->
-	    %% Look for special comment on third line
-	    Line3 = get_line(Fd),
-	    {ok, HeaderSz3} = file:position(Fd, cur),
-	    Line3Type = classify_line(Line3),
-	    if
-		Line3Type =:= emu_args ->
-		    %% Skip special comment on third line
-		    Line4 = get_line(Fd),
-		    {HeaderSz3, LineNo + 3, Fd,
-		     Sections#sections{type = guess_type(Line4),
-				       comment = Line2,
-				       emu_args = Line3}};
-		Sections#sections.shebang =:= undefined,
-		KeepFirst =:= true ->
-		    %% No shebang. Use the entire file
-		    {HeaderSz0, LineNo, Fd,
-		     Sections#sections{type = guess_type(Line2)}};
-		Sections#sections.shebang =:= undefined ->
-		    %% No shebang. Skip the first line
-		    {HeaderSz1, LineNo, Fd,
-		     Sections#sections{type = guess_type(Line2)}};
-		Line2Type =:= comment ->
-		    %% Skip shebang on first line and comment on second
-		    {HeaderSz2, LineNo + 2, Fd,
-		     Sections#sections{type = guess_type(Line3),
-				       comment = Line2}};
-		true ->
-		    %% Just skip shebang on first line
-		    {HeaderSz1, LineNo + 1, Fd,
-		     Sections#sections{type = guess_type(Line2)}}
-	    end
+    if
+        Sections#sections.shebang =:= undefined,
+        KeepFirst =:= true ->
+            %% No shebang. Use the entire file
+            {HeaderSz0, LineNo, Fd,
+             Sections#sections{type = guess_type(Line2)}};
+        Sections#sections.shebang =:= undefined ->
+            %% No shebang. Skip the first line
+            {HeaderSz1, LineNo, Fd,
+             Sections#sections{type = guess_type(Line2)}};
+        true ->
+            case classify_line(Line2) of
+                emu_args ->
+                    %% Skip special comment on second line
+                    Line3 = get_line(Fd),
+                    {HeaderSz2, LineNo + 2, Fd,
+                     Sections#sections{type = guess_type(Line3),
+                                       comment = undefined,
+                                       emu_args = Line2}};
+                comment ->
+                    %% Look for special comment on third line
+                    Line3 = get_line(Fd),
+                    {ok, HeaderSz3} = file:position(Fd, cur),
+                    Line3Type = classify_line(Line3),
+                    if
+                        Line3Type =:= emu_args ->
+                            %% Skip special comment on third line
+                            Line4 = get_line(Fd),
+                            {HeaderSz3, LineNo + 3, Fd,
+                             Sections#sections{type = guess_type(Line4),
+                                               comment = Line2,
+                                               emu_args = Line3}};
+                        true ->
+                            %% Skip shebang on first line and comment on second
+                            {HeaderSz2, LineNo + 2, Fd,
+                             Sections#sections{type = guess_type(Line3),
+                                               comment = Line2}}
+                    end;
+                _ ->
+                    %% Just skip shebang on first line
+                    {HeaderSz1, LineNo + 1, Fd,
+                     Sections#sections{type = guess_type(Line2)}}
+            end
     end.
 
 classify_line(Line) ->
@@ -602,9 +607,15 @@ parse_beam(S, File, HeaderSz, CheckOnly) ->
 parse_source(S, File, Fd, StartLine, HeaderSz, CheckOnly) ->
     {PreDefMacros, Module} = pre_def_macros(File),
     IncludePath = [],
-    {ok, _} = file:position(Fd, {bof, HeaderSz}),
+    %% Read the encoding on the second line, if there is any:
+    {ok, _} = file:position(Fd, 0),
+    _ = io:get_line(Fd, ''),
+    Encoding = epp:set_encoding(Fd),
+    {ok, _} = file:position(Fd, HeaderSz),
     case epp:open(File, Fd, StartLine, IncludePath, PreDefMacros) of
         {ok, Epp} ->
+            _ = [io:setopts(Fd, [{encoding,Encoding}]) ||
+                    Encoding =/= none],
             {ok, FileForm} = epp:parse_erl_form(Epp),
             OptModRes = epp:parse_erl_form(Epp),
             S2 = S#state{source = text, module = Module},
@@ -613,18 +624,18 @@ parse_source(S, File, Fd, StartLine, HeaderSz, CheckOnly) ->
                     {ok, {attribute,_, module, M} = Form} ->
                         epp_parse_file(Epp, S2#state{module = M}, [Form, FileForm]);
                     {ok, _} ->
-                        ModForm = {attribute,1,module, Module},
+                        ModForm = {attribute,a1(),module, Module},
                         epp_parse_file2(Epp, S2, [ModForm, FileForm], OptModRes);
                     {error, _} ->
                         epp_parse_file2(Epp, S2, [FileForm], OptModRes);
-                    {eof, _LastLine} = Eof ->
-                        S#state{forms_or_bin = [FileForm, Eof]}
+                    {eof, LastLine} ->
+                        S#state{forms_or_bin = [FileForm, {eof, LastLine}]}
                 end,
             ok = epp:close(Epp),
             ok = file:close(Fd),
 	    check_source(S3, CheckOnly);
 	{error, Reason} ->
-	    io:format("escript: ~p\n", [Reason]),
+	    io:format("escript: ~tp\n", [Reason]),
 	    fatal("Preprocessor error")
     end.
 
@@ -637,7 +648,7 @@ check_source(S, CheckOnly) ->
 	    %% Optionally add export of main/1
 	    Forms2 =
 		case ExpMain of
-		    false -> [{attribute,0,export, [{main,1}]} | Forms];
+		    false -> [{attribute, a0(), export, [{main,1}]} | Forms];
 		    true  -> Forms
 		end,
 	    Forms3 = [FileForm2, ModForm2 | Forms2],
@@ -656,7 +667,8 @@ check_source(S, CheckOnly) ->
     end.
 
 pre_def_macros(File) ->
-    {MegaSecs, Secs, MicroSecs} = erlang:now(),
+    {MegaSecs, Secs, MicroSecs} = erlang:timestamp(),
+    Unique = erlang:unique_integer([positive]),
     Replace = fun(Char) ->
 		      case Char of
 			  $\. -> $\_;
@@ -668,8 +680,9 @@ pre_def_macros(File) ->
 	CleanBase ++ "__" ++
         "escript__" ++
         integer_to_list(MegaSecs) ++ "__" ++
-        integer_to_list(Secs) ++ "__" ++
-        integer_to_list(MicroSecs),
+	integer_to_list(Secs) ++ "__" ++
+	integer_to_list(MicroSecs) ++ "__" ++
+	integer_to_list(Unique),
     Module = list_to_atom(ModuleStr),
     PreDefMacros = [{'MODULE', Module, redefine},
                     {'MODULE_STRING', ModuleStr, redefine}],
@@ -694,7 +707,7 @@ epp_parse_file2(Epp, S, Forms, Parsed) ->
                             epp_parse_file(Epp, S2, [Form | Forms]);
                         true ->
                             Args = lists:flatten(io_lib:format("illegal mode attribute: ~p", [NewMode])),
-                            io:format("~s:~w ~s\n", [S#state.file,Ln,Args]),
+                            io:format("~ts:~w ~s\n", [S#state.file,Ln,Args]),
                             Error = {error,{Ln,erl_parse,Args}},
                             Nerrs= S#state.n_errors + 1,
                             epp_parse_file(Epp, S2#state{n_errors = Nerrs}, [Error | Forms])
@@ -710,16 +723,18 @@ epp_parse_file2(Epp, S, Forms, Parsed) ->
                     epp_parse_file(Epp, S, [Form | Forms])
             end;
         {error,{Ln,Mod,Args}} = Form ->
-            io:format("~s:~w: ~s\n",
+            io:format("~ts:~w: ~ts\n",
                       [S#state.file,Ln,Mod:format_error(Args)]),
             epp_parse_file(Epp, S#state{n_errors = S#state.n_errors + 1}, [Form | Forms]);
-        {eof, _LastLine} = Eof ->
-            S#state{forms_or_bin = lists:reverse([Eof | Forms])}
+        {eof, LastLine} ->
+            S#state{forms_or_bin = lists:reverse([{eof, LastLine} | Forms])}
     end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Evaluate script
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+-spec debug(_, _, _) -> no_return().
 
 debug(Module, AbsMod, Args) ->
     case hidden_apply(debugger, debugger, start, []) of
@@ -736,14 +751,18 @@ debug(Module, AbsMod, Args) ->
 	    fatal("Cannot start the debugger")
     end.
 
+-spec run(_, _) -> no_return().
+
 run(Module, Args) ->
     try
         Module:main(Args),
         my_halt(0)
     catch
-        Class:Reason ->
-            fatal(format_exception(Class, Reason))
+        Class:Reason:StackTrace ->
+            fatal(format_exception(Class, Reason, StackTrace))
     end.
+
+-spec interpret(_, _, _, _) -> no_return().
 
 interpret(Forms, HasRecs,  File, Args) ->
     %% Basic validation before execution
@@ -763,15 +782,18 @@ interpret(Forms, HasRecs,  File, Args) ->
 	end,
     Dict = parse_to_dict(Forms2),
     ArgsA = erl_parse:abstract(Args, 0),
-    Call = {call,0,{atom,0,main},[ArgsA]},
+    Anno = a0(),
+    Call = {call,Anno,{atom,Anno,main},[ArgsA]},
     try
-        erl_eval:expr(Call,
-                      erl_eval:new_bindings(),
-                      {value,fun(I, J) -> code_handler(I, J, Dict, File) end}),
+        _ = erl_eval:expr(Call,
+                          erl_eval:new_bindings(),
+                          {value,fun(I, J) ->
+                                         code_handler(I, J, Dict, File)
+                                 end}),
         my_halt(0)
     catch
-        Class:Reason ->
-            fatal(format_exception(Class, Reason))
+        Class:Reason:StackTrace ->
+            fatal(format_exception(Class, Reason, StackTrace))
     end.
 
 report_errors(Errors) ->
@@ -780,10 +802,10 @@ report_errors(Errors) ->
                   Errors).
 
 list_errors(F, [{Line,Mod,E}|Es]) ->
-    io:fwrite("~s:~w: ~s\n", [F,Line,Mod:format_error(E)]),
+    io:fwrite("~ts:~w: ~ts\n", [F,Line,Mod:format_error(E)]),
     list_errors(F, Es);
 list_errors(F, [{Mod,E}|Es]) ->
-    io:fwrite("~s: ~s\n", [F,Mod:format_error(E)]),
+    io:fwrite("~ts: ~ts\n", [F,Mod:format_error(E)]),
     list_errors(F, Es);
 list_errors(_F, []) -> ok.
 
@@ -795,10 +817,10 @@ report_warnings(Ws0) ->
     lists:foreach(fun({_,Str}) -> io:put_chars(Str) end, Ws).
 
 format_message(F, [{Line,Mod,E}|Es]) ->
-    M = {{F,Line},io_lib:format("~s:~w: Warning: ~s\n", [F,Line,Mod:format_error(E)])},
+    M = {{F,Line},io_lib:format("~ts:~w: Warning: ~ts\n", [F,Line,Mod:format_error(E)])},
     [M|format_message(F, Es)];
 format_message(F, [{Mod,E}|Es]) ->
-    M = {none,io_lib:format("~s: Warning: ~s\n", [F,Mod:format_error(E)])},
+    M = {none,io_lib:format("~ts: Warning: ~ts\n", [F,Mod:format_error(E)])},
     [M|format_message(F, Es)];
 format_message(_, []) -> [].
 
@@ -837,7 +859,7 @@ code_handler(Name, Args, Dict, File) ->
                     %% io:format("Calling:~p~n",[{Mod,Name,Args}]),
                     apply(Mod, Name, Args);
                 error ->
-                    io:format("Script does not export ~w/~w\n", [Name,Arity]),
+                    io:format("Script does not export ~tw/~w\n", [Name,Arity]),
                     my_halt(127)
             end
     end.
@@ -850,17 +872,41 @@ eval_exprs([E|Es], Bs0, Lf, Ef, RBs) ->
     {value,_V,Bs} = erl_eval:expr(E, Bs0, Lf, Ef, RBs1),
     eval_exprs(Es, Bs, Lf, Ef, RBs).
 
-format_exception(Class, Reason) ->
+format_exception(Class, Reason, StackTrace) ->
+    Enc = encoding(),
+    P = case Enc of
+            latin1 -> "P";
+            _ -> "tP"
+        end,
     PF = fun(Term, I) ->
-                 io_lib:format("~." ++ integer_to_list(I) ++ "P", [Term, 50])
+                 io_lib:format("~." ++ integer_to_list(I) ++ P, [Term, 50])
          end,
-    StackTrace = erlang:get_stacktrace(),
     StackFun = fun(M, _F, _A) -> (M =:= erl_eval) or (M =:= ?MODULE) end,
-    lib:format_exception(1, Class, Reason, StackTrace, StackFun, PF).
+    erl_error:format_exception(1, Class, Reason, StackTrace, StackFun, PF, Enc).
+
+encoding() ->
+    [{encoding, Encoding}] = enc(),
+    Encoding.
+
+enc() ->
+    case lists:keyfind(encoding, 1, io:getopts()) of
+        false -> [{encoding,latin1}]; % should never happen
+        Enc -> [Enc]
+    end.
+
+a0() ->
+    anno(0).
+
+a1() ->
+    anno(1).
+
+anno(L) ->
+    erl_anno:new(L).
 
 fatal(Str) ->
     throw(Str).
 
+-spec my_halt(_) -> no_return().
 my_halt(Reason) ->
     erlang:halt(Reason).
 
@@ -868,8 +914,8 @@ hidden_apply(App, M, F, Args) ->
     try
 	apply(fun() -> M end(), F, Args)
     catch
-	error:undef ->
-	    case erlang:get_stacktrace() of
+	error:undef:StackTrace ->
+	    case StackTrace of
 		[{M,F,Args,_} | _] ->
 		    Arity = length(Args),
 		    Text = io_lib:format("Call to ~w:~w/~w in application ~w failed.\n",

@@ -96,6 +96,14 @@ div.ct_error_notify {
     margin: .2em 0 0 0;
 }
 
+div.ct_error_notify a:link {
+    color: #D0D0D0;
+}
+
+div.ct_error_notify a:visited {
+    color: #AAAAAA;
+}
+
 div.default { 
     background: lightgreen; color: black; 
     font-family: "Monaco", "Andale Mono", "Consolas", monospace;
@@ -136,7 +144,18 @@ th {
 }
 
 thead th {
-    background: #2C5755; text-align: center;
+    background: #3F3F3F; color: #fff; 
+    font-family: arial, sans-serif; font-size: 120%;
+    letter-spacing: -0.5px;
+    font-weight: bold; text-align: center; 
+    padding-right: .5em; vertical-align: top;
+    text-decoration: underline;
+}
+
+tfoot td {
+    font-family: arial, sans-serif; font-size: 110%;
+    letter-spacing: -0.5px;
+    font-weight: bold;
 }
 
 .odd td {
@@ -165,10 +184,6 @@ td a:hover, td a:focus {
 
 th a, td a:active {
     color: #85ABD5;
-}
-
-tfoot th, tfoot td {
-    background: #3F3F3F; color: #fff;
 }
 
 th + td {

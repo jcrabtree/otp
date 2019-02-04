@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2010-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2010-2017. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -35,6 +36,8 @@
 
 %% Information.
 -export([services/0,
+         peer_info/1,
+         peer_find/1,
          service_info/2]).
 
 %% Start/stop the application. In a "real" application this should
@@ -43,11 +46,19 @@
 -export([start/0,
          stop/0]).
 
--export_type([evaluable/0,
+-export_type([eval/0,
+              evaluable/0,  %% deprecated
+              decode_format/0,
+              strict_arities/0,
+              restriction/0,
+              message_length/0,
+              remotes/0,
+              sequence/0,
               app_alias/0,
               service_name/0,
               capability/0,
               peer_filter/0,
+              peer_ref/0,
               service_opt/0,
               application_opt/0,
               app_module/0,
@@ -142,6 +153,27 @@ service_info(SvcName, Option) ->
     diameter_service:info(SvcName, Option).
 
 %% ---------------------------------------------------------------------------
+%% peer_info/2
+%% ---------------------------------------------------------------------------
+
+-spec peer_info(peer_ref())
+   -> [tuple()].
+
+peer_info(PeerRef) ->
+    diameter_service:peer_info(PeerRef).
+
+%% ---------------------------------------------------------------------------
+%% peer_find/1
+%% ---------------------------------------------------------------------------
+
+-spec peer_find(peer_ref() | pid())
+   -> {peer_ref(), pid()}
+    | false.
+
+peer_find(Pid) ->
+    diameter_peer_fsm:find(Pid).
+
+%% ---------------------------------------------------------------------------
 %% add_transport/3
 %% ---------------------------------------------------------------------------
 
@@ -211,7 +243,7 @@ origin_state_id() ->
    -> any().
 
 call(SvcName, App, Message, Options) ->
-    diameter_service:call(SvcName, {alias, App}, Message, Options).
+    diameter_traffic:send_request(SvcName, {alias, App}, Message, Options).
 
 call(SvcName, App, Message) ->
     call(SvcName, App, Message, []).
@@ -270,21 +302,85 @@ call(SvcName, App, Message) ->
     | realm
     | {host,  any|'DiameterIdentity'()}
     | {realm, any|'DiameterIdentity'()}
-    | {eval, evaluable()}
+    | {eval, eval()}
     | {neg, peer_filter()}
     | {all, [peer_filter()]}
     | {any, [peer_filter()]}.
 
--type evaluable()
+-opaque peer_ref()
+   :: pid().
+
+-type eval()
    :: {module(), atom(), list()}
     | fun()
-    | maybe_improper_list(evaluable(), list()).
+    | maybe_improper_list(eval(), list()).
+
+-type evaluable()
+   :: eval().
+
+-type sequence()
+   :: {'Unsigned32'(), 0..32}.
+
+-type restriction()
+   :: false
+    | node
+    | nodes
+    | [node()]
+    | eval().
+
+-type remotes()
+   :: boolean()
+    | [node()]
+    | eval().
+
+-type message_length()
+   :: 0..16#FFFFFF.
+
+-type decode_format()
+   :: record
+    | list
+    | map
+    | none
+    | record_from_map.
+
+-type strict_arities()
+   :: false
+    | encode
+    | decode.
+
+%% Options common to both start_service/2 and add_transport/2.
+
+-type common_opt()
+   :: {pool_size, pos_integer()}
+    | {capabilities_cb, eval()}
+    | {capx_timeout, 'Unsigned32'()}
+    | {strict_capx, boolean()}
+    | {strict_mbit, boolean()}
+    | {avp_dictionaries, [module()]}
+    | {disconnect_cb, eval()}
+    | {dpr_timeout, 'Unsigned32'()}
+    | {dpa_timeout, 'Unsigned32'()}
+    | {incoming_maxlen, message_length()}
+    | {length_errors, exit | handle | discard}
+    | {connect_timer, 'Unsigned32'()}
+    | {watchdog_timer, 'Unsigned32'() | {module(), atom(), list()}}
+    | {watchdog_config, [{okay|suspect, non_neg_integer()}]}
+    | {spawn_opt, list()}.
 
 %% Options passed to start_service/2
 
 -type service_opt()
    :: capability()
-    | {application, [application_opt()]}.
+    | {application, [application_opt()]}
+    | {restrict_connections, restriction()}
+    | {sequence, sequence() | eval()}
+    | {share_peers, remotes()}
+    | {decode_format, decode_format()}
+    | {traffic_counters, boolean()}
+    | {string_decode, boolean()}
+    | {strict_arities, true | strict_arities()}
+    | {use_shared_peers, remotes()}
+    | common_opt().
 
 -type application_opt()
    :: {alias, app_alias()}
@@ -292,7 +388,8 @@ call(SvcName, App, Message) ->
     | {module, app_module()}
     | {state, any()}
     | {call_mutates_state, boolean()}
-    | {answer_errors, callback|report|discard}.
+    | {answer_errors, callback|report|discard}
+    | {request_errors, answer_3xxx|answer|callback}.
 
 -type app_alias()
    :: any().
@@ -312,20 +409,20 @@ call(SvcName, App, Message) ->
 -type transport_opt()
    :: {transport_module, atom()}
     | {transport_config, any()}
+    | {transport_config, any(), 'Unsigned32'() | infinity}
     | {applications, [app_alias()]}
     | {capabilities, [capability()]}
-    | {capabilities_cb, evaluable()}
-    | {watchdog_timer, 'Unsigned32'() | {module(), atom(), list()}}
-    | {reconnect_timer, 'Unsigned32'()}
+    | common_opt()
     | {private, any()}.
 
 %% Predicate passed to remove_transport/2
 
 -type transport_pred()
-   :: fun((reference(), connect|listen, list()) -> boolean())
-    | fun((reference(), list()) -> boolean())
+   :: fun((transport_ref(), connect|listen, list()) -> boolean())
+    | fun((transport_ref(), list()) -> boolean())
     | fun((list()) -> boolean())
-    | reference()
+    | transport_ref()
+    | boolean()
     | list()
     | {connect|listen, transport_pred()}
     | {atom(), atom(), list()}.
@@ -336,4 +433,5 @@ call(SvcName, App, Message) ->
    :: {extra, list()}
     | {filter, peer_filter()}
     | {timeout, 'Unsigned32'()}
+    | {peer, peer_ref()}
     | detach.

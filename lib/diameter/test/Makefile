@@ -1,28 +1,24 @@
-# 
+#
 # %CopyrightBegin%
 #
-# Copyright Ericsson AB 2010-2011. All Rights Reserved.
+# Copyright Ericsson AB 2010-2016. All Rights Reserved.
 #
-# The contents of this file are subject to the Erlang Public License,
-# Version 1.1, (the "License"); you may not use this file except in
-# compliance with the License. You should have received a copy of the
-# Erlang Public License along with this software. If not, it can be
-# retrieved online at http://www.erlang.org/.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-# Software distributed under the License is distributed on an "AS IS"
-# basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-# the License for the specific language governing rights and limitations
-# under the License.
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 #
 # %CopyrightEnd%
 
-ifeq ($(ERL_TOP),)
-include $(DIAMETER_TOP)/make/target.mk
-include $(DIAMETER_TOP)/make/$(TARGET)/rules.mk
-else
 include $(ERL_TOP)/make/target.mk
 include $(ERL_TOP)/make/$(TARGET)/otp.mk
-endif
 
 # ----------------------------------------------------
 # Application version
@@ -61,21 +57,28 @@ DATA_DIRS = $(sort $(dir $(DATA)))
 ERL_COMPILE_FLAGS += +warn_export_vars \
                      +warn_unused_vars \
                      -I ../include \
-                     -I ../src/gen
+                     -I ../src/gen \
+                     $(STRICT_FLAGS)
 
 # ----------------------------------------------------
 # Targets
 # ----------------------------------------------------
 
-all: opt
+all debug opt: $(TARGET_FILES)
 
+strict:
+	$(MAKE) opt STRICT_FLAGS=-Werror
+
+# Require success ...
 run: $(SUITES)
 
-debug opt: $(TARGET_FILES)
+# ... or not.
+any: opt
+	$(MAKE) -i $(SUITES)
 
 clean:
-	rm -f $(TARGET_FILES) 
-	rm -f depend.mk
+	rm -f $(TARGET_FILES)
+	rm -f depend.mk coverspec
 
 realclean: clean
 	rm -rf log
@@ -91,6 +94,11 @@ info:
 	@$(call list,HRL_FILES)
 	@echo
 	@$(call list,SUITES)
+	@echo
+	@echo erl = $(shell which erl)
+	@erl -noinput \
+	     -eval 'io:format("diameter = ~s~n", [code:lib_dir(diameter)])' \
+	     -s init stop
 	@echo ========================================
 
 help:
@@ -101,7 +109,10 @@ help:
 	@echo "        Compile all test suites."
 	@echo
 	@echo "    run:"
-	@echo "        Compile and run all test suites."
+	@echo "        Compile and run all test suites, stop on failure."
+	@echo
+	@echo "    any:"
+	@echo "        Compile and run all test suites, ignore any failures."
 	@echo
 	@echo "    $(SUITES):"
 	@echo "        Compile and run a specific test suite."
@@ -113,7 +124,7 @@ help:
 	@echo "        Echo some relevant variables."
 	@echo ========================================
 
-.PHONY: all run clean debug docs help info opt realclean
+.PHONY: all any run clean debug docs help info opt realclean strict
 
 # ----------------------------------------------------
 # Special Targets
@@ -131,23 +142,30 @@ $(SUITES): log opt
 	| awk '{print} / FAILED /{rc=1} END{exit rc}' rc=0
 # Shorter in sed but requires a GNU extension (ie. Q).
 
+cover: log opt coverspec
+	$(ERL) -noinput \
+	       -pa $(realpath ../ebin) \
+	       -sname diameter_cover \
+	       -s diameter_ct cover \
+	       -s init stop \
+	| awk '{print} / FAILED /{rc=1} END{exit rc}' rc=0
+
+coverspec: diameter.cover
+	sed -f $@.sed $< > $@
+
 log:
 	mkdir $@
 
-.PHONY: $(SUITES)
+.PHONY: $(SUITES) cover
 
 # ----------------------------------------------------
 # Release Targets
-# ---------------------------------------------------- 
+# ----------------------------------------------------
 
 /%: % force
 	sed -f release.sed $< > "$(RELSYSDIR)$@"
 
-ifeq ($(ERL_TOP),)
-include $(DIAMETER_TOP)/make/release_targets.mk
-else
 include $(ERL_TOP)/make/otp_release_targets.mk
-endif
 
 release_spec release_docs_spec:
 

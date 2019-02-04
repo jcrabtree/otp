@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1997-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -20,7 +21,13 @@
 %%
 -module(mnesia_SUITE).
 -author('hakan@erix.ericsson.se').
--compile([export_all]).
+-export([init_per_testcase/2, end_per_testcase/2,
+         init_per_suite/1, end_per_suite/1,
+         init_per_group/2, end_per_group/2,
+         suite/0, all/0, groups/0]).
+-export([app/1, appup/1, clean_up_suite/1, silly/0]).
+
+-include_lib("common_test/include/ct.hrl").
 -include("mnesia_test_lib.hrl").
 
 init_per_testcase(Func, Conf) ->
@@ -50,7 +57,7 @@ suite() -> [{ct_hooks,[{ts_install_cth,[{nodenames,2}]}]}].
 %% and do not involve the normal test machinery.
 
 all() -> 
-    [{group, light}, {group, medium}, {group, heavy},
+    [app, appup, {group, light}, {group, medium}, {group, heavy},
      clean_up_suite].
 
 groups() -> 
@@ -90,22 +97,13 @@ groups() ->
      %% benchmarks
      {heavy, [], [{group, measure}]},
      {measure, [], [{mnesia_measure_test, all}]},
-     {prediction, [],
-      [{group, mnesia_measure_test, prediction}]},
-     {fairness, [],
-      [{group, mnesia_measure_test, fairness}]},
      {benchmarks, [],
       [{group, mnesia_measure_test, benchmarks}]},
-     {consumption, [],
-      [{group, mnesia_measure_test, consumption}]},
-     {scalability, [],
-      [{group, mnesia_measure_test, scalability}]},
      %% This test suite is an extract of the grand Mnesia suite
      %% it contains OTP R4B specific test cases
      {otp_r4b, [],
       [{mnesia_config_test, access_module},
        {mnesia_config_test, dump_log_load_regulation},
-       {mnesia_config_test, embedded_mnemosyne},
        {mnesia_config_test, ignore_fallback_at_startup},
        {mnesia_config_test, max_wait_for_decision},
        {mnesia_consistency_test, consistency_after_restore},
@@ -143,6 +141,18 @@ end_per_suite(Config) ->
 silly() ->
     mnesia_install_test:silly().
     
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% Test structure of the mnesia application resource file
+app(Config) when is_list(Config) ->
+    ok = ?t:app_test(mnesia).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% Test that all required versions have appup directives
+appup(Config) when is_list(Config) ->
+    ok = ?t:appup_test(mnesia).
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 clean_up_suite(doc) -> ["Not a test case only kills mnesia and nodes, that where" 

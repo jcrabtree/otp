@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1996-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2018. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -24,7 +25,7 @@
 %% with the least load !!!!
 %% This function is callable from any node including the master
 %% That is part of the pool
-%% nodes are scheduled on a per usgae basis and per load basis,
+%% nodes are scheduled on a per usage basis and per load basis,
 %% Whenever we use a node, we put at the end of the queue, and whenever
 %% a node report a change in load, we insert it accordingly
 
@@ -63,7 +64,7 @@ start(Name) ->
       Args :: string(),
       Nodes :: [node()].
 start(Name, Args) when is_atom(Name) ->
-    gen_server:start({global, pool_master}, pool, [], []),
+    _ = gen_server:start({global, pool_master}, pool, [], []),
     Hosts = net_adm:host_file(),
     Nodes = start_nodes(Hosts, Name, Args),
     lists:foreach(fun attach/1, Nodes),
@@ -196,7 +197,7 @@ pure_insert({Load,Node},[{L,N}|Tail]) when Load < L ->
 pure_insert(L,[H|T]) -> [H|pure_insert(L,T)].
 
 %% Really should not measure the contributions from
-%% the back ground processes here .... which we do :-(
+%% the background processes here .... which we do :-(
 %% We don't have to monitor the master, since we're slaves anyway
 
 statistic_collector() ->
@@ -212,7 +213,7 @@ statistic_collector(I) ->
 	    stat_loop(M, 999999)
     end.
 
-%% Do not tell the master about our load if it has not  changed
+%% Do not tell the master about our load if it has not changed
 
 stat_loop(M, Old) ->
     sleep(2000),

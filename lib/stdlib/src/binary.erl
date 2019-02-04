@@ -1,107 +1,239 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2010-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2010-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
 -module(binary).
 %%
-%% The following functions implemented as BIF's
-%%  binary:compile_pattern/1
-%%  binary:match/{2,3}
-%%  binary:matches/{2,3}
-%%  binary:longest_common_prefix/1
-%%  binary:longest_common_suffix/1
-%%  binary:first/1
-%%  binary:last/1
-%%  binary:at/2
-%%  binary:part/{2,3}
-%%  binary:bin_to_list/{1,2,3}
-%%  binary:list_to_bin/1
-%%  binary:copy/{1,2}
-%%  binary:referenced_byte_size/1
-%%  binary:decode_unsigned/{1,2}
-%% - Not yet:
-%%
 %% Implemented in this module:
--export([split/2,split/3,replace/3,replace/4]).
+-export([replace/3,replace/4]).
 
--opaque cp() :: tuple().
+-export_type([cp/0]).
+
+-opaque cp() :: {'am' | 'bm', reference()}.
 -type part() :: {Start :: non_neg_integer(), Length :: integer()}.
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% split
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% BIFs.
+
+-export([at/2, bin_to_list/1, bin_to_list/2, bin_to_list/3,
+         compile_pattern/1, copy/1, copy/2, decode_unsigned/1,
+         decode_unsigned/2, encode_unsigned/1, encode_unsigned/2,
+         first/1, last/1, list_to_bin/1, longest_common_prefix/1,
+         longest_common_suffix/1, match/2, match/3, matches/2,
+         matches/3, part/2, part/3, referenced_byte_size/1,
+         split/2, split/3]).
+
+-spec at(Subject, Pos) -> byte() when
+      Subject :: binary(),
+      Pos :: non_neg_integer().
+
+at(_, _) ->
+    erlang:nif_error(undef).
+
+-spec bin_to_list(Subject) -> [byte()] when
+      Subject :: binary().
+
+bin_to_list(Subject) ->
+    binary_to_list(Subject).
+
+-spec bin_to_list(Subject, PosLen) -> [byte()] when
+      Subject :: binary(),
+      PosLen :: part().
+
+bin_to_list(Subject, {Pos, Len}) ->
+    bin_to_list(Subject, Pos, Len);
+bin_to_list(_Subject, _BadArg) ->
+    erlang:error(badarg).
+
+-spec bin_to_list(Subject, Pos, Len) -> [byte()] when
+      Subject :: binary(),
+      Pos :: non_neg_integer(),
+      Len :: integer().
+
+bin_to_list(Subject, Pos, Len) when not is_binary(Subject);
+                                    not is_integer(Pos);
+                                    not is_integer(Len) ->
+    %% binary_to_list/3 allows bitstrings as long as the slice fits, and we
+    %% want to badarg when Pos/Len aren't integers instead of raising badarith
+    %% when adjusting args for binary_to_list/3.
+    erlang:error(badarg);
+bin_to_list(Subject, Pos, 0) when Pos >= 0, Pos =< byte_size(Subject) ->
+    %% binary_to_list/3 doesn't handle this case.
+    [];
+bin_to_list(_Subject, _Pos, 0) ->
+    erlang:error(badarg);
+bin_to_list(Subject, Pos, Len) when Len < 0 ->
+    bin_to_list(Subject, Pos + Len, -Len);
+bin_to_list(Subject, Pos, Len) when Len > 0 ->
+    binary_to_list(Subject, Pos + 1, Pos + Len).
+
+-spec compile_pattern(Pattern) -> cp() when
+      Pattern :: binary() | [binary()].
+
+compile_pattern(_) ->
+    erlang:nif_error(undef).
+
+-spec copy(Subject) -> binary() when
+      Subject :: binary().
+
+copy(_) ->
+    erlang:nif_error(undef).
+
+-spec copy(Subject, N) -> binary() when
+      Subject :: binary(),
+      N :: non_neg_integer().
+
+copy(_, _) ->
+    erlang:nif_error(undef).
+
+-spec decode_unsigned(Subject) -> Unsigned when
+      Subject :: binary(),
+      Unsigned :: non_neg_integer().
+
+decode_unsigned(_) ->
+    erlang:nif_error(undef).
+
+-spec decode_unsigned(Subject, Endianness) -> Unsigned when
+      Subject :: binary(),
+      Endianness :: big | little,
+      Unsigned :: non_neg_integer().
+
+decode_unsigned(_, _) ->
+    erlang:nif_error(undef).
+
+-spec encode_unsigned(Unsigned) -> binary() when
+      Unsigned :: non_neg_integer().
+
+encode_unsigned(_) ->
+    erlang:nif_error(undef).
+
+-spec encode_unsigned(Unsigned, Endianness) -> binary() when
+      Unsigned :: non_neg_integer(),
+      Endianness :: big | little.
+
+encode_unsigned(_, _) ->
+    erlang:nif_error(undef).
+
+-spec first(Subject) -> byte() when
+      Subject :: binary().
+
+first(_) ->
+    erlang:nif_error(undef).
+
+-spec last(Subject) -> byte() when
+      Subject :: binary().
+
+last(_) ->
+    erlang:nif_error(undef).
+
+-spec list_to_bin(ByteList) -> binary() when
+      ByteList :: iodata().
+
+list_to_bin(_) ->
+    erlang:nif_error(undef).
+
+-spec longest_common_prefix(Binaries) -> non_neg_integer() when
+      Binaries :: [binary()].
+
+longest_common_prefix(_) ->
+    erlang:nif_error(undef).
+
+-spec longest_common_suffix(Binaries) -> non_neg_integer() when
+      Binaries :: [binary()].
+
+longest_common_suffix(_) ->
+    erlang:nif_error(undef).
+
+-spec match(Subject, Pattern) -> Found | nomatch when
+      Subject :: binary(),
+      Pattern :: binary() | [binary()] | cp(),
+      Found :: part().
+
+match(_, _) ->
+    erlang:nif_error(undef).
+
+-spec match(Subject, Pattern, Options) -> Found | nomatch when
+      Subject :: binary(),
+      Pattern :: binary() | [binary()] | cp(),
+      Found :: part(),
+      Options :: [Option],
+      Option :: {scope, part()}.
+
+match(_, _, _) ->
+    erlang:nif_error(undef).
+
+-spec matches(Subject, Pattern) -> Found when
+      Subject :: binary(),
+      Pattern :: binary() | [binary()] | cp(),
+      Found :: [part()].
+
+matches(_, _) ->
+    erlang:nif_error(undef).
+
+-spec matches(Subject, Pattern, Options) -> Found when
+      Subject :: binary(),
+      Pattern :: binary() | [binary()] | cp(),
+      Found :: [part()],
+      Options :: [Option],
+      Option :: {scope, part()}.
+
+matches(_, _, _) ->
+    erlang:nif_error(undef).
+
+-spec part(Subject, PosLen) -> binary() when
+      Subject :: binary(),
+      PosLen :: part().
+
+part(_, _) ->
+    erlang:nif_error(undef).
+
+-spec part(Subject, Pos, Len) -> binary() when
+      Subject :: binary(),
+      Pos :: non_neg_integer(),
+      Len :: integer().
+
+part(_, _, _) ->
+    erlang:nif_error(undef).
+
+-spec referenced_byte_size(Binary) -> non_neg_integer() when
+      Binary :: binary().
+
+referenced_byte_size(_) ->
+    erlang:nif_error(undef).
 
 -spec split(Subject, Pattern) -> Parts when
       Subject :: binary(),
       Pattern :: binary() | [binary()] | cp(),
       Parts :: [binary()].
 
-split(H,N) ->
-    split(H,N,[]).
+split(_, _) ->
+    erlang:nif_error(undef).
 
 -spec split(Subject, Pattern, Options) -> Parts when
       Subject :: binary(),
       Pattern :: binary() | [binary()] | cp(),
       Options :: [Option],
-      Option :: {scope, part()} | trim | global,
+      Option :: {scope, part()} | trim | global | trim_all,
       Parts :: [binary()].
 
-split(Haystack,Needles,Options) ->
-    try
-	{Part,Global,Trim} = get_opts_split(Options,{no,false,false}),
-	Moptlist = case Part of
-		       no ->
-			   [];
-		       {A,B} ->
-			   [{scope,{A,B}}]
-		   end,
-	MList = if
-		    Global ->
-			binary:matches(Haystack,Needles,Moptlist);
-		    true ->
-			case binary:match(Haystack,Needles,Moptlist) of
-			    nomatch -> [];
-			    Match -> [Match]
-			end
-		end,
-	do_split(Haystack,MList,0,Trim)
-    catch
-	_:_ ->
-	    erlang:error(badarg)
-    end.
+split(_, _, _) ->
+    erlang:nif_error(undef).
 
-do_split(H,[],N,true) when N >= byte_size(H) ->
-    [];
-do_split(H,[],N,_) ->
-    [binary:part(H,{N,byte_size(H)-N})];
-do_split(H,[{A,B}|T],N,Trim) ->
-    case binary:part(H,{N,A-N}) of
-	<<>> ->
-	    Rest =  do_split(H,T,A+B,Trim),
-	    case {Trim, Rest} of
-		{true,[]} ->
-		    [];
-		_ ->
-		    [<<>> | Rest]
-	    end;
-	Oth ->
-	    [Oth | do_split(H,T,A+B,Trim)]
-    end.
-
+%%% End of BIFs.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% replace
@@ -187,17 +319,6 @@ splitat(H,N,[I|T]) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Simple helper functions
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-get_opts_split([],{Part,Global,Trim}) ->
-    {Part,Global,Trim};
-get_opts_split([{scope,{A,B}} | T],{_Part,Global,Trim}) ->
-    get_opts_split(T,{{A,B},Global,Trim});
-get_opts_split([global | T],{Part,_Global,Trim}) ->
-    get_opts_split(T,{Part,true,Trim});
-get_opts_split([trim | T],{Part,Global,_Trim}) ->
-    get_opts_split(T,{Part,Global,true});
-get_opts_split(_,_) ->
-    throw(badopt).
 
 get_opts_replace([],{Part,Global,Insert}) ->
     {Part,Global,Insert};

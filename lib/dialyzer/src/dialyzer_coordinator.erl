@@ -1,22 +1,16 @@
 %% -*- erlang-indent-level: 2 -*-
-%%-----------------------------------------------------------------------
-%% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2006-2011. All Rights Reserved.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%%     http://www.apache.org/licenses/LICENSE-2.0
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
-%%
-%% %CopyrightEnd%
-%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
 %%%-------------------------------------------------------------------
 %%% File        : dialyzer_coordinator.erl
@@ -28,8 +22,8 @@
 %%% Export for dialyzer main process
 -export([parallel_job/4]).
 
-%%% Exports for all possible workers
--export([wait_activation/0, job_done/3]).
+%%% Export for all possible workers
+-export([job_done/3]).
 
 %%% Exports for the typesig and dataflow analysis workers
 -export([sccs_to_pids/2, request_activation/1]).
@@ -37,7 +31,7 @@
 %%% Exports for the compilation workers
 -export([get_next_label/2]).
 
--export_type([coordinator/0, mode/0, init_data/0, result/0]).
+-export_type([coordinator/0, mode/0, init_data/0, result/0, job/0]).
 
 %%--------------------------------------------------------------------
 
@@ -45,16 +39,18 @@
 -type regulator()  :: pid().
 -type scc_to_pid() :: ets:tid() | 'unused'.
 
--type coordinator() :: {collector(), regulator(), scc_to_pid()}. %%opaque
+-opaque coordinator() :: {collector(), regulator(), scc_to_pid()}.
 -type timing() :: dialyzer_timing:timing_server().
 
 -type scc()     :: [mfa_or_funlbl()].
 -type mode()    :: 'typesig' | 'dataflow' | 'compile' | 'warnings'.
 
--type compile_jobs()  :: [file:filename()].
--type typesig_jobs()  :: [scc()].
--type dataflow_jobs() :: [module()].
--type warnings_jobs() :: [module()].
+-type compile_job()  :: file:filename().
+-type typesig_job()  :: scc().
+-type dataflow_job() :: module().
+-type warnings_job() :: module().
+
+-type job() :: compile_job() | typesig_job() | dataflow_job() | warnings_job().
 
 -type compile_init_data()  :: dialyzer_analysis_callgraph:compile_init_data().
 -type typesig_init_data()  :: dialyzer_succ_typings:typesig_init_data().
@@ -72,14 +68,16 @@
 -type result() :: compile_result() | typesig_result() |
 		  dataflow_result() | warnings_result().
 
--type job() :: scc() | module() | file:filename().
--type job_result() :: dialyzer_analysis_callgraph:one_file_result() |
-		      typesig_result() | dataflow_result() | warnings_result().
+-type job_result() :: dialyzer_analysis_callgraph:one_file_mid_error() |
+                      dialyzer_analysis_callgraph:one_file_result_ok() |
+                      typesig_result() | dataflow_result() | warnings_result().
 
 -record(state, {mode           :: mode(),
 		active     = 0 :: integer(),
 		result         :: result(),
 		next_label = 0 :: integer(),
+                jobs           :: [job()],
+                job_fun        :: fun(),
 		init_data      :: init_data(),
 		regulator      :: regulator(),
 		scc_to_pid     :: scc_to_pid()
@@ -89,13 +87,13 @@
 
 %%--------------------------------------------------------------------
 
--spec parallel_job('compile', compile_jobs(), compile_init_data(), timing()) ->
+-spec parallel_job('compile', [compile_job()], compile_init_data(), timing()) ->
 		      {compile_result(), integer()};
-		  ('typesig', typesig_jobs(), typesig_init_data(), timing()) ->
+		  ('typesig', [typesig_job()], typesig_init_data(), timing()) ->
 		      typesig_result();
-		  ('dataflow', dataflow_jobs(), dataflow_init_data(),
+		  ('dataflow', [dataflow_job()], dataflow_init_data(),
 		   timing()) -> dataflow_result();
-		  ('warnings', warnings_jobs(), warnings_init_data(),
+		  ('warnings', [warnings_job()], warnings_init_data(),
 		   timing()) -> warnings_result().
 
 parallel_job(Mode, Jobs, InitData, Timing) ->
@@ -112,16 +110,18 @@ spawn_jobs(Mode, Jobs, InitData, Timing) ->
       false -> unused
     end,
   Coordinator = {Collector, Regulator, SCCtoPID},
-  Fold =
-    fun(Job, Count) ->
-	Pid = dialyzer_worker:launch(Mode, Job, InitData, Coordinator),
-	case TypesigOrDataflow of
-	  true  -> true = ets:insert(SCCtoPID, {Job, Pid});
-	  false -> request_activation(Regulator, Pid)
-	end,
-	Count + 1
+  JobFun =
+    fun(Job) ->
+        Pid = dialyzer_worker:launch(Mode, Job, InitData, Coordinator),
+        case TypesigOrDataflow of
+          true  -> true = ets:insert(SCCtoPID, {Job, Pid});
+          false -> true
+        end
     end,
-  JobCount = lists:foldl(Fold, 0, Jobs),
+  JobCount = length(Jobs),
+  NumberOfInitJobs = min(JobCount, 20 * dialyzer_utils:parallelism()),
+  {InitJobs, RestJobs} = lists:split(NumberOfInitJobs, Jobs),
+  lists:foreach(JobFun, InitJobs),
   Unit =
     case Mode of
       'typesig'  -> "SCCs";
@@ -133,11 +133,13 @@ spawn_jobs(Mode, Jobs, InitData, Timing) ->
       'compile' -> dialyzer_analysis_callgraph:compile_init_result();
       _ -> []
     end,
-  #state{mode = Mode, active = JobCount, result = InitResult, next_label = 0,
-	 init_data = InitData, regulator = Regulator, scc_to_pid = SCCtoPID}.
+  #state{mode = Mode, active = JobCount, result = InitResult,
+         next_label = 0, job_fun = JobFun, jobs = RestJobs,
+         init_data = InitData, regulator = Regulator, scc_to_pid = SCCtoPID}.
 
 collect_result(#state{mode = Mode, active = Active, result = Result,
 		      next_label = NextLabel, init_data = InitData,
+                      jobs = JobsLeft, job_fun = JobFun,
 		      regulator = Regulator, scc_to_pid = SCCtoPID} = State) ->
   receive
     {next_label_request, Estimation, Pid} ->
@@ -145,20 +147,35 @@ collect_result(#state{mode = Mode, active = Active, result = Result,
       collect_result(State#state{next_label = NextLabel + Estimation});
     {done, Job, Data} ->
       NewResult = update_result(Mode, InitData, Job, Data, Result),
+      TypesigOrDataflow = (Mode =:= 'typesig') orelse (Mode =:= 'dataflow'),
       case Active of
 	1 ->
 	  kill_regulator(Regulator),
 	  case Mode of
 	    'compile' ->
 	      {NewResult, NextLabel};
-	    X when X =:= 'typesig'; X =:= 'dataflow' ->
+	    _ when TypesigOrDataflow ->
 	      ets:delete(SCCtoPID),
 	      NewResult;
 	    'warnings' ->
 	      NewResult
 	  end;
 	N ->
-	  collect_result(State#state{result = NewResult, active = N - 1})
+          case TypesigOrDataflow of
+            true -> true = ets:delete(SCCtoPID, Job);
+            false -> true
+          end,
+          NewJobsLeft =
+            case JobsLeft of
+              [] -> [];
+              [NewJob|JobsLeft1] ->
+                JobFun(NewJob),
+                JobsLeft1
+            end,
+          NewState = State#state{result = NewResult,
+                                 jobs = NewJobsLeft,
+                                 active = N - 1},
+          collect_result(NewState)
       end
   end.
 
@@ -174,18 +191,20 @@ update_result(Mode, InitData, Job, Data, Result) ->
   end.
 
 -spec sccs_to_pids([scc() | module()], coordinator()) ->
-        {[dialyzer_worker:worker()], [scc() | module()]}.
+        [dialyzer_worker:worker()].
 
 sccs_to_pids(SCCs, {_Collector, _Regulator, SCCtoPID}) ->
   Fold =
-    fun(SCC, {Pids, Unknown}) ->
-	try ets:lookup_element(SCCtoPID, SCC, 2) of
-	    Result -> {[Result|Pids], Unknown}
-	catch
-	  _:_ -> {Pids, [SCC|Unknown]}
-	end
+    fun(SCC, Pids) ->
+        %% The SCCs that SCC depends on have always been started.
+        try ets:lookup_element(SCCtoPID, SCC, 2) of
+          Pid when is_pid(Pid) ->
+            [Pid|Pids]
+        catch
+          _:_ -> Pids
+        end
     end,
-  lists:foldl(Fold, {[], []}, SCCs).
+  lists:foldl(Fold, [], SCCs).
 
 -spec job_done(job(), job_result(), coordinator()) -> ok.
 
@@ -215,9 +234,6 @@ activate_pid(Pid) ->
 request_activation({_Collector, Regulator, _SCCtoPID}) ->
   Regulator ! {req, self()},
   wait_activation().
-
-request_activation(Regulator, Pid) ->
-  Regulator ! {req, Pid}.
 
 spawn_regulator() ->
   InitTickets = dialyzer_utils:parallelism(),

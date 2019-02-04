@@ -1,21 +1,16 @@
 %%% This is an -*- Erlang -*- file.
 %%%
-%%% %CopyrightBegin%
+%%% Licensed under the Apache License, Version 2.0 (the "License");
+%%% you may not use this file except in compliance with the License.
+%%% You may obtain a copy of the License at
 %%%
-%%% Copyright Ericsson AB 2006-2011. All Rights Reserved.
+%%%     http://www.apache.org/licenses/LICENSE-2.0
 %%%
-%%% The contents of this file are subject to the Erlang Public License,
-%%% Version 1.1, (the "License"); you may not use this file except in
-%%% compliance with the License. You should have received a copy of the
-%%% Erlang Public License along with this software. If not, it can be
-%%% retrieved online at http://www.erlang.org/.
-%%%
-%%% Software distributed under the License is distributed on an "AS IS"
-%%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%%% the License for the specific language governing rights and limitations
-%%% under the License.
-%%%
-%%% %CopyrightEnd%
+%%% Unless required by applicable law or agreed to in writing, software
+%%% distributed under the License is distributed on an "AS IS" BASIS,
+%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%%% See the License for the specific language governing permissions and
+%%% limitations under the License.
 %%%
 %%%-------------------------------------------------------------------
 %%% File    : dialyzer.hrl
@@ -58,6 +53,8 @@
 -define(WARN_RACE_CONDITION, warn_race_condition).
 -define(WARN_BEHAVIOUR, warn_behaviour).
 -define(WARN_UNDEFINED_CALLBACK, warn_undefined_callbacks).
+-define(WARN_UNKNOWN, warn_unknown).
+-define(WARN_MAP_CONSTRUCTION, warn_map_construction).
 
 %%
 %% The following type has double role:
@@ -73,7 +70,8 @@
                        | ?WARN_CONTRACT_SUPERTYPE | ?WARN_CALLGRAPH
                        | ?WARN_UNMATCHED_RETURN | ?WARN_RACE_CONDITION
                        | ?WARN_BEHAVIOUR | ?WARN_CONTRACT_RANGE
-		       | ?WARN_UNDEFINED_CALLBACK.
+		       | ?WARN_UNDEFINED_CALLBACK | ?WARN_UNKNOWN
+		       | ?WARN_MAP_CONSTRUCTION.
 
 %%
 %% This is the representation of each warning as they will be returned
@@ -83,15 +81,18 @@
 -type dial_warning() :: {dial_warn_tag(), file_line(), {atom(), [term()]}}.
 
 %%
+%% This is the representation of each warning before suppressions have
+%% been applied
+%%
+-type m_or_mfa()     :: module() % warnings not associated with any function
+                      | mfa().
+-type warning_info() :: {file:filename(), non_neg_integer(), m_or_mfa()}.
+-type raw_warning()  :: {dial_warn_tag(), warning_info(), {atom(), [term()]}}.
+
+%%
 %% This is the representation of dialyzer's internal errors
 %%
 -type dial_error()   :: any().    %% XXX: underspecified
-
-%%--------------------------------------------------------------------
-%% THIS TYPE SHOULD ONE DAY DISAPPEAR -- IT DOES NOT BELONG HERE
-%%--------------------------------------------------------------------
-
--type ordset(T)      :: [T] .      %% XXX: temporarily
 
 %%--------------------------------------------------------------------
 %% Basic types used either in the record definitions below or in other
@@ -108,18 +109,22 @@
 -type fopt()          :: 'basename' | 'fullpath'.
 -type format()        :: 'formatted' | 'raw'.
 -type label()	      :: non_neg_integer().
+-type dial_warn_tags():: ordsets:ordset(dial_warn_tag()).
 -type rep_mode()      :: 'quiet' | 'normal' | 'verbose'.
 -type start_from()    :: 'byte_code' | 'src_code'.
 -type mfa_or_funlbl() :: label() | mfa().
+-type solver()        :: 'v1' | 'v2'.
 
 %%--------------------------------------------------------------------
 %% Record declarations used by various files
 %%--------------------------------------------------------------------
 
--record(analysis, {analysis_pid			   :: pid(),
+-type doc_plt() :: 'undefined' | dialyzer_plt:plt().
+
+-record(analysis, {analysis_pid			   :: pid() | 'undefined',
 		   type		  = succ_typings   :: anal_type(),
 		   defines	  = []		   :: [dial_define()],
-		   doc_plt                         :: dialyzer_plt:plt(),
+		   doc_plt                         :: doc_plt(),
 		   files          = []		   :: [file:filename()],
 		   include_dirs	  = []		   :: [file:filename()],
 		   start_from     = byte_code	   :: start_from(),
@@ -128,8 +133,9 @@
 		   race_detection = false	   :: boolean(),
 		   behaviours_chk = false          :: boolean(),
 		   timing         = false          :: boolean() | 'debug',
-		   timing_server             :: dialyzer_timing:timing_server(),
-		   callgraph_file = ""             :: file:filename()}).
+		   timing_server  = none           :: dialyzer_timing:timing_server(),
+		   callgraph_file = ""             :: file:filename(),
+                   solvers                         :: [solver()]}).
 
 -record(options, {files           = []		   :: [file:filename()],
 		  files_rec       = []		   :: [file:filename()],
@@ -141,7 +147,7 @@
 		  init_plts       = []	           :: [file:filename()],
 		  include_dirs    = []		   :: [file:filename()],
 		  output_plt      = none           :: 'none' | file:filename(),
-		  legal_warnings  = ordsets:new()  :: ordset(dial_warn_tag()),
+		  legal_warnings  = ordsets:new()  :: dial_warn_tags(),
 		  report_mode     = normal	   :: rep_mode(),
 		  erlang_mode     = false	   :: boolean(),
 		  use_contracts   = true           :: boolean(),
@@ -149,7 +155,8 @@
 		  output_format   = formatted      :: format(),
 		  filename_opt	  = basename       :: fopt(),
 		  callgraph_file  = ""             :: file:filename(),
-		  check_plt       = true           :: boolean()}).
+		  check_plt       = true           :: boolean(),
+                  solvers         = []             :: [solver()]}).
 
 -record(contract, {contracts	  = []		   :: [contract_pair()],
 		   args		  = []		   :: [erl_types:erl_type()],
@@ -164,4 +171,4 @@
 	    dialyzer_timing:end_stamp(Server),
 	    Var
 	end).
--define(timing(Server, Msg, Expr),?timing(Server, Msg, _T, Expr)).
+-define(timing(Server, Msg, Expr), ?timing(Server, Msg, _T, Expr)).

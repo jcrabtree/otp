@@ -2,18 +2,19 @@
 %%--------------------------------------------------------------------
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2008-2009. All Rights Reserved.
+%% Copyright Ericsson AB 2008-2017. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%----------------------------------------------------------------------
@@ -35,6 +36,19 @@
 
 %%  In the list case we can't use a '++' when matchin against an unbound variable 
 -define(STRING_UNBOUND_REST(MatchChar, Rest), [MatchChar | Rest]).
--define(BYTE_ORDER_MARK_1, undefined_bom1).
--define(BYTE_ORDER_MARK_2, undefined_bom2).
--define(BYTE_ORDER_MARK_REST(Rest), [undefined|Rest]).
+
+-define(PARSE_BYTE_ORDER_MARK(Bytes, State),
+        parse_byte_order_mark(Bytes, State) ->
+               parse_xml_decl(Bytes, State)).
+
+-define(PARSE_XML_DECL(Bytes, State), 
+        parse_xml_decl(Bytes, State) ->
+               parse_prolog(Bytes, State)).
+
+-define(WHITESPACE(Bytes, State, Acc),
+        whitespace(?STRING_UNBOUND_REST(_C, _) = Bytes, State, Acc) -> 
+               {lists:reverse(Acc), Bytes, State}).
+
+-define(PARSE_EXTERNAL_ENTITY_BYTE_ORDER_MARK(Bytes, State),
+        parse_external_entity_byte_order_mark(Bytes, State) ->
+               parse_external_entity_1(Bytes, State)).

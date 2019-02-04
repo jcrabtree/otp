@@ -1,28 +1,47 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2011-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2011-2017. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
 -module(pubkey_ssh).
 
 -include("public_key.hrl").
+-include("pubkey_moduli.hrl").
 
--export([decode/2, encode/2]).
+
+-export([decode/2, encode/2,
+	 dh_gex_group/4, 
+	 dh_gex_group_sizes/0,
+pad/2,         new_openssh_encode/1, new_openssh_decode/1  % For test and experiments
+	]).
 
 -define(UINT32(X), X:32/unsigned-big-integer).
+-define(STRING(X), ?UINT32((byte_size(X))), (X)/binary).
+
+-define(DEC_BIN(X,Len),   ?UINT32(Len), X:Len/binary ).
+-define(DEC_MPINT(I,Len), ?DEC_INT(I,Len) ).
+-define(DEC_INT(I,Len),   ?UINT32(Len), I:Len/big-signed-integer-unit:8 ).
+
+-define(Empint(X),  (mpint(X))/binary ).
+-define(Estring(X), (string(X))/binary ).
+
+-define(b64enc(X), base64:encode(iolist_to_binary(X)) ).
+-define(b64mime_dec(X), base64:mime_decode(iolist_to_binary(X)) ).
+
 %% Max encoded line length is 72, but conformance examples use 68
 %% Comment from rfc 4716: "The following are some examples of public
 %% key files that are compliant (note that the examples all wrap
@@ -30,37 +49,81 @@
 %% are still compliant.)" So we choose to use 68 also.
 -define(ENCODED_LINE_LENGTH, 68).
 
+
 %%====================================================================
 %% Internal application API
 %%====================================================================
 
 %%--------------------------------------------------------------------
--spec decode(binary(), public_key | ssh_file()) -> [{public_key(), Attributes::list()}].
-%%
 %% Description: Decodes a ssh file-binary.
 %%--------------------------------------------------------------------
 decode(Bin, public_key)->
-    case binary:match(Bin, begin_marker()) of
-	nomatch ->
-	    openssh_decode(Bin, openssh_public_key);
-	_ ->
-	    rfc4716_decode(Bin)
-    end;
+    PKtype =
+        case binary:match(Bin, begin_marker()) of
+            nomatch -> openssh_public_key;
+            _ -> rfc4716_public_key
+        end,
+    decode(Bin, PKtype);
 decode(Bin, rfc4716_public_key) ->
-     rfc4716_decode(Bin);
+    rfc4716_decode(Bin);
+decode(Bin, ssh2_pubkey) ->
+    ssh2_pubkey_decode(Bin);
+decode(Bin, new_openssh) ->
+    new_openssh_decode(Bin);
 decode(Bin, Type) ->
     openssh_decode(Bin, Type).
 
 %%--------------------------------------------------------------------
--spec encode([{public_key(), Attributes::list()}], ssh_file()) ->
-		    binary().
-%%
 %% Description: Encodes a list of ssh file entries.
 %%--------------------------------------------------------------------
+encode(Bin, ssh2_pubkey) ->
+    ssh2_pubkey_encode(Bin);
 encode(Entries, Type) ->
-    erlang:iolist_to_binary(lists:map(fun({Key, Attributes}) ->
+    iolist_to_binary(lists:map(fun({Key, Attributes}) ->
 					      do_encode(Type, Key, Attributes)
 				      end, Entries)).
+
+%%--------------------------------------------------------------------
+%% Description: Returns Generator and Modulus given MinSize, WantedSize
+%%              and MaxSize
+%%--------------------------------------------------------------------
+dh_gex_group(Min, N, Max, undefined) ->
+    dh_gex_group(Min, N, Max, ?dh_default_groups);
+dh_gex_group(Min, N, Max, Groups) ->
+    case select_by_keylen(Min-10, N, Max+10, Groups) of
+	{ok,{Sz,GPs}} ->
+            Rnd = rand:uniform( length(GPs) ),
+            %% 1 =< Rnd =< length(GPs)
+	    {ok, {Sz, lists:nth(Rnd,GPs)}};
+	Other ->
+	    Other
+    end.
+
+dh_gex_group_sizes()->
+    [KeyLen || {KeyLen,_} <- ?dh_default_groups].
+
+%% Select the one with K closest to N but within the interval [Min,Max]
+    
+select_by_keylen(Min, N, Max, [{K,_Gs}|Groups]) when K < Min ->
+    select_by_keylen(Min, N, Max, Groups);
+select_by_keylen(Min, N, Max, [{K,Gs}|Groups]) when K =< Max ->
+    {ok, select_by_keylen(Min, N, Max, Groups, {K,Gs})};
+select_by_keylen(_Min, _N, _Max, _) ->
+    {error,no_group_found}.
+
+select_by_keylen(_Min, _N, Max, [{K,_Gs}|_Groups], GPprev) when K > Max ->
+    GPprev;
+select_by_keylen(Min, N, Max, [{K,Gs}|Groups], {Kprev,GsPrev}) ->
+    if
+	N == K -> {K,Gs};
+	N > K -> select_by_keylen(Min, N, Max, Groups, {K,Gs});
+	N < K, (K-N) < (N-Kprev) -> {K,Gs};
+	N < K -> {Kprev,GsPrev}
+    end;
+select_by_keylen(_Min, _N, _Max, [],GPprev) ->
+    %% is between Min and Max
+    GPprev.
+
 
 %%--------------------------------------------------------------------
 %%% Internal functions
@@ -105,8 +168,8 @@ rfc4716_decode_line(Line, Lines, Acc) ->
 	    rfc4716_decode_lines(Lines, [{string_decode(Tag), unicode_decode(Value)} | Acc]);
 	_ ->
 	    {Body, Rest} = join_entry([Line | Lines], []),
-	    {lists:reverse(Acc), rfc4716_pubkey_decode(base64:mime_decode(Body)), Rest}
-      end.
+	    {lists:reverse(Acc), rfc4716_pubkey_decode(?b64mime_dec(Body)), Rest}
+    end.
 
 join_entry([<<"---- END SSH2 PUBLIC KEY ----", _/binary>>| Lines], Entry) ->
     {lists:reverse(Entry), Lines};
@@ -114,21 +177,72 @@ join_entry([Line | Lines], Entry) ->
     join_entry(Lines, [Line | Entry]).
 
 
-rfc4716_pubkey_decode(<<?UINT32(Len), Type:Len/binary,
-	      ?UINT32(SizeE), E:SizeE/binary,
-	      ?UINT32(SizeN), N:SizeN/binary>>) when Type == <<"ssh-rsa">> ->
-    #'RSAPublicKey'{modulus = erlint(SizeN, N),
-		    publicExponent = erlint(SizeE, E)};
+rfc4716_pubkey_decode(BinKey) -> ssh2_pubkey_decode(BinKey).
 
-rfc4716_pubkey_decode(<<?UINT32(Len), Type:Len/binary,
-	      ?UINT32(SizeP), P:SizeP/binary,
-	      ?UINT32(SizeQ), Q:SizeQ/binary,
-	      ?UINT32(SizeG), G:SizeG/binary,
-	      ?UINT32(SizeY), Y:SizeY/binary>>) when Type == <<"ssh-dss">> ->
-    {erlint(SizeY, Y),
-     #'Dss-Parms'{p = erlint(SizeP, P),
-		  q = erlint(SizeQ, Q),
-		  g = erlint(SizeG, G)}}.
+
+%% From https://github.com/openssh/openssh-portable/blob/master/PROTOCOL.key
+new_openssh_decode(<<"openssh-key-v1",0,
+                     ?DEC_BIN(CipherName, _L1),
+                     ?DEC_BIN(KdfName, _L2),
+                     ?DEC_BIN(KdfOptions, _L3),
+                     ?UINT32(N),      % number of keys
+                     ?DEC_BIN(PublicKey, _L4),
+                     ?DEC_BIN(Encrypted, _L5),
+                     _Rest/binary
+                   >>) ->
+    %%io:format("CipherName = ~p~nKdfName = ~p~nKdfOptions = ~p~nPublicKey = ~p~nN = ~p~nEncrypted = ~p~nRest = ~p~n", [CipherName, KdfName, KdfOptions, PublicKey, N, Encrypted, _Rest]),
+    new_openssh_decode(CipherName, KdfName, KdfOptions, PublicKey, N, Encrypted).
+
+new_openssh_decode(<<"none">>, <<"none">>, <<"">>, _PublicKey, 1,
+                   <<?UINT32(CheckInt),
+                     ?UINT32(CheckInt),
+                     ?DEC_BIN(Type, _Lt),
+                     ?DEC_BIN(PubKey, _Lpu),
+                     ?DEC_BIN(PrivPubKey, _Lpripub),
+                     ?DEC_BIN(_Comment,    _C1),
+                     _Pad/binary>>) ->
+    case {Type,PrivPubKey} of
+        {<<"ssh-ed25519">>,
+         <<PrivKey:32/binary, PubKey:32/binary>>} ->
+            {ed_pri, ed25519, PubKey, PrivKey}; 
+
+        {<<"ssh-ed448">>,
+         <<PrivKey:57/binary, PubKey/binary>>} -> % "Intelligent" guess from
+                                                % https://tools.ietf.org/html/draft-ietf-curdle-ssh-ed25519-ed448
+            {ed_pri, ed448, PubKey, PrivKey}
+    end.
+
+
+new_openssh_encode({ed_pri,_,PubKey,PrivKey}=Key) ->
+    Type = key_type(Key),
+    CheckInt = 17*256+17, %crypto:strong_rand_bytes(4),
+    Comment = <<>>,
+    PublicKey = <<?STRING(Type),?STRING(PubKey)>>,
+    CipherName = <<"none">>,
+    KdfName = <<"none">>,
+    KdfOptions = <<>>,
+    BlockSize = 8, % Crypto dependent
+    NumKeys = 1,
+    Encrypted0 = <<?UINT32(CheckInt),
+                   ?UINT32(CheckInt),
+                   ?STRING(Type),
+                   ?STRING(PubKey),
+                   ?STRING(<<PrivKey/binary,PubKey/binary>>),
+                   ?STRING(Comment)
+                >>,
+    Pad = pad(size(Encrypted0), BlockSize),
+    Encrypted = <<Encrypted0/binary, Pad/binary>>,
+    <<"openssh-key-v1",0,
+      ?STRING(CipherName),
+      ?STRING(KdfName),
+      ?STRING(KdfOptions),
+      ?UINT32(NumKeys),
+      ?STRING(PublicKey),
+      ?STRING(Encrypted)>>.
+
+pad(N, BlockSize) when N>BlockSize -> pad(N rem BlockSize, BlockSize);
+pad(N, BlockSize) -> list_to_binary(lists:seq(1,BlockSize-N)).
+
 
 openssh_decode(Bin, FileType) ->
     Lines = binary:split(Bin, <<"\n">>, [global]),
@@ -143,121 +257,86 @@ do_openssh_decode(FileType, [<<>> | Lines], Acc) ->
 do_openssh_decode(FileType,[<<"#", _/binary>> | Lines], Acc) ->
     do_openssh_decode(FileType, Lines, Acc);
 do_openssh_decode(auth_keys = FileType, [Line | Lines], Acc) ->
-    Split = binary:split(Line, <<" ">>, [global]),
-    case mend_split(Split, []) of
-	%% ssh2
-	[KeyType, Base64Enc, Comment] ->
+    case decode_auth_keys(Line) of
+	{ssh2,  {options, [Options, KeyType, Base64Enc| Comment]}} ->
 	    do_openssh_decode(FileType, Lines,
-			      [{openssh_pubkey_decode(KeyType, Base64Enc),
-				[{comment, string_decode(Comment)}]} | Acc]);
-	%% ssh1
-	[Options, Bits, Exponent, Modulus, Comment] ->
+			      [{openssh_pubkey_decode(KeyType, Base64Enc), 
+				decode_comment(Comment) ++ [{options, comma_list_decode(Options)}]} | Acc]);
+	{ssh2, {no_options, [KeyType, Base64Enc| Comment]}} ->
+	    do_openssh_decode(FileType, Lines,
+			      [{openssh_pubkey_decode(KeyType, Base64Enc), 
+				decode_comment(Comment)} | Acc]);
+	{ssh1, {options, [Options, Bits, Exponent, Modulus | Comment]}} ->
 	    do_openssh_decode(FileType, Lines,
 			      [{ssh1_rsa_pubkey_decode(Modulus, Exponent),
-				[{comment, string_decode(Comment)},
-				 {options, comma_list_decode(Options)},
-				 {bits, integer_decode(Bits)}]} | Acc]);
-	[A, B, C, D]  ->
-	    ssh_2_or_1(FileType, Lines, Acc, A,B,C,D)
+				decode_comment(Comment) ++ [{options, comma_list_decode(Options)},
+							    {bits, integer_decode(Bits)}]
+			       } | Acc]);
+	{ssh1, {no_options, [Bits, Exponent, Modulus | Comment]}} ->
+	    do_openssh_decode(FileType, Lines,
+			      [{ssh1_rsa_pubkey_decode(Modulus, Exponent),
+				decode_comment(Comment) ++ [{bits, integer_decode(Bits)}]
+			       } | Acc])
     end;
 
 do_openssh_decode(known_hosts = FileType, [Line | Lines], Acc) ->
-    Split = binary:split(Line, <<" ">>, [global]),
-    case mend_split(Split, []) of
-	%% ssh 2
-	[HostNames, KeyType, Base64Enc] ->
+    case decode_known_hosts(Line) of
+	{ssh2, [HostNames, KeyType, Base64Enc| Comment]} ->
 	    do_openssh_decode(FileType, Lines,
-			      [{openssh_pubkey_decode(KeyType, Base64Enc),
-				[{hostnames, comma_list_decode(HostNames)}]}| Acc]);
-	[A, B, C, D] ->
-	    ssh_2_or_1(FileType, Lines, Acc, A, B, C, D);			  
-	%% ssh 1
-	[HostNames, Bits, Exponent, Modulus, Comment] ->
+			      [{openssh_pubkey_decode(KeyType, Base64Enc), 
+				decode_comment(Comment) ++ 
+				    [{hostnames, comma_list_decode(HostNames)}]}| Acc]);
+	{ssh1, [HostNames, Bits, Exponent, Modulus | Comment]} ->
 	    do_openssh_decode(FileType, Lines,
-			      [{ssh1_rsa_pubkey_decode(Modulus, Exponent),
-				[{comment, string_decode(Comment)},
-				 {hostnames, comma_list_decode(HostNames)},
-				 {bits, integer_decode(Bits)}]} | Acc])
-	end;
+			      [{ssh1_rsa_pubkey_decode(Modulus, Exponent), 
+				decode_comment(Comment) ++ 
+				    [{hostnames, comma_list_decode(HostNames)},
+				     {bits, integer_decode(Bits)}]} 
+			       | Acc])
+    end;
 
 do_openssh_decode(openssh_public_key = FileType, [Line | Lines], Acc) ->
-    Split = binary:split(Line, <<" ">>, [global]),
-    case mend_split(Split, []) of
-	[KeyType, Base64Enc, Comment0] when KeyType == <<"ssh-rsa">>;
-					    KeyType == <<"ssh-dss">> ->
-	    Comment = string:strip(binary_to_list(Comment0), right, $\n),
+    [KeyType, Base64Enc | Comment0] = split_n(2, Line, []),
+    KnownKeyType = 
+	case KeyType of
+	    <<"ssh-rsa">> -> true;
+	    <<"ssh-dss">> -> true;
+	    <<"ecdsa-sha2-",Curve/binary>> -> is_ssh_curvename(Curve);
+            <<"ssh-ed25519">> -> true;
+            <<"ssh-ed448">> -> true;
+	    _ -> false
+	end,
+
+    case Comment0 of
+	[] when KnownKeyType==true ->
 	    do_openssh_decode(FileType, Lines,
 			      [{openssh_pubkey_decode(KeyType, Base64Enc),
-				[{comment, Comment}]} | Acc])
+				[]} | Acc]);
+	_ when KnownKeyType==true ->
+	    Comment = string:strip(string_decode(iolist_to_binary(Comment0)), right, $\n),
+	    do_openssh_decode(FileType, Lines,
+			      [{openssh_pubkey_decode(KeyType, Base64Enc),
+				[{comment, Comment}]} | Acc]);
+        _ when KnownKeyType==false ->
+                  do_openssh_decode(FileType, Lines,  Acc)
     end.
 
-ssh_2_or_1(known_hosts = FileType, Lines, Acc, A, B, C, D) ->
-    try integer_decode(B) of
-	Int -> 
-	    file_type_decode_ssh1(FileType, Lines, Acc, A, Int, C,D)
+
+decode_comment([]) ->
+    [];
+decode_comment(Comment) ->
+    [{comment, string_decode(iolist_to_binary(Comment))}].
+
+
+openssh_pubkey_decode(Type,  Base64Enc) ->
+    try
+        <<?DEC_BIN(Type,_TL), Bin/binary>> = ?b64mime_dec(Base64Enc),
+	ssh2_pubkey_decode(Type,  Bin)
     catch
-	error:badarg  ->
-	    file_type_decode_ssh2(FileType, Lines, Acc, A,B,C,D)
-    end;
-ssh_2_or_1(auth_keys = FileType, Lines, Acc, A, B, C, D) ->
-  try integer_decode(A) of
-	Int -> 
-	    file_type_decode_ssh1(FileType, Lines, Acc, Int, B, C,D)
-    catch
-	error:badarg  ->
-	    file_type_decode_ssh2(FileType, Lines, Acc, A,B,C,D)
+	_:_ ->
+	    {Type, ?b64mime_dec(Base64Enc)}
     end.
 
-file_type_decode_ssh1(known_hosts = FileType, Lines, Acc, HostNames, Bits, Exponent, Modulus) ->
-    do_openssh_decode(FileType, Lines,
-		      [{ssh1_rsa_pubkey_decode(Modulus, Exponent),
-			[{comment, []},
-			 {hostnames, comma_list_decode(HostNames)},
-			 {bits, Bits}]} | Acc]);  
-file_type_decode_ssh1(auth_keys = FileType, Lines, Acc, Bits, Exponent, Modulus, Comment) ->
-    do_openssh_decode(FileType, Lines,
-		      [{ssh1_rsa_pubkey_decode(Modulus, Exponent),
-			[{comment, string_decode(Comment)},
-			 {bits, Bits}]} | Acc]).
-
-file_type_decode_ssh2(known_hosts = FileType, Lines, Acc, HostNames, KeyType, Base64Enc, Comment) ->
-    do_openssh_decode(FileType, Lines,
-		      [{openssh_pubkey_decode(KeyType, Base64Enc),
-			[{comment, string_decode(Comment)},
-			 {hostnames, comma_list_decode(HostNames)}]} | Acc]);
-file_type_decode_ssh2(auth_keys = FileType, Lines, Acc, Options, KeyType, Base64Enc, Comment) ->
-    do_openssh_decode(FileType, Lines,
-		      [{openssh_pubkey_decode(KeyType, Base64Enc),
-			[{comment, string_decode(Comment)},
-			 {options, comma_list_decode(Options)}]}
-		       | Acc]).
-
-openssh_pubkey_decode(<<"ssh-rsa">>, Base64Enc) ->
-    <<?UINT32(StrLen), _:StrLen/binary,
-      ?UINT32(SizeE), E:SizeE/binary,
-      ?UINT32(SizeN), N:SizeN/binary>>
-	= base64:mime_decode(Base64Enc),
-    #'RSAPublicKey'{modulus = erlint(SizeN, N),
-		    publicExponent = erlint(SizeE, E)};
-
-openssh_pubkey_decode(<<"ssh-dss">>, Base64Enc) ->
-    <<?UINT32(StrLen), _:StrLen/binary,
-      ?UINT32(SizeP), P:SizeP/binary,
-      ?UINT32(SizeQ), Q:SizeQ/binary,
-      ?UINT32(SizeG), G:SizeG/binary,
-      ?UINT32(SizeY), Y:SizeY/binary>>
-	= base64:mime_decode(Base64Enc),
-    {erlint(SizeY, Y),
-     #'Dss-Parms'{p = erlint(SizeP, P),
-		  q = erlint(SizeQ, Q),
-		  g = erlint(SizeG, G)}};
-openssh_pubkey_decode(KeyType, Base64Enc) ->
-    {KeyType, base64:mime_decode(Base64Enc)}.
-
-erlint(MPIntSize, MPIntValue) ->
-    Bits= MPIntSize * 8,
-    <<Integer:Bits/integer>> = MPIntValue,
-    Integer.
 
 ssh1_rsa_pubkey_decode(MBin, EBin) ->
     #'RSAPublicKey'{modulus = integer_decode(MBin),
@@ -267,7 +346,7 @@ integer_decode(BinStr) ->
     list_to_integer(binary_to_list(BinStr)).
 
 string_decode(BinStr) ->
-    binary_to_list(BinStr).
+    unicode_decode(BinStr).
 
 unicode_decode(BinStr) ->
     unicode:characters_to_list(BinStr).
@@ -285,13 +364,13 @@ do_encode(Type, Key, Attributes) ->
     openssh_encode(Type, Key, Attributes).
 
 rfc4716_encode(Key, [],[]) ->
-    erlang:iolist_to_binary([begin_marker(),"\n",
-			     split_lines(base64:encode(ssh2_pubkey_encode(Key))),
+    iolist_to_binary([begin_marker(),"\n",
+			     split_lines(?b64enc(ssh2_pubkey_encode(Key))),
 			     "\n", end_marker(), "\n"]);
 rfc4716_encode(Key, [], [_|_] = Acc) ->
-    erlang:iolist_to_binary([begin_marker(), "\n",
+    iolist_to_binary([begin_marker(), "\n",
 			     lists:reverse(Acc),
-			     split_lines(base64:encode(ssh2_pubkey_encode(Key))),
+			     split_lines(?b64enc(ssh2_pubkey_encode(Key))),
 			     "\n", end_marker(), "\n"]);
 rfc4716_encode(Key, [ Header | Headers], Acc) ->
     LinesStr = rfc4716_encode_header(Header),
@@ -319,9 +398,9 @@ rfc4716_encode_value(Value) ->
     end.
 
 openssh_encode(openssh_public_key, Key, Attributes) ->
-    Comment = proplists:get_value(comment, Attributes),
-    Enc = base64:encode(ssh2_pubkey_encode(Key)),
-    erlang:iolist_to_binary([key_type(Key), " ",  Enc,  " ", Comment, "\n"]);
+    Comment = proplists:get_value(comment, Attributes, ""),
+    Enc = ?b64enc(ssh2_pubkey_encode(Key)),
+    iolist_to_binary([key_type(Key), " ",  Enc,  " ", Comment, "\n"]);
 
 openssh_encode(auth_keys, Key, Attributes) ->
     Comment = proplists:get_value(comment, Attributes, ""),
@@ -345,30 +424,30 @@ openssh_encode(known_hosts, Key, Attributes) ->
     end.
 
 openssh_ssh2_auth_keys_encode(undefined, Key, Comment) ->
-    erlang:iolist_to_binary([key_type(Key)," ",  base64:encode(ssh2_pubkey_encode(Key)), line_end(Comment)]);
+    iolist_to_binary([key_type(Key)," ",  ?b64enc(ssh2_pubkey_encode(Key)), line_end(Comment)]);
 openssh_ssh2_auth_keys_encode(Options, Key, Comment) ->
-    erlang:iolist_to_binary([comma_list_encode(Options, []), " ",
-			     key_type(Key)," ", base64:encode(ssh2_pubkey_encode(Key)), line_end(Comment)]).
+    iolist_to_binary([comma_list_encode(Options, []), " ",
+			     key_type(Key)," ", ?b64enc(ssh2_pubkey_encode(Key)), line_end(Comment)]).
 
 openssh_ssh1_auth_keys_encode(undefined, Bits,
 			      #'RSAPublicKey'{modulus = N, publicExponent = E},
 			      Comment) ->
-    erlang:iolist_to_binary([integer_to_list(Bits), " ", integer_to_list(E), " ", integer_to_list(N),
+    iolist_to_binary([integer_to_list(Bits), " ", integer_to_list(E), " ", integer_to_list(N),
 			     line_end(Comment)]);
 openssh_ssh1_auth_keys_encode(Options, Bits,
 			      #'RSAPublicKey'{modulus = N, publicExponent = E},
 			      Comment) ->
-    erlang:iolist_to_binary([comma_list_encode(Options, []), " ", integer_to_list(Bits),
+    iolist_to_binary([comma_list_encode(Options, []), " ", integer_to_list(Bits),
 			     " ", integer_to_list(E), " ", integer_to_list(N), line_end(Comment)]).
 
 openssh_ssh2_know_hosts_encode(Hostnames, Key, Comment) ->
-    erlang:iolist_to_binary([comma_list_encode(Hostnames, []), " ",
-			     key_type(Key)," ",  base64:encode(ssh2_pubkey_encode(Key)), line_end(Comment)]).
+    iolist_to_binary([comma_list_encode(Hostnames, []), " ",
+			     key_type(Key)," ",  ?b64enc(ssh2_pubkey_encode(Key)), line_end(Comment)]).
 
 openssh_ssh1_known_hosts_encode(Hostnames, Bits,
-			      #'RSAPublicKey'{modulus = N, publicExponent = E},
-			      Comment) ->
-    erlang:iolist_to_binary([comma_list_encode(Hostnames, [])," ", integer_to_list(Bits)," ",
+				#'RSAPublicKey'{modulus = N, publicExponent = E},
+				Comment) ->
+    iolist_to_binary([comma_list_encode(Hostnames, [])," ", integer_to_list(Bits)," ",
 			     integer_to_list(E)," ", integer_to_list(N), line_end(Comment)]).
 
 line_end("") ->
@@ -376,10 +455,13 @@ line_end("") ->
 line_end(Comment) ->
     [" ", Comment, "\n"].
 
-key_type(#'RSAPublicKey'{}) ->
-    <<"ssh-rsa">>;
-key_type({_, #'Dss-Parms'{}}) ->
-    <<"ssh-dss">>.
+key_type(#'RSAPublicKey'{})   -> <<"ssh-rsa">>;
+key_type({_, #'Dss-Parms'{}}) -> <<"ssh-dss">>;
+key_type({ed_pub,ed25519,_}) -> <<"ssh-ed25519">>;
+key_type({ed_pub,ed448,_}) -> <<"ssh-ed448">>;
+key_type({ed_pri,ed25519,_,_}) -> <<"ssh-ed25519">>;
+key_type({ed_pri,ed448,_,_}) -> <<"ssh-ed448">>;
+key_type({#'ECPoint'{}, {namedCurve,Curve}}) -> <<"ecdsa-sha2-", (public_key:oid2ssh_curvename(Curve))/binary>>.
 
 comma_list_encode([Option], [])  ->
     Option;
@@ -390,57 +472,63 @@ comma_list_encode([Option | Rest], []) ->
 comma_list_encode([Option | Rest], Acc) ->
     comma_list_encode(Rest, Acc ++ "," ++ Option).
 
+
 ssh2_pubkey_encode(#'RSAPublicKey'{modulus = N, publicExponent = E}) ->
-    TypeStr = <<"ssh-rsa">>,
-    StrLen = size(TypeStr),
-    EBin = crypto:mpint(E),
-    NBin = crypto:mpint(N),
-    <<?UINT32(StrLen), TypeStr:StrLen/binary,
-      EBin/binary,
-      NBin/binary>>;
+    <<?STRING(<<"ssh-rsa">>), ?Empint(E), ?Empint(N)>>;
 ssh2_pubkey_encode({Y,  #'Dss-Parms'{p = P, q = Q, g = G}}) ->
-    TypeStr = <<"ssh-dss">>,
-    StrLen = size(TypeStr),
-    PBin = crypto:mpint(P),
-    QBin = crypto:mpint(Q),
-    GBin = crypto:mpint(G),
-    YBin = crypto:mpint(Y),
-    <<?UINT32(StrLen), TypeStr:StrLen/binary,
-      PBin/binary,
-      QBin/binary,
-      GBin/binary,
-      YBin/binary>>.
+    <<?STRING(<<"ssh-dss">>), ?Empint(P), ?Empint(Q), ?Empint(G), ?Empint(Y)>>;
+ssh2_pubkey_encode(Key={#'ECPoint'{point = Q}, {namedCurve,OID}}) ->
+    Curve = public_key:oid2ssh_curvename(OID),
+    <<?STRING(key_type(Key)), ?Estring(Curve), ?Estring(Q)>>;
+ssh2_pubkey_encode({ed_pub, ed25519, Key}) ->
+    <<?STRING(<<"ssh-ed25519">>), ?Estring(Key)>>;
+ssh2_pubkey_encode({ed_pub, ed448, Key}) ->
+    <<?STRING(<<"ssh-ed448">>), ?Estring(Key)>>.
 
-mend_split([Part1, Part2 | Rest] = List, Acc) ->
-    case option_end(Part1, Part2) of
-	true ->
-	    lists:reverse(Acc) ++ List;
-	false ->
-	    case length(binary:matches(Part1, <<"\"">>)) of
-		N  when N rem 2 == 0 ->
-		    mend_split(Rest, [Part1 | Acc]);
-		_ ->
-		    mend_split([<<Part1/binary, Part2/binary>> | Rest], Acc)
-	    end
-    end.
 
-option_end(Part1, Part2) ->
-    (is_key_field(Part1) orelse is_bits_field(Part1))
-	orelse
-	  (is_key_field(Part2) orelse is_bits_field(Part2)).
 
-is_key_field(<<"ssh-dss">>) ->
-    true;
-is_key_field(<<"ssh-rsa">>) ->
-    true;
-is_key_field(<<"ecdsa-sha2-nistp256">>) ->
-    true;
-is_key_field(<<"ecdsa-sha2-nistp384">>) ->
-    true;
-is_key_field(<<"ecdsa-sha2-nistp521">>) ->
-    true;
-is_key_field(_) ->
-    false.
+ssh2_pubkey_decode(<<?DEC_BIN(Type,_TL), Bin/binary>>) ->
+    ssh2_pubkey_decode(Type, Bin).
+
+%% ssh2_pubkey_decode(<<"rsa-sha2-256">>, Bin) -> ssh2_pubkey_decode(<<"ssh-rsa">>, Bin);
+%% ssh2_pubkey_decode(<<"rsa-sha2-512">>, Bin) -> ssh2_pubkey_decode(<<"ssh-rsa">>, Bin);
+ssh2_pubkey_decode(<<"ssh-rsa">>,
+                   <<?DEC_INT(E, _EL),
+                     ?DEC_INT(N, _NL)>>) ->
+    #'RSAPublicKey'{modulus = N,
+		    publicExponent = E};
+
+ssh2_pubkey_decode(<<"ssh-dss">>,
+                   <<?DEC_INT(P, _PL),
+                     ?DEC_INT(Q, _QL),
+                     ?DEC_INT(G, _GL),
+                     ?DEC_INT(Y, _YL)>>) ->
+    {Y, #'Dss-Parms'{p = P,
+                     q = Q,
+                     g = G}};
+
+ssh2_pubkey_decode(<<"ecdsa-sha2-",Id/binary>>,
+                   <<?DEC_BIN(Id, _IL),
+                     ?DEC_BIN(Q, _QL)>>) ->
+    {#'ECPoint'{point = Q}, {namedCurve,public_key:ssh_curvename2oid(Id)}};
+
+ssh2_pubkey_decode(<<"ssh-ed25519">>,
+                   <<?DEC_BIN(Key, _L)>>) ->
+    {ed_pub, ed25519, Key};
+
+ssh2_pubkey_decode(<<"ssh-ed448">>,
+                   <<?DEC_BIN(Key, _L)>>) ->
+    {ed_pub, ed448, Key}.
+
+
+
+
+is_key_field(<<"ssh-dss">>) ->  true;
+is_key_field(<<"ssh-rsa">>) ->  true;
+is_key_field(<<"ssh-ed25519">>) -> true;
+is_key_field(<<"ssh-ed448">>) -> true;
+is_key_field(<<"ecdsa-sha2-",Id/binary>>) -> is_ssh_curvename(Id);
+is_key_field(_) -> false.
 
 is_bits_field(Part) ->
     try list_to_integer(binary_to_list(Part)) of
@@ -456,3 +544,112 @@ split_lines(<<Text:?ENCODED_LINE_LENGTH/binary, Rest/binary>>) ->
     [Text, $\n | split_lines(Rest)];
 split_lines(Bin) ->
     [Bin].
+
+decode_auth_keys(Line) ->
+    [First, Rest] = binary:split(Line, <<" ">>, []),
+    case is_key_field(First) of
+	true  ->
+	    {ssh2, decode_auth_keys_ssh2(First, Rest)};
+	false ->
+	    case is_bits_field(First) of
+		true ->
+		    {ssh1, decode_auth_keys_ssh1(First, Rest)};
+		false ->
+		    decode_auth_keys(First, Rest)
+	    end
+    end.
+
+decode_auth_keys(First, Line) ->
+    [Second, Rest] = binary:split(Line, <<" ">>, []),
+    case is_key_field(Second) of
+	true -> 
+	    {ssh2, decode_auth_keys_ssh2(First, Second, Rest)};
+	false ->
+	    case is_bits_field(Second) of
+		true -> 
+		    {ssh1, decode_auth_keys_ssh1(First, Second, Rest)};
+		false ->
+		    decode_auth_keys(<<First/binary, Second/binary>>, Rest)
+	    end
+    end.
+
+decode_auth_keys_ssh2(KeyType, Rest) ->
+    {no_options, [KeyType | split_n(1, Rest,  [])]}.
+
+decode_auth_keys_ssh2(Options, Next, Rest) ->
+    {options, [Options, Next | split_n(1, Rest,  [])]}.
+
+decode_auth_keys_ssh1(Options, Next, Rest) ->
+    {options, [Options, Next | split_n(2, Rest,  [])]}.
+
+decode_auth_keys_ssh1(First, Rest) ->
+    {no_options, [First | split_n(2, Rest, [])]}.
+
+decode_known_hosts(Line) ->
+    [First, Rest] = binary:split(Line, <<" ">>, []),
+    [Second, Rest1] = binary:split(Rest, <<" ">>, []),
+
+    case is_bits_field(Second) of
+	true ->
+	    {ssh1, decode_known_hosts_ssh1(First, Second, Rest1)};
+	false ->
+	    {ssh2, decode_known_hosts_ssh2(First, Second, Rest1)}
+    end.
+
+decode_known_hosts_ssh1(Hostnames, Bits, Rest) ->
+    [Hostnames, Bits | split_n(2, Rest,  [])].
+
+decode_known_hosts_ssh2(Hostnames, KeyType, Rest) ->
+    [Hostnames, KeyType | split_n(1, Rest,  [])].
+
+split_n(0, <<>>, Acc) ->
+    lists:reverse(Acc);
+split_n(0, Bin, Acc) ->
+    lists:reverse([Bin | Acc]);
+split_n(N, Bin, Acc) ->
+    case binary:split(Bin, <<" ">>, []) of
+	[First, Rest] ->
+	    split_n(N-1, Rest, [First | Acc]);
+	[Last] ->
+	    split_n(0, <<>>, [Last | Acc])
+    end.
+%% large integer in a binary with 32bit length
+%% MP representaion  (SSH2)
+mpint(X) when X < 0 -> mpint_neg(X);
+mpint(X) -> mpint_pos(X).
+
+mpint_neg(X) ->
+    Bin = int_to_bin_neg(X, []),
+    <<?STRING(Bin)>>.
+    
+mpint_pos(X) ->
+    Bin = int_to_bin_pos(X, []),
+    <<MSB,_/binary>> = Bin,
+    if MSB band 16#80 == 16#80 ->
+            B = << 0, Bin/binary>>,
+	    <<?STRING(B)>>;
+       true ->
+	    <<?STRING(Bin)>>
+    end.
+
+int_to_bin_pos(0,Ds=[_|_]) ->
+    list_to_binary(Ds);
+int_to_bin_pos(X,Ds) ->
+    int_to_bin_pos(X bsr 8, [(X band 255)|Ds]).
+
+int_to_bin_neg(-1, Ds=[MSB|_]) when MSB >= 16#80 ->
+    list_to_binary(Ds);
+int_to_bin_neg(X,Ds) ->
+    int_to_bin_neg(X bsr 8, [(X band 255)|Ds]).
+
+
+string(X) when is_binary(X) ->
+    << ?STRING(X) >>;
+string(X) ->
+    B = list_to_binary(X),
+    << ?STRING(B) >>.
+
+is_ssh_curvename(Id) -> try public_key:ssh_curvename2oid(Id) of _ -> true
+			catch _:_  -> false
+			end.
+

@@ -1,34 +1,27 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2007-2012. All Rights Reserved.
+ * Copyright Ericsson AB 2007-2018. All Rights Reserved.
  *
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  * %CopyrightEnd%
  */
 /*
  * Purpose: escript front-end.
  */
-#ifdef HAVE_CONFIG_H
-#  include "config.h"
-#endif
 
-#include "sys.h"
-#ifdef __WIN32__
-#include <winbase.h>
-#endif
-
-#include <ctype.h>
+#include "etc_common.h"
 
 static int debug = 0;		/* Bit flags for debug printouts. */
 
@@ -45,7 +38,8 @@ static int eargc;		/* Number of arguments in eargv. */
 #  define QUOTE(s) possibly_quote(s)
 #  define IS_DIRSEP(c) ((c) == '/' || (c) == '\\')
 #  define DIRSEPSTR "\\"
-#  define PATHSEPSTR ";"
+#  define LDIRSEPSTR L"\\"
+#  define LPATHSEPSTR L";"
 #  define PMAX MAX_PATH
 #  define ERL_NAME "erl.exe"
 #else
@@ -69,14 +63,14 @@ static int eargc;		/* Number of arguments in eargv. */
  */
 
 static void error(char* format, ...);
-static char* emalloc(size_t size);
+static void* emalloc(size_t size);
 static void efree(void *p);
 static char* strsave(char* string);
-static void push_words(char* src);
 static int run_erlang(char* name, char** argv);
 static char* get_default_emulator(char* progname);
 #ifdef __WIN32__
 static char* possibly_quote(char* arg);
+static void* erealloc(void *p, size_t size);
 #endif
 
 /*
@@ -112,20 +106,31 @@ get_env(char *key)
 {
 #ifdef __WIN32__
     DWORD size = 32;
-    char *value = NULL;
+    char  *value=NULL;
+    wchar_t *wcvalue = NULL;
+    wchar_t wckey[256];
+    int len; 
+
+    MultiByteToWideChar(CP_UTF8, 0, key, -1, wckey, 256);
+    
     while (1) {
 	DWORD nsz;
-	if (value)
-	    efree(value);
-	value = emalloc(size);
+	if (wcvalue)
+	    efree(wcvalue);
+	wcvalue = (wchar_t *) emalloc(size*sizeof(wchar_t));
 	SetLastError(0);
-	nsz = GetEnvironmentVariable((LPCTSTR) key, (LPTSTR) value, size);
+	nsz = GetEnvironmentVariableW(wckey, wcvalue, size);
 	if (nsz == 0 && GetLastError() == ERROR_ENVVAR_NOT_FOUND) {
-	    efree(value);
+	    efree(wcvalue);
 	    return NULL;
 	}
-	if (nsz <= size)
+	if (nsz <= size) {
+	    len = WideCharToMultiByte(CP_UTF8, 0, wcvalue, -1, NULL, 0, NULL, NULL);
+	    value = emalloc(len*sizeof(char));
+	    WideCharToMultiByte(CP_UTF8, 0, wcvalue, -1, value, len, NULL, NULL);
+	    efree(wcvalue);
 	    return value;
+	}
 	size = nsz;
     }
 #else
@@ -134,17 +139,113 @@ get_env(char *key)
 }
 
 static void
-free_env_val(char *value)
+set_env(char *key, char *value)
 {
 #ifdef __WIN32__
-    if (value)
-	efree(value);
+    WCHAR wkey[MAXPATHLEN];
+    WCHAR wvalue[MAXPATHLEN];
+    MultiByteToWideChar(CP_UTF8, 0, key, -1, wkey, MAXPATHLEN);
+    MultiByteToWideChar(CP_UTF8, 0, value, -1, wvalue, MAXPATHLEN);
+    if (!SetEnvironmentVariableW(wkey, wvalue))
+        error("SetEnvironmentVariable(\"%s\", \"%s\") failed!", key, value);
+#else
+    size_t size = strlen(key) + 1 + strlen(value) + 1;
+    char *str = emalloc(size);
+    sprintf(str, "%s=%s", key, value);
+    if (putenv(str) != 0)
+        error("putenv(\"%s\") failed!", str);
+#ifdef HAVE_COPYING_PUTENV
+    efree(str);
+#endif
 #endif
 }
+
 /*
  * Find absolute path to this program
  */
 
+#ifdef __WIN32__
+static char *
+find_prog(char *origpath)
+{
+    wchar_t relpath[PMAX];
+    wchar_t abspath[PMAX];
+
+    if (strlen(origpath) >= PMAX)
+        error("Path too long");
+
+    MultiByteToWideChar(CP_UTF8, 0, origpath, -1, relpath, PMAX);
+
+    if (wcsstr(relpath, LDIRSEPSTR) == NULL) {
+        /* Just a base name */
+	int sz;
+        wchar_t *envpath;
+	sz = GetEnvironmentVariableW(L"PATH", NULL, 0);
+        if (sz) {	    
+            /* Try to find the executable in the path */
+            wchar_t dir[PMAX];
+            wchar_t *beg;
+            wchar_t *end;
+
+	    HANDLE dir_handle;	        /* Handle to directory. */
+	    wchar_t wildcard[PMAX];	/* Wildcard to search for. */
+	    WIN32_FIND_DATAW find_data;	/* Data found by FindFirstFile() or FindNext(). */
+
+            BOOL look_for_sep = TRUE;
+
+	    envpath = (wchar_t *) emalloc(sz * sizeof(wchar_t*));
+	    GetEnvironmentVariableW(L"PATH", envpath, sz);
+	    beg = envpath;
+
+            while (look_for_sep) {
+                end = wcsstr(beg, LPATHSEPSTR);
+                if (end != NULL) {
+                    sz = end - beg;
+                } else {
+                    sz = wcslen(beg);
+                    look_for_sep = FALSE;
+                }
+                if (sz >= PMAX) {
+                    beg = end + 1;
+                    continue;
+                }
+                wcsncpy(dir, beg, sz);
+                dir[sz] = L'\0';
+                beg = end + 1;
+
+		swprintf(wildcard, PMAX, L"%s" LDIRSEPSTR L"%s",
+			      dir, relpath /* basename */);
+		dir_handle = FindFirstFileW(wildcard, &find_data);
+		if (dir_handle == INVALID_HANDLE_VALUE) {
+		    /* Try next directory in path */
+		    continue;
+		} else {
+		    /* Wow we found the executable. */
+		    wcscpy(relpath, wildcard);
+		    FindClose(dir_handle);
+		    look_for_sep = FALSE;
+		    break;
+		}
+            }
+	    efree(envpath);
+        }
+    }
+    
+    {
+	DWORD size;
+	wchar_t *absrest;
+	size = GetFullPathNameW(relpath, PMAX, abspath, &absrest);
+	if ((size == 0) || (size > PMAX)) {
+	    /* Cannot determine absolute path to escript. Try the origin.  */
+	    return strsave(origpath);
+	} else {
+	    char utf8abs[PMAX];
+	    WideCharToMultiByte(CP_UTF8, 0, abspath, -1, utf8abs, PMAX, NULL, NULL);
+	    return strsave(utf8abs);
+	}
+    }
+}
+#else
 static char *
 find_prog(char *origpath)
 {
@@ -168,14 +269,8 @@ find_prog(char *origpath)
             char *end;
             int sz;
 
-#ifdef __WIN32__
-	    HANDLE dir_handle;	        /* Handle to directory. */
-	    char wildcard[PMAX];	/* Wildcard to search for. */
-	    WIN32_FIND_DATA find_data;	/* Data found by FindFirstFile() or FindNext(). */
-#else
             DIR *dp;             /* Pointer to directory structure. */
             struct dirent* dirp; /* Pointer to directory entry.     */
-#endif /* __WIN32__ */
 
             BOOL look_for_sep = TRUE;
 
@@ -195,21 +290,6 @@ find_prog(char *origpath)
                 dir[sz] = '\0';
                 beg = end + 1;
 
-#ifdef __WIN32__
-		erts_snprintf(wildcard, sizeof(wildcard), "%s" DIRSEPSTR "%s",
-            dir, relpath /* basename */);
-		dir_handle = FindFirstFile(wildcard, &find_data);
-		if (dir_handle == INVALID_HANDLE_VALUE) {
-		    /* Try next directory in path */
-		    continue;
-		} else {
-		    /* Wow we found the executable. */
-		    strcpy(relpath, wildcard);
-		    FindClose(dir_handle);
-		    look_for_sep = FALSE;
-		    break;
-		}
-#else
                 dp = opendir(dir);
                 if (dp != NULL) {
                     while (TRUE) {
@@ -230,21 +310,12 @@ find_prog(char *origpath)
                         }
                     }
                 }
-#endif /* __WIN32__ */
             }
         }
     }
     
     {
-#ifdef __WIN32__
-	DWORD size;
-	char *absrest;
-	size = GetFullPathName(relpath, PMAX, abspath, &absrest);
-	if ((size == 0) || (size > PMAX)) {
-	
-#else
         if (!realpath(relpath, abspath)) {
-#endif /* __WIN32__ */
 	    /* Cannot determine absolute path to escript. Try the origin.  */
 	    return strsave(origpath);
 	} else {
@@ -252,19 +323,28 @@ find_prog(char *origpath)
 	}
     }
 }
+#endif
 
 static void
 append_shebang_args(char* scriptname)
 {
     /* Open script file */
-    FILE* fd = fopen (scriptname,"r");
+    FILE* fd; 
+#ifdef __WIN32__
+    wchar_t wcscriptname[PMAX];
+
+    MultiByteToWideChar(CP_UTF8, 0, scriptname, -1, wcscriptname, PMAX);
+    fd = _wfopen(wcscriptname, L"r");
+#else
+    fd = fopen (scriptname,"r");
+#endif
 
     if (fd != NULL)	{
 	/* Read first line in script file */
 	static char linebuf[LINEBUFSZ];
 	char* ptr = fgets(linebuf, LINEBUFSZ, fd);
 
-	if (ptr != NULL && linebuf[0] == '#' && linebuf[1] == '!') {
+	if (ptr != NULL) {
 	    /* Try to find args on second or third line */
 	    ptr = fgets(linebuf, LINEBUFSZ, fd);
 	    if (ptr != NULL && linebuf[0] == '%' && linebuf[1] == '%' && linebuf[2] == '!') {
@@ -321,26 +401,36 @@ append_shebang_args(char* scriptname)
     }
 }
 
+#ifdef __WIN32__
+int wmain(int argc, wchar_t **wcargv)
+{
+    char** argv;
+#else
 int
 main(int argc, char** argv)
 {
+#endif
     int eargv_size;
     int eargc_base;		/* How many arguments in the base of eargv. */
     char* emulator;
-    char* env;
     char* basename;
-    char* absname;
+    char* def_emu_lookup_path;
     char scriptname[PMAX];
     char** last_opt;
     char** first_opt;
-
-    emulator = env = get_env("ESCRIPT_EMULATOR");
-    if (emulator == NULL) {
-	emulator = get_default_emulator(argv[0]);
+    
+#ifdef __WIN32__
+    int i;
+    int len;
+    /* Convert argv to utf8 */
+    argv = emalloc((argc+1) * sizeof(char*));
+    for (i=0; i<argc; i++) {
+	len = WideCharToMultiByte(CP_UTF8, 0, wcargv[i], -1, NULL, 0, NULL, NULL);
+	argv[i] = emalloc(len*sizeof(char));
+	WideCharToMultiByte(CP_UTF8, 0, wcargv[i], -1, argv[i], len, NULL, NULL);
     }
-
-    if (strlen(emulator) >= PMAX)
-        error("Value of environment variable ESCRIPT_EMULATOR is too large");
+    argv[argc] = NULL;
+#endif
 
     /*
      * Allocate the argv vector to be used for arguments to Erlang.
@@ -352,20 +442,9 @@ main(int argc, char** argv)
     eargv_base = (char **) emalloc(eargv_size*sizeof(char*));
     eargv = eargv_base;
     eargc = 0;
-    push_words(emulator);
     eargc_base = eargc;
     eargv = eargv + eargv_size/2;
     eargc = 0;
-
-    free_env_val(env);
-
-    /*
-     * Push initial arguments.
-     */
-
-    PUSH("+B");
-    PUSH2("-boot", "start_clean");
-    PUSH("-noshell");
 
     /* Determine basename of the executable */
     for (basename = argv[0]+strlen(argv[0]);
@@ -382,6 +461,7 @@ main(int argc, char** argv)
 #else
     if (strcmp(basename, "escript") == 0) {
 #endif
+        def_emu_lookup_path = argv[0];
 	/*
 	 * Locate all options before the script name.
 	 */
@@ -400,22 +480,38 @@ main(int argc, char** argv)
 	argc--;
 	argv++;
     } else {
+        char *absname = find_prog(argv[0]);
 #ifdef __WIN32__
-	int len;
-#endif
-	absname = find_prog(argv[0]);
-#ifdef __WIN32__
-	len = strlen(absname);
+	int len = strlen(absname);
 	if (len >= 4 && _stricmp(absname+len-4, ".exe") == 0) {
 	    absname[len-4] = '\0';
 	}
 #endif
-
 	erts_snprintf(scriptname, sizeof(scriptname), "%s.escript",
-        absname);
-	efree(absname);
-
+		      absname);
+        efree(absname);
+        def_emu_lookup_path = scriptname;
     }
+
+    /* Determine path to emulator */
+    emulator = get_env("ESCRIPT_EMULATOR");
+
+    if (emulator == NULL) {
+	emulator = get_default_emulator(def_emu_lookup_path);
+    }
+
+    if (strlen(emulator) >= PMAX)
+        error("Value of environment variable ESCRIPT_EMULATOR is too large");
+
+    /*
+     * Push initial arguments.
+     */
+
+    PUSH(emulator);
+
+    PUSH("+B");
+    PUSH2("-boot", "no_dot_erlang");
+    PUSH("-noshell");
 
     /*
      * Read options from the %%! row in the script and add them as args
@@ -453,7 +549,12 @@ main(int argc, char** argv)
     while (--eargc_base >= 0) {
 	UNSHIFT(eargv_base[eargc_base]);
     }
-    
+
+    /*
+     * Add scriptname to env
+     */
+    set_env("ESCRIPT_NAME", scriptname);
+
     /*
      * Invoke Erlang with the collected options.
      */
@@ -462,84 +563,66 @@ main(int argc, char** argv)
     return run_erlang(eargv[0], eargv);
 }
 
-static void
-push_words(char* src)
-{
-    char sbuf[PMAX];
-    char* dst;
-
-    dst = sbuf;
-    while ((*dst++ = *src++) != '\0') {
-	if (isspace((int)*src)) {
-	    *dst = '\0';
-	    PUSH(strsave(sbuf));
-	    dst = sbuf;
-	    do {
-		src++;
-	    } while (isspace((int)*src));
-	}
-    }
-    if (sbuf[0])
-	PUSH(strsave(sbuf));
-}
 #ifdef __WIN32__
-char *make_commandline(char **argv)
+wchar_t *make_commandline(char **argv)
 {
-    static char *buff = NULL;
+    static wchar_t *buff = NULL;
     static int siz = 0;
-    int num = 0;
-    char **arg, *p;
+    int num = 0, len;
+    char **arg;
+    wchar_t *p;
 
     if (*argv == NULL) { 
-	return "";
+	return L"";
     }
     for (arg = argv; *arg != NULL; ++arg) {
 	num += strlen(*arg)+1;
     }
     if (!siz) {
 	siz = num;
-	buff = emalloc(siz*sizeof(char));
+	buff = (wchar_t *) emalloc(siz*sizeof(wchar_t));
     } else if (siz < num) {
 	siz = num;
-	buff = realloc(buff,siz*sizeof(char));
+	buff = (wchar_t *) erealloc(buff,siz*sizeof(wchar_t));
     }
     p = buff;
+    num=0;
     for (arg = argv; *arg != NULL; ++arg) {
-	strcpy(p,*arg);
-	p+=strlen(*arg);
-	*p++=' ';
+	len = MultiByteToWideChar(CP_UTF8, 0, *arg, -1, p, siz);
+	p+=(len-1);
+	*p++=L' ';
     }
-    *(--p) = '\0';
+    *(--p) = L'\0';
 
     if (debug) {
-	printf("Processed command line:%s\n",buff);
+	printf("Processed command line:%S\n",buff);
     }
     return buff;
 }
 
 int my_spawnvp(char **argv)
 {
-    STARTUPINFO siStartInfo;
+    STARTUPINFOW siStartInfo;
     PROCESS_INFORMATION piProcInfo;
     DWORD ec;
 
-    memset(&siStartInfo,0,sizeof(STARTUPINFO));
-    siStartInfo.cb = sizeof(STARTUPINFO); 
+    memset(&siStartInfo,0,sizeof(STARTUPINFOW));
+    siStartInfo.cb = sizeof(STARTUPINFOW); 
     siStartInfo.dwFlags = STARTF_USESTDHANDLES;
     siStartInfo.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
     siStartInfo.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
     siStartInfo.hStdError = GetStdHandle(STD_ERROR_HANDLE);
 
-    if (!CreateProcess(NULL, 
-		       make_commandline(argv),
-		       NULL, 
-		       NULL, 
-		       TRUE, 
-		       0,
-		       NULL, 
-		       NULL, 
-		       &siStartInfo, 
-		       &piProcInfo)) {
+    if (!CreateProcessW(NULL, 
+			make_commandline(argv),
+			NULL, 
+			NULL, 
+			TRUE, 
+			0,
+			NULL, 
+			NULL, 
+			&siStartInfo, 
+			&piProcInfo)) {
 	return -1;
     }
     CloseHandle(piProcInfo.hThread);
@@ -600,14 +683,25 @@ error(char* format, ...)
     exit(1);
 }
 
-static char*
+static void*
 emalloc(size_t size)
 {
-  char *p = malloc(size);
+  void *p = malloc(size);
   if (p == NULL)
     error("Insufficient memory");
   return p;
 }
+
+#ifdef __WIN32__
+static void *
+erealloc(void *p, size_t size)
+{
+    void *res = realloc(p, size);
+    if (res == NULL)
+    error("Insufficient memory");
+    return res;
+}
+#endif
 
 static void
 efree(void *p) 
@@ -623,6 +717,18 @@ strsave(char* string)
     return p;
 }
 
+static int 
+file_exists(char *progname) 
+{
+#ifdef __WIN32__
+    wchar_t wcsbuf[MAXPATHLEN];
+    MultiByteToWideChar(CP_UTF8, 0, progname, -1, wcsbuf, MAXPATHLEN);
+    return (_waccess(wcsbuf, 0) != -1);
+#else
+    return (access(progname, 1) != -1);
+#endif
+}
+
 static char*
 get_default_emulator(char* progname)
 {
@@ -636,15 +742,11 @@ get_default_emulator(char* progname)
     for (s = sbuf+strlen(sbuf); s >= sbuf; s--) {
 	if (IS_DIRSEP(*s)) {
 	    strcpy(s+1, ERL_NAME);
-#ifdef __WIN32__
-	    if (_access(sbuf, 0) != -1) {
+	    if(file_exists(sbuf))
 		return strsave(sbuf);
-	    }
-#else
-	    if (access(sbuf, 1) != -1) {
+	    strcpy(s+1, "bin" DIRSEPSTR ERL_NAME);
+	    if(file_exists(sbuf))
 		return strsave(sbuf);
-	    }
-#endif
 	    break;
 	}
     }

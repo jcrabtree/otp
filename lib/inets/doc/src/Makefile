@@ -1,18 +1,19 @@
 #
 # %CopyrightBegin%
 #
-# Copyright Ericsson AB 1997-2012. All Rights Reserved.
+# Copyright Ericsson AB 1997-2018. All Rights Reserved.
 #
-# The contents of this file are subject to the Erlang Public License,
-# Version 1.1, (the "License"); you may not use this file except in
-# compliance with the License. You should have received a copy of the
-# Erlang Public License along with this software. If not, it can be
-# retrieved online at http://www.erlang.org/.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-# Software distributed under the License is distributed on an "AS IS"
-# basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-# the License for the specific language governing rights and limitations
-# under the License.
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 #
 # %CopyrightEnd%
 #
@@ -38,26 +39,24 @@ RELSYSDIR = $(RELEASE_PATH)/lib/$(APPLICATION)-$(VSN)
 XML_APPLICATION_FILES = ref_man.xml
 
 XML_CHAPTER_FILES = \
+	introduction.xml \
 	inets_services.xml \
 	http_client.xml \
 	http_server.xml \
-	ftp_client.xml \
 	notes.xml
 
 XML_REF3_FILES = \
 	inets.xml \
-	ftp.xml \
-	tftp.xml \
 	http_uri.xml\
 	httpc.xml\
 	httpd.xml \
-	httpd_conf.xml \
+	httpd_custom_api.xml \
 	httpd_socket.xml \
 	httpd_util.xml \
 	mod_alias.xml \
 	mod_auth.xml \
 	mod_esi.xml \
-	mod_security.xml	
+	mod_security.xml
 
 XML_PART_FILES = \
 	part.xml
@@ -82,7 +81,7 @@ HTML_FILES = \
 	$(XML_PART_FILES:%.xml=$(HTMLDIR)/%.html)
 
 INFO_FILE = ../../info
-EXTRA_FILES = summary.html.src \
+EXTRA_FILES = \
 	$(XML_REF3_FILES:%.xml=$(HTMLDIR)/%.html) \
 	$(XML_REF6_FILES:%.xml=$(HTMLDIR)/%.html) \
 	$(XML_CHAPTER_FILES:%.xml=$(HTMLDIR)/%.html)
@@ -94,10 +93,10 @@ HTML_REF_MAN_FILE = $(HTMLDIR)/index.html
 TOP_PDF_FILE = $(PDFDIR)/$(APPLICATION)-$(VSN).pdf
 
 # ----------------------------------------------------
-# FLAGS 
+# FLAGS
 # ----------------------------------------------------
-XML_FLAGS += 
-DVIPS_FLAGS += 
+XML_FLAGS +=
+DVIPS_FLAGS +=
 
 # ----------------------------------------------------
 # Targets
@@ -116,27 +115,28 @@ pdf: $(TOP_PDF_FILE)
 html: gifs $(HTML_REF_MAN_FILE)
 
 clean clean_docs: clean_html clean_man clean_pdf
+	rm -rf $(XMLDIR)
 	rm -f errs core *~
 
-man: $(MAN3_FILES) 
+man: $(MAN3_FILES)
 
 gifs: $(GIF_FILES:%=$(HTMLDIR)/%)
 
-debug opt: 
+debug opt:
 
-clean_pdf: 
+clean_pdf:
 	rm -f $(TOP_PDF_FILE) $(TOP_PDF_FILE:%.pdf=%.fo)
 
-clean_html: 
+clean_html:
 	rm -rf $(TOP_HTML_FILES) $(HTMLDIR)/*
 
 clean_man:
-	rm -f $(MAN3_FILES) 
+	rm -f $(MAN3_FILES)
 
 
 # ----------------------------------------------------
 # Release Target
-# ---------------------------------------------------- 
+# ----------------------------------------------------
 include $(ERL_TOP)/make/otp_release_targets.mk
 
 release_docs_spec: docs

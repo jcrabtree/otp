@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  * 
- * Copyright Ericsson AB 1998-2011. All Rights Reserved.
+ * Copyright Ericsson AB 1998-2016. All Rights Reserved.
  * 
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
- * 
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  * 
  * %CopyrightEnd%
  */
@@ -54,6 +55,17 @@ int ei_send_exit_tmo(int fd, const erlang_pid *from, const erlang_pid *to,
   char *s;
   int index = 0;
   int len = strlen(reason) + 1080; /* see below */
+  ei_socket_callbacks *cbs;
+  void *ctx;
+  int err;
+  ssize_t wlen;
+  unsigned tmo = ms == 0 ? EI_SCLBK_INF_TMO : ms;
+  
+  err = EI_GET_CBS_CTX__(&cbs, &ctx, fd);
+  if (err) {
+      EI_CONN_SAVE_ERRNO__(err);
+      return ERL_ERROR;
+  }
 
   if (len > EISMALLBUF)
     if (!(dbuf = malloc(len)))
@@ -91,10 +103,16 @@ int ei_send_exit_tmo(int fd, const erlang_pid *from, const erlang_pid *to,
   if (ei_tracelevel >= 4)
       ei_show_sendmsg(stderr,msgbuf,NULL);
 
-  ei_write_fill_t(fd,msgbuf,index,ms); 
-  /* FIXME ignore timeout etc? erl_errno?! */
-
-  if (dbuf) free(dbuf);
+  wlen = (ssize_t) index;
+  err = ei_write_fill_ctx_t__(cbs, ctx, msgbuf, &wlen, tmo);
+  if (!err && wlen != (ssize_t) index)
+      err = EIO;
+  if (dbuf)
+      free(dbuf);
+  if (err) {
+      EI_CONN_SAVE_ERRNO__(err);
+      return ERL_ERROR;
+  }
   return 0;
 }
 

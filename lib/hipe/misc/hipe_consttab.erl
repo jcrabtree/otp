@@ -1,21 +1,16 @@
 %% -*- erlang-indent-level: 2 -*-
 %%
-%% %CopyrightBegin%
-%% 
-%% Copyright Ericsson AB 2001-2009. All Rights Reserved.
-%% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
-%% 
-%% %CopyrightEnd%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% @doc
@@ -68,9 +63,7 @@
 %%    A hipe_consttab is a tuple {Data, ReferedLabels, NextConstLabel}
 %% @type hipe_constlbl().
 %%   An abstract datatype for referring to data.
-%% @type element_type() = byte | word | ctab_array()
-%% @type ctab_array() = {ctab_array, Type::element_type(),
-%%                                   NoElements::pos_integer()}
+%% @type element_type() = byte | word
 %% @type block() = [integer() | label_ref()]
 %% @type label_ref() = {label, Label::code_label()}
 %% @type code_label() = hipe_sparc:label_name() | hipe_x86:label_name()
@@ -86,7 +79,8 @@
 	                           % {NewTab, Lbl}
 	 insert_sorted_block/4,
 	 insert_block/3,
-	 %% insert_global_word/2,     
+	 insert_binary_const/3,
+	 %% insert_global_word/2,
 	 %% insert_global_block/4,
 	 %% update_word/3,  % update_word(ConstTab, Value) -> {NewTab, Lbl}
 	 %% update_block/5,
@@ -114,8 +108,7 @@
 -type label_ref()    :: {'label', code_label()}.
 -type block()	     :: [hipe_constlbl() | label_ref()].
 
--type ctab_array()   :: {'ctab_array', 'byte' | 'word', pos_integer()}.
--type element_type() :: 'byte' | 'word' | ctab_array().
+-type element_type() :: 'byte' | 'word'.
 
 -type sort_order()   :: term(). % XXX: FIXME
 
@@ -191,9 +184,19 @@ insert_block({ConstTab, RefToLabels, NextLabel}, ElementType, InitList) ->
   ReferredLabels = get_labels(InitList, []),
   NewRefTo = ReferredLabels ++ RefToLabels,
   {NewTa, Id} = insert_const({ConstTab, NewRefTo, NextLabel}, 
-			     block, word_size(), false,
+			     block, size_of(ElementType), false,
 			     {ElementType,InitList}),
   {insert_backrefs(NewTa, Id, ReferredLabels), Id}.
+
+%% @doc Inserts a binary constant literal into the const table.
+-spec insert_binary_const(hipe_consttab(), ct_alignment(), binary()) ->
+	{hipe_consttab(), hipe_constlbl()}.
+insert_binary_const(ConstTab, Alignment, Binary)
+  when (Alignment =:= 4 orelse Alignment =:= 8 orelse Alignment =:= 16
+	orelse Alignment =:= 32), is_binary(Binary),
+       size(Binary) rem Alignment =:= 0 ->
+  insert_const(ConstTab, block, Alignment, false,
+	       {byte, binary_to_list(Binary)}).
 
 
 %% @spec (ConstTab::hipe_consttab(), ElementType::element_type(),
@@ -250,13 +253,9 @@ get_labels([], Acc) ->
   
 %% @spec size_of(element_type()) -> pos_integer()
 %% @doc Returns the size in bytes of an element_type.
-%%  The is_atom/1 guard in the clause handling arrays
-%%  constraints the argument to 'byte' | 'word'
 -spec size_of(element_type()) -> pos_integer().
 size_of(byte) -> 1;
-size_of(word) -> word_size();
-size_of({ctab_array,S,N}) when is_atom(S), is_integer(N), N > 0 ->
-    N * size_of(S).
+size_of(word) -> word_size().
 
 %% @spec decompose({element_type(), block()}) -> [byte()]
 %% @doc Turns a block into a list of bytes.
@@ -462,7 +461,7 @@ update_referred_labels(Table, LabelMap) ->
 tree_keys(T) ->
   dict:fetch_keys(T).
 
--spec tree_to_list(dict()) -> [{_, _}].
+-spec tree_to_list(dict:dict()) -> [{_, _}].
 tree_to_list(T) ->
   dict:to_list(T).
 
@@ -486,11 +485,11 @@ tree_lookup(Key, T) ->
       none
   end.
 
--spec tree_empty() -> dict().
+-spec tree_empty() -> dict:dict().
 tree_empty() ->
   dict:new().
 
--spec tree_lookup_key_for_value(ctdata(), dict()) -> 'none' | {'value', _}.
+-spec tree_lookup_key_for_value(ctdata(), dict:dict()) -> 'none' | {'value', _}.
 tree_lookup_key_for_value(Val, T) ->
   tree_lookup_key_for_value_1(tree_to_list(T), Val).
 

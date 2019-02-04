@@ -1,18 +1,19 @@
 %%--------------------------------------------------------------------
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2010-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2010-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%----------------------------------------------------------------------
@@ -46,7 +47,7 @@
 	 decrypt_config_file/2, decrypt_config_file/3,
 	 get_crypt_key_from_file/0, get_crypt_key_from_file/1]).
 
--export([get_ref_from_name/1, get_name_from_ref/1, get_key_from_name/1]).
+-export([get_key_from_name/1]).
 
 -export([check_config_files/1, add_default_callback/1, prepare_config_list/1]).
 
@@ -56,7 +57,7 @@
 
 -define(cryptfile, ".ct_config.crypt").
 
--record(ct_conf,{key,value,handler,config,ref,name='_UNDEF',default=false}).
+-record(ct_conf,{key,value,handler,config,name='_UNDEF',default=false}).
 
 start(Mode) ->
     case whereis(ct_config_server) of
@@ -80,6 +81,7 @@ start(Mode) ->
 
 do_start(Parent) ->
     process_flag(trap_exit,true),
+    ct_util:mark_process(),
     register(ct_config_server,self()),
     ct_util:create_table(?attr_table,bag,#ct_conf.key),
     {ok,StartDir} = file:get_cwd(),
@@ -118,20 +120,21 @@ call(Msg) ->
     end.
 
 return({To,Ref},Result) ->
-    To ! {Ref, Result}.
+    To ! {Ref, Result},
+    ok.
 
 loop(StartDir) ->
     receive
-	{{require,Name,Tag,SubTags},From} ->
-	    Result = do_require(Name,Tag,SubTags),
+	{{require,Name,Key},From} ->
+	    Result = do_require(Name,Key),
 	    return(From,Result),
 	    loop(StartDir);
 	{{set_default_config,{Config,Scope}},From} ->
-	    set_config(Config,{true,Scope}),
+	    _ = set_config(Config,{true,Scope}),
 	    return(From,ok),
 	    loop(StartDir);
 	{{set_default_config,{Name,Config,Scope}},From} ->
-	    set_config(Name,Config,{true,Scope}),
+	    _ = set_config(Name,Config,{true,Scope}),
 	    return(From,ok),
 	    loop(StartDir);
 	{{delete_default_config,Scope},From} ->
@@ -148,7 +151,7 @@ loop(StartDir) ->
 	    loop(StartDir);
 	{{stop},From} ->
 	    ets:delete(?attr_table),
-	    file:set_cwd(StartDir),
+	    ok = file:set_cwd(StartDir),
 	    return(From,ok)
     end.
 
@@ -168,16 +171,19 @@ reload_config(KeyOrName) ->
     call({reload_config, KeyOrName}).
 
 process_default_configs(Opts) ->
-    case lists:keysearch(config, 1, Opts) of
-	{value,{_,Files=[File|_]}} when is_list(File) ->
-	    Files;
-	{value,{_,File=[C|_]}} when is_integer(C) ->
-	    [File];
-	{value,{_,[]}} ->
-	    [];
-	false ->
-	    []
-    end.
+    lists:flatmap(fun({config,[_|_] = FileOrFiles}) ->
+			  case {io_lib:printable_unicode_list(FileOrFiles),
+				io_lib:printable_unicode_list(hd(FileOrFiles))} of
+			      {false,true} ->
+				  FileOrFiles;
+			      {true,false} ->
+				  [FileOrFiles];
+			      _ ->
+				  []
+			  end;
+		     (_) ->
+			  []
+		  end,Opts).
 
 process_user_configs(Opts, Acc) ->
     case lists:keytake(userconfig, 1, Opts) of
@@ -253,7 +259,7 @@ read_config_files(Opts) ->
 read_config_files_int([{Callback, File}|Files], FunToSave) ->
     case Callback:read_config(File) of
 	{ok, Config} ->
-	    FunToSave(Config, Callback, File),
+	    _ = FunToSave(Config, Callback, File),
 	    read_config_files_int(Files, FunToSave);
 	{error, {ErrorName, ErrorDetail}} ->
 	    {user_error, {ErrorName, File, ErrorDetail}};
@@ -263,13 +269,24 @@ read_config_files_int([{Callback, File}|Files], FunToSave) ->
 read_config_files_int([], _FunToSave) ->
     ok.
 
-store_config(Config, Callback, File) ->
+
+read_config_files(ConfigFiles, FunToSave) ->
+    case read_config_files_int(ConfigFiles, FunToSave) of
+        {user_error, Error} ->
+            {error, Error};
+        ok ->
+            ok
+    end.
+
+store_config(Config, Callback, File) when is_tuple(Config) ->
+    store_config([Config], Callback, File);
+
+store_config(Config, Callback, File) when is_list(Config) ->
     [ets:insert(?attr_table,
 		#ct_conf{key=Key,
 			 value=Val,
 			 handler=Callback,
 			 config=File,
-			 ref=ct_util:ct_make_ref(),
 			 default=false}) ||
 	{Key,Val} <- Config].
 
@@ -290,13 +307,11 @@ rewrite_config(Config, Callback, File) ->
 			   #ct_conf{key=Key,
 				    value=Value,
 				    handler=Callback,
-				    config=File,
-				    ref=ct_util:ct_make_ref()});
+				    config=File});
 	    RowsToUpdate ->
 		Inserter = fun(Row) ->
 				   ets:insert(?attr_table,
-					      Row#ct_conf{value=Value,
-							  ref=ct_util:ct_make_ref()})
+					      Row#ct_conf{value=Value})
 			   end,
 		lists:foreach(Inserter, RowsToUpdate)
 	end
@@ -308,7 +323,7 @@ set_config(Config,Default) ->
 
 set_config(Name,Config,Default) ->
     [ets:insert(?attr_table,
-		#ct_conf{key=Key,value=Val,ref=ct_util:ct_make_ref(),
+		#ct_conf{key=Key,value=Val,
 			 name=Name,default=Default}) ||
 	{Key,Val} <- Config].
 
@@ -319,75 +334,58 @@ get_config(KeyOrName,Default) ->
     get_config(KeyOrName,Default,[]).
 
 get_config(KeyOrName,Default,Opts) when is_atom(KeyOrName) ->
-    case lookup_config(KeyOrName) of
-	[] ->
-	    Default;
-	[{_Ref,Val}|_] = Vals ->
-	    case {lists:member(all,Opts),lists:member(element,Opts)} of
-		{true,true} ->
-		    [{KeyOrName,V} || {_R,V} <- lists:sort(Vals)];
-		{true,false} ->
-		    [V || {_R,V} <- lists:sort(Vals)];
-		{false,true} ->
-		    {KeyOrName,Val};
-		{false,false} ->
-		    Val
-	    end
+    case get_config({KeyOrName}, Default, Opts) of
+	%% If only an atom is given, then we need to unwrap the
+	%% key if it is returned
+	{{KeyOrName}, Val} ->
+	    {KeyOrName, Val};
+	[{{KeyOrName}, _Val}|_] = Res ->
+	    [{K, Val} || {{K},Val} <- Res, K == KeyOrName];
+	Else ->
+	    Else
     end;
 
-get_config({KeyOrName,SubKey},Default,Opts) ->
-    case lookup_config(KeyOrName) of
+%% This useage of get_config is only used by internal ct functions
+%% and may change at any time
+get_config({DeepKey,SubKey}, Default, Opts) when is_tuple(DeepKey) ->
+    get_config(erlang:append_element(DeepKey, SubKey), Default, Opts);
+get_config(KeyOrName,Default,Opts) when is_tuple(KeyOrName) ->
+    case lookup_config(element(1,KeyOrName)) of
 	[] ->
-	    Default;
+	    format_value([Default],KeyOrName,Opts);
 	Vals ->
-	    Vals1 = case [Val || {_Ref,Val} <- lists:sort(Vals)] of
-			Result=[L|_] when is_list(L) ->
-			    case L of
-				[{_,_}|_] ->
-				    Result;
-				_ ->
-				    []
-			    end;
-			_ ->
-			    []
-		    end,
-	    case get_subconfig([SubKey],Vals1,[],Opts) of
-		{ok,[{_,SubVal}|_]=SubVals} ->
-		    case {lists:member(all,Opts),lists:member(element,Opts)} of
-			{true,true} ->
-			    [{{KeyOrName,SubKey},Val} || {_,Val} <- SubVals];
-			{true,false} ->
-			    [Val || {_SubKey,Val} <- SubVals];
-			{false,true} ->
-			    {{KeyOrName,SubKey},SubVal};
-			{false,false} ->
-			    SubVal
-		    end;
-		_ ->
-		    Default
-	    end
+	    NewVals =
+		lists:map(
+		  fun({Val}) ->
+			  get_config(tl(tuple_to_list(KeyOrName)),
+				     Val,Default,Opts)
+		  end,Vals),
+	    format_value(NewVals,KeyOrName,Opts)
     end.
 
-get_subconfig(SubKeys,Values) ->
-    get_subconfig(SubKeys,Values,[],[]).
+get_config([],Vals,_Default,_Opts) ->
+    Vals;
+get_config([[]],Vals,Default,Opts) ->
+    get_config([],Vals,Default,Opts);
+%% This case is used by {require,{unix,[port,host]}} functionality
+get_config([SubKeys], Vals, Default, _Opts) when is_list(SubKeys) ->
+    case do_get_config(SubKeys, Vals, []) of
+	{ok, SubVals} ->
+	    [SubVal || {_,SubVal} <- SubVals];
 
-get_subconfig(SubKeys,[Value|Rest],Mapped,Opts) ->
-    case do_get_config(SubKeys,Value,[]) of
-	{ok,SubMapped} ->
-	    case lists:member(all,Opts) of
-		true ->
-		    get_subconfig(SubKeys,Rest,Mapped++SubMapped,Opts);
-		false ->
-		    {ok,SubMapped}
-	    end;
-	_Error ->
-	    get_subconfig(SubKeys,Rest,Mapped,Opts)
+	_ ->
+	    Default
     end;
-get_subconfig(SubKeys,[],[],_) ->
-    {error,{not_available,SubKeys}};
-get_subconfig(_SubKeys,[],Mapped,_) ->
-    {ok,Mapped}.
+get_config([Key|Rest], Vals, Default, Opts) ->
+    case do_get_config([Key], Vals, []) of
+	{ok, [{Key,NewVals}]} ->
+	    get_config(Rest, NewVals, Default, Opts);
+	_ ->
+	    Default
+    end.
 
+do_get_config([Key|_], Available, _Mapped) when not is_list(Available) ->
+    {error,{not_available,Key}};
 do_get_config([Key|Required],Available,Mapped) ->
     case lists:keysearch(Key,1,Available) of
 	{value,{Key,Value}} ->
@@ -403,8 +401,7 @@ do_get_config([],_Available,Mapped) ->
 get_all_config() ->
     ets:select(?attr_table,[{#ct_conf{name='$1',key='$2',value='$3',
 				      default='$4',_='_'},
-			     [],
-			     [{{'$1','$2','$3','$4'}}]}]).
+			     [],[{{'$1','$2','$3','$4'}}]}]).
 
 lookup_config(KeyOrName) ->
     case lookup_name(KeyOrName) of
@@ -415,13 +412,23 @@ lookup_config(KeyOrName) ->
     end.
 
 lookup_name(Name) ->
-    ets:select(?attr_table,[{#ct_conf{ref='$1',value='$2',name=Name,_='_'},
-			     [],
-			     [{{'$1','$2'}}]}]).
+    ets:select(?attr_table,[{#ct_conf{value='$1',name=Name,_='_'},
+			     [],[{{'$1'}}]}]).
 lookup_key(Key) ->
-    ets:select(?attr_table,[{#ct_conf{key=Key,ref='$1',value='$2',name='_UNDEF',_='_'},
-			     [],
-			     [{{'$1','$2'}}]}]).
+    ets:select(?attr_table,[{#ct_conf{key=Key,value='$1',name='_UNDEF',_='_'},
+			     [],[{{'$1'}}]}]).
+
+format_value([SubVal|_] = SubVals, KeyOrName, Opts) ->
+    case {lists:member(all,Opts),lists:member(element,Opts)} of
+	{true,true} ->
+	    [{KeyOrName,Val} || Val <- SubVals];
+	{true,false} ->
+	    [Val || Val <- SubVals];
+	{false,true} ->
+	    {KeyOrName,SubVal};
+	{false,false} ->
+	    SubVal
+    end.
 
 lookup_handler_for_config({Key, _Subkey}) ->
     lookup_handler_for_config(Key);
@@ -459,8 +466,12 @@ reload_conf(KeyOrName) ->
 	    undefined;
 	HandlerList ->
 	    HandlerList2 = lists:usort(HandlerList),
-	    read_config_files_int(HandlerList2, fun rewrite_config/3),
-	    get_config(KeyOrName)
+	    case read_config_files(HandlerList2, fun rewrite_config/3) of
+		ok ->
+		    get_config(KeyOrName);
+		Error ->
+		    Error
+	    end
     end.
 
 release_allocated() ->
@@ -475,65 +486,79 @@ release_allocated([H|T]) ->
 release_allocated([]) ->
     ok.
 
-allocate(Name,Key,SubKeys) ->
-    case ets:match_object(?attr_table,#ct_conf{key=Key,name='_UNDEF',_='_'}) of
-	[] ->
+allocate(Name,Key) ->
+    Ref = make_ref(),
+    case get_config(Key,Ref,[all,element]) of
+	[{_,Ref}] ->
 	    {error,{not_available,Key}};
-	Available ->
-	    case allocate_subconfig(Name,SubKeys,Available,false) of
-		ok ->
-		    ok;
-		Error ->
-		    Error
-	    end
+	Configs ->
+	    associate(Name,Key,Configs),
+	    ok
     end.
 
-allocate_subconfig(Name,SubKeys,[C=#ct_conf{value=Value}|Rest],Found) ->
-    case do_get_config(SubKeys,Value,[]) of
-	{ok,_SubMapped} ->
-	    ets:insert(?attr_table,C#ct_conf{name=Name}),
-	    allocate_subconfig(Name,SubKeys,Rest,true);
-	_Error ->
-	    allocate_subconfig(Name,SubKeys,Rest,Found)
-    end;
-allocate_subconfig(_Name,_SubKeys,[],true) ->
+
+associate('_UNDEF',_Key,_Configs) ->
     ok;
-allocate_subconfig(_Name,SubKeys,[],false) ->
-    {error,{not_available,SubKeys}}.
+associate(Name,{Key,SubKeys},Configs) when is_atom(Key), is_list(SubKeys) ->
+    associate_int(Name,Configs,"true");
+associate(Name,_Key,Configs) ->
+    associate_int(Name,Configs,os:getenv("COMMON_TEST_ALIAS_TOP")).
+
+associate_int(Name,Configs,"true") ->
+    lists:foreach(fun({K,_Config}) ->
+		      Cs = ets:match_object(
+			     ?attr_table,
+			     #ct_conf{key=element(1,K),
+				      name='_UNDEF',_='_'}),
+		      [ets:insert(?attr_table,C#ct_conf{name=Name})
+		       || C <- Cs]
+		  end,Configs);
+associate_int(Name,Configs,_) ->
+    lists:foreach(fun({K,Config}) ->
+		      Key = if is_tuple(K) -> element(1,K);
+			       is_atom(K) -> K
+			    end,
+
+		      Cs = ets:match_object(
+			     ?attr_table,
+			     #ct_conf{key=Key,
+				      name='_UNDEF',_='_'}),
+		      [ets:insert(?attr_table,C#ct_conf{name=Name,
+							value=Config})
+		       || C <- Cs]
+		  end,Configs).
+
+
 
 delete_config(Default) ->
     ets:match_delete(?attr_table,#ct_conf{default=Default,_='_'}),
     ok.
 
-require(Key) when is_atom(Key) ->
-    require({Key,[]});
-require({Key,SubKeys}) when is_atom(Key) ->
-    allocate('_UNDEF',Key,to_list(SubKeys));
+require(Key) when is_atom(Key); is_tuple(Key) ->
+    allocate('_UNDEF',Key);
 require(Key) ->
     {error,{invalid,Key}}.
 
-require(Name,Key) when is_atom(Key) ->
-    require(Name,{Key,[]});
-require(Name,{Key,SubKeys}) when is_atom(Name), is_atom(Key) ->
-    call({require,Name,Key,to_list(SubKeys)});
+require(Name,Key) when is_atom(Name),is_atom(Key) orelse is_tuple(Key) ->
+    call({require,Name,Key});
 require(Name,Keys) ->
     {error,{invalid,{Name,Keys}}}.
 
-to_list(X) when is_list(X) -> X;
-to_list(X) -> [X].
-
-do_require(Name,Key,SubKeys) when is_list(SubKeys) ->
+do_require(Name,Key) ->
     case get_key_from_name(Name) of
 	{error,_} ->
-	    allocate(Name,Key,SubKeys);
-	{ok,Key} ->
+	    allocate(Name,Key);
+	{ok,NameKey} when NameKey == Key; 
+			  is_tuple(Key) andalso element(1,Key) == NameKey ->
 	    %% already allocated - check that it has all required subkeys
-	    Vals = [Val || {_Ref,Val} <- lookup_name(Name)],
-	    case get_subconfig(SubKeys,Vals) of
-		{ok,_SubMapped} ->
-		    ok;
-		Error ->
-		    Error
+	    R = make_ref(),
+	    case get_config(Key,R,[]) of
+		R ->
+		    {error,{not_available,Key}};
+		{error,_} = Error ->
+		    Error;
+		_Error ->
+		    ok
 	    end;
 	{ok,OtherKey} ->
 	    {error,{name_in_use,Name,OtherKey}}
@@ -545,26 +570,6 @@ encrypt_config_file(SrcFileName, EncryptFileName) ->
 	    E;
 	Key ->
 	    encrypt_config_file(SrcFileName, EncryptFileName, {key,Key})
-    end.
-
-get_ref_from_name(Name) ->
-    case ets:select(?attr_table,[{#ct_conf{name=Name,ref='$1',_='_'},
-				  [],
-				  ['$1']}]) of
-	[Ref] ->
-	    {ok,Ref};
-	_ ->
-	    {error,{no_such_name,Name}}
-    end.
-
-get_name_from_ref(Ref) ->
-    case ets:select(?attr_table,[{#ct_conf{name='$1',ref=Ref,_='_'},
-				  [],
-				  ['$1']}]) of
-	[Name] ->
-	    {ok,Name};
-	_ ->
-	    {error,{no_such_ref,Ref}}
     end.
 
 get_key_from_name(Name) ->
@@ -586,8 +591,8 @@ encrypt_config_file(SrcFileName, EncryptFileName, {file,KeyFile}) ->
     end;
 
 encrypt_config_file(SrcFileName, EncryptFileName, {key,Key}) ->
-    crypto:start(),
-    {K1,K2,K3,IVec} = make_crypto_key(Key),
+    _ = crypto:start(),
+    {CryptoKey,IVec} = make_crypto_key(Key),
     case file:read_file(SrcFileName) of
 	{ok,Bin0} ->
 	    Bin1 = term_to_binary({SrcFileName,Bin0}),
@@ -595,10 +600,10 @@ encrypt_config_file(SrcFileName, EncryptFileName, {key,Key}) ->
 		       0 -> Bin1;
 		       N -> list_to_binary([Bin1,random_bytes(8-N)])
 		   end,
-	    EncBin = crypto:des3_cbc_encrypt(K1, K2, K3, IVec, Bin2),
+	    EncBin = crypto:block_encrypt(des3_cbc, CryptoKey, IVec, Bin2),
 	    case file:write_file(EncryptFileName, EncBin) of
 		ok ->
-		    io:format("~s --(encrypt)--> ~s~n",
+		    io:format("~ts --(encrypt)--> ~ts~n",
 			      [SrcFileName,EncryptFileName]),
 		    ok;
 		{error,Reason} ->
@@ -625,11 +630,11 @@ decrypt_config_file(EncryptFileName, TargetFileName, {file,KeyFile}) ->
     end;
 
 decrypt_config_file(EncryptFileName, TargetFileName, {key,Key}) ->
-    crypto:start(),
-    {K1,K2,K3,IVec} = make_crypto_key(Key),
+    _ = crypto:start(),
+    {CryptoKey,IVec} = make_crypto_key(Key),
     case file:read_file(EncryptFileName) of
 	{ok,Bin} ->
-	    DecBin = crypto:des3_cbc_decrypt(K1, K2, K3, IVec, Bin),
+	    DecBin = crypto:block_decrypt(des3_cbc, CryptoKey, IVec, Bin),
 	    case catch binary_to_term(DecBin) of
 		{'EXIT',_} ->
 		    {error,bad_file};
@@ -640,7 +645,7 @@ decrypt_config_file(EncryptFileName, TargetFileName, {key,Key}) ->
 			_ ->
 			    case file:write_file(TargetFileName, SrcBin) of
 				ok ->
-				    io:format("~s --(decrypt)--> ~s~n",
+				    io:format("~ts --(decrypt)--> ~ts~n",
 					      [EncryptFileName,TargetFileName]),
 				    ok;
 				{error,Reason} ->
@@ -655,7 +660,7 @@ decrypt_config_file(EncryptFileName, TargetFileName, {key,Key}) ->
 get_crypt_key_from_file(File) ->
     case file:read_file(File) of
 	{ok,Bin} ->
-	    case catch string:tokens(binary_to_list(Bin), [$\n,$\r]) of
+	    case catch string:lexemes(binary_to_list(Bin), [$\n, [$\r,$\n]]) of
 		[Key] ->
 		    Key;
 		_ ->
@@ -689,9 +694,9 @@ get_crypt_key_from_file() ->
 	noent ->
 	    Result;
 	_ ->
-	    case catch string:tokens(binary_to_list(Result), [$\n,$\r]) of
+	    case catch string:lexemes(binary_to_list(Result), [$\n, [$\r,$\n]]) of
 		[Key] ->
-		    io:format("~nCrypt key file: ~s~n", [FullName]),
+		    io:format("~nCrypt key file: ~ts~n", [FullName]),
 		    Key;
 		_ ->
 		    {error,{bad_crypt_file,FullName}}
@@ -701,15 +706,13 @@ get_crypt_key_from_file() ->
 make_crypto_key(String) ->
     <<K1:8/binary,K2:8/binary>> = First = erlang:md5(String),
     <<K3:8/binary,IVec:8/binary>> = erlang:md5([First|lists:reverse(String)]),
-    {K1,K2,K3,IVec}.
+    {[K1,K2,K3],IVec}.
 
 random_bytes(N) ->
-    {A,B,C} = now(),
-    random:seed(A, B, C),
     random_bytes_1(N, []).
 
 random_bytes_1(0, Acc) -> Acc;
-random_bytes_1(N, Acc) -> random_bytes_1(N-1, [random:uniform(255)|Acc]).
+random_bytes_1(N, Acc) -> random_bytes_1(N-1, [rand:uniform(255)|Acc]).
 
 check_callback_load(Callback) ->
     case code:is_loaded(Callback) of
@@ -760,13 +763,13 @@ check_config_files(Configs) ->
     end,
     lists:keysearch(error, 1, lists:flatten(lists:map(ConfigChecker, Configs))).
 
-prepare_user_configs([ConfigString|UserConfigs], Acc, new) ->
+prepare_user_configs([CallbackMod|UserConfigs], Acc, new) ->
     prepare_user_configs(UserConfigs,
-			 [{list_to_atom(ConfigString), []}|Acc],
+			 [{list_to_atom(CallbackMod),[]}|Acc],
 			 cur);
 prepare_user_configs(["and"|UserConfigs], Acc, _) ->
     prepare_user_configs(UserConfigs, Acc, new);
-prepare_user_configs([ConfigString|UserConfigs], [{LastMod, LastList}|Acc], cur) ->
+prepare_user_configs([ConfigString|UserConfigs], [{LastMod,LastList}|Acc], cur) ->
     prepare_user_configs(UserConfigs,
 			 [{LastMod, [ConfigString|LastList]}|Acc],
 			 cur);
@@ -790,14 +793,13 @@ prepare_config_list(Args) ->
 
 % TODO: add logging of the loaded configuration file to the CT FW log!!!
 add_config(Callback, []) ->
-    read_config_files_int([{Callback, []}], fun store_config/3);
+    read_config_files([{Callback, []}], fun store_config/3);
 add_config(Callback, [File|_Files]=Config) when is_list(File) ->
     lists:foreach(fun(CfgStr) ->
-	read_config_files_int([{Callback, CfgStr}], fun store_config/3) end,
+	read_config_files([{Callback, CfgStr}], fun store_config/3) end,
 	Config);
 add_config(Callback, [C|_]=Config) when is_integer(C) ->
-    read_config_files_int([{Callback, Config}], fun store_config/3),
-    ok.
+    read_config_files([{Callback, Config}], fun store_config/3).
 
 remove_config(Callback, Config) ->
     ets:match_delete(?attr_table,

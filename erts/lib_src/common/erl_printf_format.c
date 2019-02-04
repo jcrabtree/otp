@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  * 
- * Copyright Ericsson AB 2005-2011. All Rights Reserved.
+ * Copyright Ericsson AB 2005-2018. All Rights Reserved.
  * 
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
- * 
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  * 
  * %CopyrightEnd%
  */
@@ -77,15 +78,7 @@
 #endif
 
 #ifndef ERTS_SIZEOF_ETERM
-#  ifdef HALFWORD_HEAP_EMULATOR
-#    if SIZEOF_VOID_P == 8
-#      define ERTS_SIZEOF_ETERM 4
-#    else
-#      error "HALFWORD_HEAP_EMULATOR only allowed on 64-bit architecture"
-#    endif
-#  else
-#    define ERTS_SIZEOF_ETERM SIZEOF_VOID_P
-#  endif
+#define ERTS_SIZEOF_ETERM SIZEOF_VOID_P
 #endif
 
 #if defined(__GNUC__)
@@ -101,7 +94,7 @@
 #endif
 
 #define FMTC_d    0x0000
-#define FMTC_R    0x0001
+/*empty           0x0001 was RELATIVE */
 #define FMTC_o    0x0002
 #define FMTC_u    0x0003
 #define FMTC_x    0x0004
@@ -165,7 +158,7 @@ static char heX[] = "0123456789ABCDEF";
 #define SIGN(X) ((X) > 0 ? 1 : ((X) < 0 ? -1 : 0)) 
 #define USIGN(X) ((X) == 0 ? 0 : 1)
 
-int (*erts_printf_eterm_func)(fmtfn_t, void*, unsigned long, long, unsigned long*) = NULL;
+int (*erts_printf_eterm_func)(fmtfn_t, void*, ErlPfEterm, long) = NULL;
 
 static int
 noop_fn(void *vfp, char* buf, size_t len)
@@ -234,7 +227,7 @@ static int fmt_fld(fmtfn_t fn,void* arg,
     return 0;
 }
 
-static int fmt_long(fmtfn_t fn,void* arg,int sign,unsigned long uval,
+static int fmt_uword(fmtfn_t fn,void* arg,int sign,ErlPfUWord uval,
 		    int width,int precision,int fmt,int* count)
 {
     char buf[32];
@@ -333,13 +326,13 @@ static int fmt_double(fmtfn_t fn,void*arg,double val,
 {
     int res;
     int fi = 0;
-    char format_str[7];
+    char format_str[8];
     char sbuf[32];
-    char *bufp;
+    char *bufp = sbuf;
     double dexp;
     int exp;
-    size_t max_size = 1;
-    size_t size;
+    size_t max_size = 2;  /* including possible sign */
+    int size;
     int new_fmt = fmt;
     int fpe_was_unmasked;
 
@@ -425,12 +418,12 @@ static int fmt_double(fmtfn_t fn,void*arg,double val,
 
     max_size++; /* '\0' */
 
-    if (max_size < sizeof(sbuf))
-	bufp = sbuf;
-    else {
+    if (max_size >= sizeof(sbuf)) {
 	bufp = (char *) malloc(sizeof(char)*max_size);
 	if (!bufp) {
 	    res = -ENOMEM;
+	    /* Make sure not to trigger free */
+	    bufp = sbuf;
 	    goto out;
 	}
     }
@@ -448,13 +441,22 @@ static int fmt_double(fmtfn_t fn,void*arg,double val,
 
     res = fmt_fld(fn, arg, bufp, size, 0, width, 0, new_fmt, count);
 
+ out:
     if (bufp != sbuf)
 	free((void *) bufp);
 
- out:
     if (erts_printf_unblock_fpe)
 	(*erts_printf_unblock_fpe)(fpe_was_unmasked);
     return res;
+}
+
+/* strnlen doesn't exist everywhere */
+static size_t my_strnlen(const char *s, size_t maxlen)
+{
+    size_t i = 0;
+    while (i < maxlen && s[i] != '\0')
+	i++;
+    return i;
 }
 
 int erts_printf_format(fmtfn_t fn, void* arg, char* fmt, va_list ap)
@@ -466,7 +468,7 @@ int erts_printf_format(fmtfn_t fn, void* arg, char* fmt, va_list ap)
     int res = 0;
 
     while(*ptr) {
-	unsigned long ul_val;
+	ErlPfUWord ul_val;
 	int fmt        = 0;
 	int width      = -1;
 	int precision  = -1;
@@ -635,7 +637,6 @@ int erts_printf_format(fmtfn_t fn, void* arg, char* fmt, va_list ap)
 	    case 'p': ptr++; fmt |= FMTC_p; break;
 	    case 'n': ptr++; fmt |= FMTC_n; break;
 	    case 'T': ptr++; fmt |= FMTC_T; break;
-	    case 'R': ptr++; fmt |= FMTC_R; break;
 	    case '%':
 		FMT(fn,arg,ptr,1,count);
 		ptr++;
@@ -652,22 +653,22 @@ int erts_printf_format(fmtfn_t fn, void* arg, char* fmt, va_list ap)
 		switch(fmt & FMTL_MASK) {
 		case FMTL_hh: {
 		    signed char tval = (signed char) va_arg(ap,int);
-		    ul_val = (unsigned long) (tval < 0 ? (-tval) : tval);
-		    res = fmt_long(fn,arg,SIGN(tval),ul_val,
+		    ul_val = (ErlPfUWord) (tval < 0 ? (-tval) : tval);
+		    res = fmt_uword(fn,arg,SIGN(tval),ul_val,
 				   width,precision,fmt,&count);
 		    break;
 		}
 		case FMTL_h: {
 		    signed short tval = (signed short) va_arg(ap,int);
-		    ul_val = (unsigned long) (tval < 0 ? (-tval) : tval);
-		    res = fmt_long(fn,arg,SIGN(tval),ul_val,
+		    ul_val = (ErlPfUWord) (tval < 0 ? (-tval) : tval);
+		    res = fmt_uword(fn,arg,SIGN(tval),ul_val,
 				   width,precision,fmt,&count);
 		    break;
 		}
 		case FMTL_l: {
 		    signed long tval = (signed long) va_arg(ap,long);
-		    ul_val = (unsigned long) (tval < 0 ? (-tval) : tval);
-		    res = fmt_long(fn,arg,SIGN(tval),ul_val,
+		    ul_val = (ErlPfUWord) (tval < 0 ? (-tval) : tval);
+		    res = fmt_uword(fn,arg,SIGN(tval),ul_val,
 				   width,precision,fmt,&count);
 		    break;
 		}
@@ -684,8 +685,8 @@ int erts_printf_format(fmtfn_t fn, void* arg, char* fmt, va_list ap)
 #endif
 		default: {
 		    signed int tval = (signed int) va_arg(ap,int);
-		    ul_val = (unsigned long) (tval < 0 ? (-tval) : tval);
-		    res = fmt_long(fn,arg,SIGN(tval),ul_val,
+		    ul_val = (ErlPfUWord) (tval < 0 ? (-tval) : tval);
+		    res = fmt_uword(fn,arg,SIGN(tval),ul_val,
 				   width,precision,fmt,&count);
 		    break;
 		}
@@ -698,21 +699,21 @@ int erts_printf_format(fmtfn_t fn, void* arg, char* fmt, va_list ap)
 		switch(fmt & FMTL_MASK) {
 		case FMTL_hh: {
 		    unsigned char tval = (unsigned char) va_arg(ap,int);
-		    ul_val = (unsigned long) tval;
-		    res = fmt_long(fn,arg,USIGN(tval),ul_val,
+		    ul_val = (ErlPfUWord) tval;
+		    res = fmt_uword(fn,arg,USIGN(tval),ul_val,
 				   width,precision,fmt,&count);
 		    break;
 		}
 		case FMTL_h: {
 		    unsigned short tval = (unsigned short) va_arg(ap,int);
-		    ul_val = (unsigned long) tval;
-		    res = fmt_long(fn,arg,USIGN(tval),ul_val,
+		    ul_val = (ErlPfUWord) tval;
+		    res = fmt_uword(fn,arg,USIGN(tval),ul_val,
 				   width,precision,fmt,&count);
 		    break;
 		}
 		case FMTL_l: {
-		    ul_val = (unsigned long) va_arg(ap,long);
-		    res = fmt_long(fn,arg,USIGN(ul_val),ul_val,
+		    ul_val = (ErlPfUWord) va_arg(ap,long);
+		    res = fmt_uword(fn,arg,USIGN(ul_val),ul_val,
 				   width,precision,fmt,&count);
 		    break;
 		}
@@ -727,8 +728,8 @@ int erts_printf_format(fmtfn_t fn, void* arg, char* fmt, va_list ap)
 #endif
 		default: {
 		    unsigned int tval = (unsigned int) va_arg(ap,int);
-		    ul_val = (unsigned long) tval;
-		    res = fmt_long(fn,arg,USIGN(tval),ul_val,
+		    ul_val = (ErlPfUWord) tval;
+		    res = fmt_uword(fn,arg,USIGN(tval),ul_val,
 				   width,precision,fmt,&count);
 		    break;
 		}
@@ -771,9 +772,7 @@ int erts_printf_format(fmtfn_t fn, void* arg, char* fmt, va_list ap)
 		
 	    case FMTC_s: {
 		char* str = va_arg(ap,char*);
-		int len = strlen(str);
-		if (precision >= 0 && precision < len)
-		    len = precision;
+		int len = (precision >= 0) ? my_strnlen(str,precision) : strlen(str);
 		if (width > 0 && !(fmt & FMTF_adj)) {
 		    if (width > len)
 			BLANKS(fn, arg, width - len, count);
@@ -788,10 +787,10 @@ int erts_printf_format(fmtfn_t fn, void* arg, char* fmt, va_list ap)
 	    case FMTC_p: {
 		void* addr = va_arg(ap, void*);
 
-		res = fmt_long(fn,
+		res = fmt_uword(fn,
 			       arg,
-			       USIGN((unsigned long) addr),
-			       (unsigned long) addr,
+			       USIGN((ErlPfUWord) addr),
+			       (ErlPfUWord) addr,
 			       width < 0 ? ((int) 2*sizeof(void *)) : width,
 			       (precision < 0
 				? ((int) 2*sizeof(void *))
@@ -812,11 +811,9 @@ int erts_printf_format(fmtfn_t fn, void* arg, char* fmt, va_list ap)
 		default: *va_arg(ap,int*) = count; break;
 		}
 		break;
-	    case FMTC_T:    /* Eterm */
-	    case FMTC_R: {  /* Eterm, Eterm* base  (base ignored if !HALFWORD_HEAP) */
+	    case FMTC_T: {    /* Eterm */
 		long prec;
-		unsigned long eterm;
-		unsigned long* eterm_base;
+		ErlPfEterm eterm;
 		
 		if (!erts_printf_eterm_func)
 		    return -EINVAL;
@@ -826,17 +823,15 @@ int erts_printf_format(fmtfn_t fn, void* arg, char* fmt, va_list ap)
 		    prec = LONG_MAX;
 		else
 		    prec = (long) precision;
-		eterm = va_arg(ap, unsigned long);
-		eterm_base = ((fmt & FMTC_MASK) == FMTC_R) ?
-		    va_arg(ap, unsigned long*) : NULL;
+		eterm = va_arg(ap, ErlPfEterm);
 		if (width > 0 && !(fmt & FMTF_adj)) {
-		    res = (*erts_printf_eterm_func)(noop_fn, NULL, eterm, prec, eterm_base);
+		    res = (*erts_printf_eterm_func)(noop_fn, NULL, eterm, prec);
 		    if (res < 0)
 			return res;
 		    if (width > res)
 			BLANKS(fn, arg, width - res, count);
 		}
-		res = (*erts_printf_eterm_func)(fn, arg, eterm, prec, eterm_base);
+		res = (*erts_printf_eterm_func)(fn, arg, eterm, prec);
 		if (res < 0)
 		    return res;
 		count += res;
@@ -883,8 +878,8 @@ int
 erts_printf_pointer(fmtfn_t fn, void *arg, void *ptr)
 {
     int count = 0;
-    int res = fmt_long(fn, arg, USIGN((unsigned long) ptr),
-		       (unsigned long) ptr, 2*sizeof(void *),
+    int res = fmt_uword(fn, arg, USIGN((ErlPfUWord) ptr),
+		       (ErlPfUWord) ptr, 2*sizeof(void *),
 		       2*sizeof(void *), FMTC_x|FMTF_pad|FMTF_alt, &count);
     if (res < 0)
 	return res;
@@ -892,8 +887,8 @@ erts_printf_pointer(fmtfn_t fn, void *arg, void *ptr)
 }
 
 int
-erts_printf_ulong(fmtfn_t fn, void *arg, char conv, int pad, int width,
-		  unsigned long val)
+erts_printf_uword(fmtfn_t fn, void *arg, char conv, int pad, int width,
+		  ErlPfUWord val)
 {
     int count = 0;
     int res;
@@ -910,21 +905,21 @@ erts_printf_ulong(fmtfn_t fn, void *arg, char conv, int pad, int width,
     }
     if (pad)
 	prec = width;
-    res = fmt_long(fn, arg, USIGN(val), val, width, prec, fmt, &count);
+    res = fmt_uword(fn, arg, USIGN(val), val, width, prec, fmt, &count);
     if (res < 0)
 	return res;
     return count;
 }
 
-extern int
-erts_printf_slong(fmtfn_t fn, void *arg, char conv, int pad, int width,
-		  signed long val)
+int
+erts_printf_sword(fmtfn_t fn, void *arg, char conv, int pad, int width,
+		  ErlPfSWord val)
 {
     int count = 0;
     int res;
     int fmt = 0;
     int prec = -1;
-    unsigned long ul_val;
+    ErlPfUWord ul_val;
     switch (conv) {
     case 'd': fmt |= FMTC_d; break;
     case 'i': fmt |= FMTC_d; break;
@@ -936,8 +931,8 @@ erts_printf_slong(fmtfn_t fn, void *arg, char conv, int pad, int width,
     }
     if (pad)
 	prec = width;
-    ul_val = (unsigned long) (val < 0 ? -val : val);
-    res = fmt_long(fn, arg, SIGN(val), ul_val, width, prec, fmt, &count);
+    ul_val = (ErlPfUWord) (val < 0 ? -val : val);
+    res = fmt_uword(fn, arg, SIGN(val), ul_val, width, prec, fmt, &count);
     if (res < 0)
 	return res;
     return count;

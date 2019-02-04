@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2009-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2009-2017. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 
@@ -79,6 +80,7 @@
                           | {debug_info, debug_info()}
                           | {app_file, app_file()}
                           | {profile, profile()}
+			  | {excl_lib, excl_lib()}
                           | {incl_sys_filters, incl_sys_filters()}
                           | {excl_sys_filters, excl_sys_filters()}
                           | {incl_app_filters, incl_app_filters()}
@@ -117,12 +119,13 @@
                           | {archive, base_file(), [archive_opt()], [target_spec()]}
                           | {copy_file, base_file()}
                           | {copy_file, base_file(), top_file()}
-                          | {write_file, base_file(), iolist()}
+                          | {write_file, base_file(), binary()}
                           | {strip_beam_file, base_file()}.
 -type target_dir()       :: dir().
 -type incl_defaults()    :: boolean().
 -type incl_derived()     :: boolean().
 -type status()           :: missing | ok.
+-type excl_lib()         :: otp_root.
 
 -record(common,
         {
@@ -138,31 +141,32 @@
           app_name    :: '_'  | app_name(),
           incl_cond   :: '_'  | incl_cond() | undefined,
           debug_info  :: '_'  | debug_info() | undefined,
-          is_app_mod  :: '_'  | boolean(),
-          is_ebin_mod :: '_'  | boolean(),
-          uses_mods   :: '$2' | [mod_name()],
-          exists      :: '_'  | boolean(),
+          is_app_mod  :: '_'  | boolean() | undefined,
+          is_ebin_mod :: '_'  | boolean() | undefined,
+          uses_mods   :: '$2' | [mod_name()] | undefined,
+          exists      :: '_'  | boolean() | undefined,
           %% Dynamic
-          status          :: '_' | status(),
-          used_by_mods    :: '_' | [mod_name()],
-          is_pre_included :: '_' | boolean() | undefined,
-          is_included     :: '_' | boolean() | undefined
+          status = ok       :: '_' | status(),
+          used_by_mods = [] :: '_' | [mod_name()],
+          is_pre_included   :: '_' | boolean() | undefined,
+          is_included       :: '_' | boolean() | undefined
 	}).
 
 -record(app_info,
         {
-          description  = ""        :: string(),
-          id           = ""        :: string(),
-          vsn          = ""        :: app_vsn(),
-          modules      = []        :: [mod_name()],
-          maxP         = infinity  :: integer() | infinity,
-          maxT         = infinity  :: integer() | infinity,
-          registered   = []        :: [atom()],
-          incl_apps    = []        :: [app_name()],
-          applications = []        :: [app_name()],
-          env          = []        :: [{atom(), term()}],
-          mod          = undefined :: {mod_name(), [term()]} | undefined,
-          start_phases = undefined :: [{atom(), term()}] | undefined
+          description  = ""        :: '_' | string(),
+          id           = ""        :: '_' | string(),
+          vsn          = ""        :: '_' | app_vsn(),
+          modules      = []        :: '_' | [mod_name()],
+          maxP         = infinity  :: '_' | integer() | infinity,
+          maxT         = infinity  :: '_' | integer() | infinity,
+          registered   = []        :: '_' | [atom()],
+          incl_apps    = []        :: '_' | '$3' | [app_name()],
+          applications = []        :: '_' | '$2' | [app_name()],
+          env          = []        :: '_' | [{atom(), term()}],
+          mod          = undefined :: '_' | {mod_name(), [term()]} | undefined,
+          start_phases = undefined :: '_' | [{atom(), term()}] | undefined,
+          runtime_dependencies = [] :: '_' | [string()]
 	}).
 
 -record(regexp, {source, compiled}).
@@ -173,10 +177,10 @@
           name             :: '_' | app_name(),
           is_escript       :: '_' | boolean() | {inlined, escript_app_name()},
           use_selected_vsn :: '_' | vsn | dir | undefined,
-          active_dir       :: '_' | dir(),
+          active_dir       :: '_' | dir() | undefined,
           sorted_dirs      :: '_' | [dir()],
-          vsn              :: '_' | app_vsn(),
-          label            :: '_' | app_label(),
+          vsn              :: '_' | app_vsn() | undefined,
+          label            :: '_' | app_label() | undefined,
           info             :: '_' | #app_info{} | undefined,
           mods             :: '_' | [#mod{}],
 
@@ -188,21 +192,21 @@
           debug_info            :: '_' | debug_info() | undefined,
           app_file              :: '_' | app_file() | undefined,
           app_type              :: '_' | app_type() | undefined,
-          incl_app_filters      :: '_' | [#regexp{}],
-          excl_app_filters      :: '_' | [#regexp{}],
-          incl_archive_filters  :: '_' | [#regexp{}],
-          excl_archive_filters  :: '_' | [#regexp{}],
-          archive_opts          :: '_' | [archive_opt()],
+          incl_app_filters      :: '_' | [#regexp{}] | undefined,
+          excl_app_filters      :: '_' | [#regexp{}] | undefined,
+          incl_archive_filters  :: '_' | [#regexp{}] | undefined,
+          excl_archive_filters  :: '_' | [#regexp{}] | undefined,
+          archive_opts          :: '_' | [archive_opt()] | undefined,
 
           %% Dynamic
           status          :: '_' | status(),
-          uses_mods       :: '_' | [mod_name()],
-          used_by_mods    :: '_' | [mod_name()],
-          uses_apps       :: '_' | [app_name()],
-          used_by_apps    :: '_' | [app_name()],
+          uses_mods       :: '_' | [mod_name()] | undefined,
+          used_by_mods    :: '_' | [mod_name()] | undefined,
+          uses_apps       :: '_' | [app_name()] | undefined,
+          used_by_apps    :: '_' | [app_name()] | undefined,
           is_pre_included :: '_' | '$2' | boolean() | undefined,
           is_included     :: '_' | '$1' | boolean() | undefined,
-          rels            :: '_' | [rel_name()]
+          rels            :: '_' | [rel_name()] | undefined
 	}).
 
 -record(rel_app,
@@ -216,7 +220,8 @@
         {
           name     :: rel_name(),
           vsn      :: rel_vsn(),
-          rel_apps :: [#rel_app{}]
+          rel_apps :: [#rel_app{}],
+          load_dot_erlang = true :: boolean()
 	}).
 
 -record(sys,
@@ -233,6 +238,7 @@
           rels     	       :: [#rel{}],
           emu_name 	       :: emu_name(),
           profile  	       :: profile(),
+	  excl_lib             :: excl_lib() | undefined,
           incl_sys_filters     :: [#regexp{}],
           excl_sys_filters     :: [#regexp{}],
           incl_app_filters     :: [#regexp{}],
@@ -295,6 +301,7 @@
 
 -define(STANDALONE_INCL_SYS_FILTERS,  ["^bin/(erl|epmd)(|\\.exe|\\.ini)\$",
 				       "^bin/start(|_clean).boot\$",
+				       "^bin/no_dot_erlang\\.boot\$",
 				       "^erts.*/bin",
 				       "^lib\$"]).
 -define(STANDALONE_EXCL_SYS_FILTERS,

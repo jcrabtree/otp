@@ -1,18 +1,23 @@
 %% =====================================================================
-%% This library is free software; you can redistribute it and/or modify
-%% it under the terms of the GNU Lesser General Public License as
-%% published by the Free Software Foundation; either version 2 of the
-%% License, or (at your option) any later version.
+%% Licensed under the Apache License, Version 2.0 (the "License"); you may
+%% not use this file except in compliance with the License. You may obtain
+%% a copy of the License at <http://www.apache.org/licenses/LICENSE-2.0>
 %%
-%% This library is distributed in the hope that it will be useful, but
-%% WITHOUT ANY WARRANTY; without even the implied warranty of
-%% MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-%% Lesser General Public License for more details.
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
-%% You should have received a copy of the GNU Lesser General Public
-%% License along with this library; if not, write to the Free Software
-%% Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307
-%% USA
+%% Alternatively, you may use this file under the terms of the GNU Lesser
+%% General Public License (the "LGPL") as published by the Free Software
+%% Foundation; either version 2.1, or (at your option) any later version.
+%% If you wish to allow use of your version of this file only under the
+%% terms of the LGPL, you should delete the provisions above and replace
+%% them with the notice and other provisions required by the LGPL; see
+%% <http://www.gnu.org/licenses/>. If you do not delete the provisions
+%% above, a recipient may use your version of this file under the terms of
+%% either the Apache License or the LGPL.
 %%
 %% @copyright 2003-2006 Richard Carlsson
 %% @author Richard Carlsson <carlsson.richard@gmail.com>
@@ -35,16 +40,14 @@
 
 -import(edoc_report, [report/2, warning/2]).
 
-%% @headerfile "edoc_doclet.hrl"
+%% @headerfile "../include/edoc_doclet.hrl"
 -include("../include/edoc_doclet.hrl").
 
 -define(EDOC_APP, edoc).
 -define(DEFAULT_FILE_SUFFIX, ".html").
 -define(INDEX_FILE, "index.html").
 -define(OVERVIEW_FILE, "overview.edoc").
--define(PACKAGE_SUMMARY, "package-summary.html").
 -define(OVERVIEW_SUMMARY, "overview-summary.html").
--define(PACKAGES_FRAME, "packages-frame.html").
 -define(MODULES_FRAME, "modules-frame.html").
 -define(STYLESHEET, "stylesheet.css").
 -define(IMAGE, "erlang.png").
@@ -52,11 +55,10 @@
 
 -include_lib("xmerl/include/xmerl.hrl").
 
-%% Sources is the list of inputs in the order they were found.  Packages
-%% and Modules are sorted lists of atoms without duplicates. (They
+%% Sources is the list of inputs in the order they were found.
+%% Modules are sorted lists of atoms without duplicates. (They
 %% usually include the data from the edoc-info file in the target
-%% directory, if it exists.) Note that the "empty package" is never
-%% included in Packages!
+%% directory, if it exists.)
 
 %% @spec (Command::doclet_gen() | doclet_toc(), edoc_context()) -> ok
 %% @doc Main doclet entry point. See the file <a
@@ -117,14 +119,12 @@
 run(#doclet_gen{}=Cmd, Ctxt) ->
     gen(Cmd#doclet_gen.sources,
 	Cmd#doclet_gen.app,
-	Cmd#doclet_gen.packages,
 	Cmd#doclet_gen.modules,
-	Cmd#doclet_gen.filemap,
 	Ctxt);
 run(#doclet_toc{}=Cmd, Ctxt) ->
     toc(Cmd#doclet_toc.paths, Ctxt).
 
-gen(Sources, App, Packages, Modules, FileMap, Ctxt) ->
+gen(Sources, App, Modules, Ctxt) ->
     Dir = Ctxt#context.dir,
     Env = Ctxt#context.env,
     Options = Ctxt#context.opts,
@@ -132,11 +132,9 @@ gen(Sources, App, Packages, Modules, FileMap, Ctxt) ->
     CSS = stylesheet(Options),
     {Modules1, Error} = sources(Sources, Dir, Modules, Env, Options),
     modules_frame(Dir, Modules1, Title, CSS),
-    packages(Packages, Dir, FileMap, Env, Options),
-    packages_frame(Dir, Packages, Title, CSS),
     overview(Dir, Title, Env, Options),
-    index_file(Dir, length(Packages) > 1, Title),
-    edoc_lib:write_info_file(App, Packages, Modules1, Dir),
+    index_file(Dir, Title),
+    edoc_lib:write_info_file(App, Modules1, Dir),
     copy_stylesheet(Dir, Options),
     copy_image(Dir),
     %% handle postponed error during processing of source files
@@ -154,7 +152,7 @@ title(App, Options) ->
 			if App == ?NO_APP ->
 				"Overview";
 			   true ->
-				io_lib:fwrite("Application: ~s", [App])
+				io_lib:fwrite("Application: ~ts", [App])
 			end).
 
 
@@ -182,31 +180,31 @@ sources(Sources, Dir, Modules, Env, Options) ->
 %% set if it was successful. Errors are just flagged at this stage,
 %% allowing all source files to be processed even if some of them fail.
 
-source({M, P, Name, Path}, Dir, Suffix, Env, Set, Private, Hidden,
+source({M, Name, Path}, Dir, Suffix, Env, Set, Private, Hidden,
        Error, Options) ->
     File = filename:join(Path, Name),
     case catch {ok, edoc:get_doc(File, Env, Options)} of
 	{ok, {Module, Doc}} ->
-	    check_name(Module, M, P, File),
+	    check_name(Module, M, File),
 	    case ((not is_private(Doc)) orelse Private)
 		andalso ((not is_hidden(Doc)) orelse Hidden) of
 		true ->
 		    Text = edoc:layout(Doc, Options),
-		    Name1 = packages:last(M) ++ Suffix,
-		    edoc_lib:write_file(Text, Dir, Name1, P),
+		    Name1 = atom_to_list(M) ++ Suffix,
+                    Encoding = [{encoding,encoding(Doc)}],
+		    edoc_lib:write_file(Text, Dir, Name1, Encoding),
 		    {sets:add_element(Module, Set), Error};
 		false ->
 		    {Set, Error}
 	    end;
 	R ->
-	    report("skipping source file '~s': ~W.", [File, R, 15]),
+	    report("skipping source file '~ts': ~tP.", [File, R, 15]),
 	    {Set, true}
     end.
 
-check_name(M, M0, P0, File) ->
-    P = list_to_atom(packages:strip_last(M)),
-    N = packages:last(M),
-    N0 = packages:last(M0),
+check_name(M, M0, File) ->
+    N = M,
+    N0 = M0,
     case N of
 	[$? | _] ->
 	    %% A module name of the form '?...' is assumed to be caused
@@ -215,53 +213,18 @@ check_name(M, M0, P0, File) ->
 	    ok;
 	_ ->
 	    if N =/= N0 ->
-		    warning("file '~s' actually contains module '~s'.",
+		    warning("file '~ts' actually contains module '~s'.",
 			    [File, M]);
 	       true ->
 		    ok
 	    end
     end,
-    if P =/= P0 ->
-	    warning("file '~s' belongs to package '~s', not '~s'.",
-		    [File, P, P0]);
-       true ->
-	    ok
-    end.
-
-
-%% Generating the summary files for packages.
-
-%% INHERIT-OPTIONS: read_file/4
-%% INHERIT-OPTIONS: edoc_lib:run_layout/2
-
-packages(Packages, Dir, FileMap, Env, Options) ->
-    lists:foreach(fun (P) ->
-			  package(P, Dir, FileMap, Env, Options)
-		  end,
-		  Packages).
-
-package(P, Dir, FileMap, Env, Opts) ->
-    Tags = case FileMap(P) of
-	       "" ->
-		   [];
-	       File ->
-		   read_file(File, package, Env, Opts)
-	   end,
-    Data = edoc_data:package(P, Tags, Env, Opts),
-    F = fun (M) ->
-		M:package(Data, Opts)
-	end,
-    Text = edoc_lib:run_layout(F, Opts),
-    edoc_lib:write_file(Text, Dir, ?PACKAGE_SUMMARY, P).
-
+	ok.
 
 %% Creating an index file, with some frames optional.
 %% TODO: get rid of frames, or change doctype to Frameset
 
-index_file(Dir, Packages, Title) ->
-    Frame1 = {frame, [{src,?PACKAGES_FRAME},
-		      {name,"packagesFrame"},{title,""}],
-	      []},
+index_file(Dir, Title) ->
     Frame2 = {frame, [{src,?MODULES_FRAME},
 		      {name,"modulesFrame"},{title,""}],
 	      []},
@@ -269,16 +232,7 @@ index_file(Dir, Packages, Title) ->
 		      {name,"overviewFrame"},{title,""}],
 	      []},
     Frameset = {frameset, [{cols,"20%,80%"}],
-		case Packages of
-		    true ->
-			[?NL,
-			 {frameset, [{rows,"30%,70%"}],
-			  [?NL, Frame1, ?NL, Frame2, ?NL]}
-			];
-		    false ->
- 			[?NL, Frame2, ?NL]
-		end
-		++ [?NL, Frame3, ?NL,
+    	[?NL, Frame2, ?NL, ?NL, Frame3, ?NL,
 		    {noframes,
 		     [?NL,
 		      {h2, ["This page uses frames"]},
@@ -295,31 +249,13 @@ index_file(Dir, Packages, Title) ->
     Text = xmerl:export_simple([XML], xmerl_html, []),
     edoc_lib:write_file(Text, Dir, ?INDEX_FILE).
 
-packages_frame(Dir, Ps, Title, CSS) ->
-    Body = [?NL,
-	    {h2, [{class, "indextitle"}], ["Packages"]},
-	    ?NL,
-	    {table, [{width, "100%"}, {border, 0},
-		     {summary, "list of packages"}],
-	     lists:concat(
-	       [[?NL,
-		 {tr, [{td, [], [{a, [{href, package_ref(P)},
-				      {target,"overviewFrame"},
-				      {class, "package"}],
-				  [atom_to_list(P)]}]}]}]
-		|| P <- Ps])},
-	    ?NL],
-    XML = xhtml(Title, CSS, Body),
-    Text = xmerl:export_simple([XML], xmerl_html, []),
-    edoc_lib:write_file(Text, Dir, ?PACKAGES_FRAME).
-
 modules_frame(Dir, Ms, Title, CSS) ->
     Body = [?NL,
 	    {h2, [{class, "indextitle"}], ["Modules"]},
 	    ?NL,
 	    {table, [{width, "100%"}, {border, 0},
 		     {summary, "list of modules"}],
-	     lists:concat(
+	     lists:append(
 	       [[?NL,
 		 {tr, [{td, [],
 			[{a, [{href, module_ref(M)},
@@ -333,11 +269,7 @@ modules_frame(Dir, Ms, Title, CSS) ->
     edoc_lib:write_file(Text, Dir, ?MODULES_FRAME).
 
 module_ref(M) ->
-    edoc_refs:relative_package_path(M, '') ++ ?DEFAULT_FILE_SUFFIX.
-
-package_ref(P) ->
-    edoc_lib:join_uri(edoc_refs:relative_package_path(P, ''),
-		      ?PACKAGE_SUMMARY).
+    atom_to_list(M) ++ ?DEFAULT_FILE_SUFFIX.
 
 xhtml(Title, CSS, Content) ->
     xhtml_1(Title, CSS, {body, [{bgcolor, "white"}], Content}).
@@ -359,14 +291,19 @@ xhtml_1(Title, CSS, Body) ->
 overview(Dir, Title, Env, Opts) ->
     File = proplists:get_value(overview, Opts,
 			       filename:join(Dir, ?OVERVIEW_FILE)),
+    Encoding = edoc_lib:read_encoding(File, [{in_comment_only, false}]),
     Tags = read_file(File, overview, Env, Opts),
-    Data = edoc_data:overview(Title, Tags, Env, Opts),
+    Data0 = edoc_data:overview(Title, Tags, Env, Opts),
+    EncodingAttribute = #xmlAttribute{name = encoding,
+                                      value = atom_to_list(Encoding)},
+    #xmlElement{attributes = As} = Data0,
+    Data = Data0#xmlElement{attributes = [EncodingAttribute | As]},
     F = fun (M) ->
 		M:overview(Data, Opts)
 	end,
     Text = edoc_lib:run_layout(F, Opts),
-    edoc_lib:write_file(Text, Dir, ?OVERVIEW_SUMMARY).
-
+    EncOpts = [{encoding,Encoding}],
+    edoc_lib:write_file(Text, Dir, ?OVERVIEW_SUMMARY, EncOpts).
 
 copy_image(Dir) ->
     case code:priv_dir(?EDOC_APP) of
@@ -441,6 +378,12 @@ is_hidden(E) ->
  	_ -> false
     end.
 
+encoding(E) ->
+    case get_attrval(encoding, E) of
+        "latin1" -> latin1;
+        _ -> utf8
+    end.
+
 get_attrval(Name, #xmlElement{attributes = As}) ->
     case get_attr(Name, As) of
 	[#xmlAttribute{value = V}] ->
@@ -493,7 +436,7 @@ app_index_file(Paths, Dir, Env, Options) ->
 %    Priv = proplists:get_bool(private, Options),
     CSS = stylesheet(Options),
     Apps1 = [{filename:dirname(A),filename:basename(A)} || A <- Paths],
-    index_file(Dir, false, Title),
+    index_file(Dir, Title),
     application_frame(Dir, Apps1, Title, CSS),
     modules_frame(Dir, [], Title, CSS),
     overview(Dir, Title, Env, Options),
@@ -505,7 +448,7 @@ application_frame(Dir, Apps, Title, CSS) ->
 	    {h2, ["Applications"]},
 	    ?NL,
 	    {table, [{width, "100%"}, {border, 0}],
-	     lists:concat(
+	     lists:append(
 	       [[{tr, [{td, [], [{a, [{href,app_ref(Path,App)},
 				      {target,"_top"}],
 				  [App]}]}]}]

@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2008-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2008-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -51,7 +52,7 @@
 %%====================================================================
 
 %%--------------------------------------------------------------------
--spec decode(binary()) -> [pem_entry()].
+-spec decode(binary()) -> [public_key:pem_entry()].
 %%
 %% Description: Decodes a PEM binary.
 %%--------------------------------------------------------------------		    
@@ -59,7 +60,7 @@ decode(Bin) ->
     decode_pem_entries(split_bin(Bin), []).
 
 %%--------------------------------------------------------------------
--spec encode([pem_entry()]) -> iolist().
+-spec encode([public_key:pem_entry()]) -> iolist().
 %%
 %% Description: Encodes a list of PEM entries.
 %%--------------------------------------------------------------------		    
@@ -67,8 +68,9 @@ encode(PemEntries) ->
     encode_pem_entries(PemEntries).
 
 %%--------------------------------------------------------------------
--spec decipher({pki_asn1_type(), DerEncrypted::binary(),
-		{Cipher :: string(), Salt :: iodata() | #'PBES2-params'{}}},
+-spec decipher({public_key:pki_asn1_type(), DerEncrypted::binary(),
+		{Cipher :: string(), Salt :: iodata() | #'PBES2-params'{} 
+					   | {#'PBEParameter'{}, atom()}}},
 	       string()) -> Der::binary().
 %%
 %% Description: Deciphers a decrypted pem entry.
@@ -77,7 +79,8 @@ decipher({_, DecryptDer, {Cipher, KeyDevParams}}, Password) ->
     pubkey_pbe:decode(DecryptDer, Password, Cipher, KeyDevParams).
 
 %%--------------------------------------------------------------------
--spec cipher(Der::binary(), {Cipher :: string(), Salt :: iodata() | #'PBES2-params'{}} ,
+-spec cipher(Der::binary(), {Cipher :: string(), Salt :: iodata() | #'PBES2-params'{} 
+						       | {#'PBEParameter'{}, atom()}}, 
 	     string()) -> binary().
 %%
 %% Description: Ciphers a PEM entry
@@ -94,9 +97,13 @@ encode_pem_entries(Entries) ->
 encode_pem_entry({Type, Der, not_encrypted}) ->
     StartStr = pem_start(Type),
     [StartStr, "\n", b64encode_and_split(Der), "\n", pem_end(StartStr) ,"\n\n"];
+encode_pem_entry({'PrivateKeyInfo', Der, EncParams}) -> 
+    EncDer = encode_encrypted_private_keyinfo(Der, EncParams),
+    StartStr = pem_start('EncryptedPrivateKeyInfo'),
+    [StartStr, "\n", b64encode_and_split(EncDer), "\n", pem_end(StartStr) ,"\n\n"];
 encode_pem_entry({Type, Der, {Cipher, Salt}}) ->
     StartStr = pem_start(Type),
-    [StartStr,"\n", pem_decrypt(),"\n", pem_decrypt_info(Cipher, Salt),"\n",
+    [StartStr,"\n", pem_decrypt(),"\n", pem_decrypt_info(Cipher, Salt),"\n\n",
      b64encode_and_split(Der), "\n", pem_end(StartStr) ,"\n\n"].
 
 decode_pem_entries([], Entries) ->
@@ -137,8 +144,13 @@ decode_encrypted_private_keyinfo(Der) ->
 			       encryptedData = Data} = 
 	public_key:der_decode('EncryptedPrivateKeyInfo', Der),
     DecryptParams = pubkey_pbe:decrypt_parameters(AlgorithmInfo), 
-    {'PrivateKeyInfo', iolist_to_binary(Data), DecryptParams}.
+    {'PrivateKeyInfo', Data, DecryptParams}.
 
+encode_encrypted_private_keyinfo(EncData, EncryptParmams) ->
+    AlgorithmInfo = pubkey_pbe:encrypt_parameters(EncryptParmams),
+    public_key:der_encode('EncryptedPrivateKeyInfo',   
+			  #'EncryptedPrivateKeyInfo'{encryptionAlgorithm = AlgorithmInfo,
+						     encryptedData = EncData}).
 split_bin(Bin) ->
     split_bin(0, Bin).
 
@@ -167,6 +179,8 @@ split_lines(Bin) ->
 %% Ignore white space at end of line
 join_entry([<<"-----END ", _/binary>>| Lines], Entry) ->
     {lists:reverse(Entry), Lines};
+join_entry([<<"-----END X509 CRL-----", _/binary>>| Lines], Entry) ->
+    {lists:reverse(Entry), Lines};
 join_entry([Line | Lines], Entry) ->
     join_entry(Lines, [Line | Entry]).
 
@@ -194,7 +208,24 @@ pem_start('SubjectPublicKeyInfo') ->
 pem_start('DSAPrivateKey') ->
     <<"-----BEGIN DSA PRIVATE KEY-----">>;
 pem_start('DHParameter') ->
-    <<"-----BEGIN DH PARAMETERS-----">>.
+    <<"-----BEGIN DH PARAMETERS-----">>;
+pem_start('PrivateKeyInfo') ->
+    <<"-----BEGIN PRIVATE KEY-----">>;
+pem_start('EncryptedPrivateKeyInfo') ->
+    <<"-----BEGIN ENCRYPTED PRIVATE KEY-----">>;
+pem_start('CertificationRequest') ->
+    <<"-----BEGIN CERTIFICATE REQUEST-----">>;
+pem_start('ContentInfo') ->
+    <<"-----BEGIN PKCS7-----">>;
+pem_start('CertificateList') ->
+     <<"-----BEGIN X509 CRL-----">>;
+pem_start('EcpkParameters') ->
+    <<"-----BEGIN EC PARAMETERS-----">>;
+pem_start('ECPrivateKey') ->
+    <<"-----BEGIN EC PRIVATE KEY-----">>;
+pem_start({no_asn1, new_openssh}) ->  %% Temporarily in the prototype of this format
+    <<"-----BEGIN OPENSSH PRIVATE KEY-----">>.
+
 pem_end(<<"-----BEGIN CERTIFICATE-----">>) ->
     <<"-----END CERTIFICATE-----">>;
 pem_end(<<"-----BEGIN RSA PRIVATE KEY-----">>) ->
@@ -211,6 +242,18 @@ pem_end(<<"-----BEGIN PRIVATE KEY-----">>) ->
     <<"-----END PRIVATE KEY-----">>;
 pem_end(<<"-----BEGIN ENCRYPTED PRIVATE KEY-----">>) ->
     <<"-----END ENCRYPTED PRIVATE KEY-----">>;
+pem_end(<<"-----BEGIN CERTIFICATE REQUEST-----">>) ->
+    <<"-----END CERTIFICATE REQUEST-----">>;
+pem_end(<<"-----BEGIN PKCS7-----">>) ->
+    <<"-----END PKCS7-----">>;
+pem_end(<<"-----BEGIN X509 CRL-----">>) ->
+    <<"-----END X509 CRL-----">>;
+pem_end(<<"-----BEGIN EC PARAMETERS-----">>) ->
+    <<"-----END EC PARAMETERS-----">>;
+pem_end(<<"-----BEGIN EC PRIVATE KEY-----">>) ->
+    <<"-----END EC PRIVATE KEY-----">>;
+pem_end(<<"-----BEGIN OPENSSH PRIVATE KEY-----">>) ->
+    <<"-----END OPENSSH PRIVATE KEY-----">>;
 pem_end(_) ->
     undefined.
 
@@ -229,7 +272,20 @@ asn1_type(<<"-----BEGIN DH PARAMETERS-----">>) ->
 asn1_type(<<"-----BEGIN PRIVATE KEY-----">>) ->
     'PrivateKeyInfo';
 asn1_type(<<"-----BEGIN ENCRYPTED PRIVATE KEY-----">>) ->
-    'EncryptedPrivateKeyInfo'.
+    'EncryptedPrivateKeyInfo';
+asn1_type(<<"-----BEGIN CERTIFICATE REQUEST-----">>) ->
+    'CertificationRequest';
+asn1_type(<<"-----BEGIN PKCS7-----">>) ->
+    'ContentInfo';
+asn1_type(<<"-----BEGIN X509 CRL-----">>) ->
+    'CertificateList';
+asn1_type(<<"-----BEGIN EC PARAMETERS-----">>) ->
+    'EcpkParameters';
+asn1_type(<<"-----BEGIN EC PRIVATE KEY-----">>) ->
+    'ECPrivateKey';
+asn1_type(<<"-----BEGIN OPENSSH PRIVATE KEY-----">>) ->
+    {no_asn1, new_openssh}. %% Temporarily in the prototype of this format
+
 
 pem_decrypt() ->
     <<"Proc-Type: 4,ENCRYPTED">>.

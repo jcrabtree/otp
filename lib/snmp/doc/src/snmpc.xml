@@ -1,23 +1,24 @@
-<?xml version="1.0" encoding="iso-8859-1" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <!DOCTYPE erlref SYSTEM "erlref.dtd">
 
 <erlref>
   <header>
     <copyright>
-      <year>2004</year><year>2011</year>
+      <year>2004</year><year>2016</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
-      The contents of this file are subject to the Erlang Public License,
-      Version 1.1, (the "License"); you may not use this file except in
-      compliance with the License. You should have received a copy of the
-      Erlang Public License along with this software. If not, it can be
-      retrieved online at http://www.erlang.org/.
+      Licensed under the Apache License, Version 2.0 (the "License");
+      you may not use this file except in compliance with the License.
+      You may obtain a copy of the License at
+ 
+          http://www.apache.org/licenses/LICENSE-2.0
 
-      Software distributed under the License is distributed on an "AS IS"
-      basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-      the License for the specific language governing rights and limitations
-      under the License.
+      Unless required by applicable law or agreed to in writing, software
+      distributed under the License is distributed on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+      See the License for the specific language governing permissions and
+      limitations under the License.
 
     </legalnotice>
 
@@ -31,7 +32,7 @@
     <rev></rev>
     <file>snmpc.xml</file>
   </header>
-  <module>snmpc</module>
+  <module since="">snmpc</module>
   <modulesummary>Interface Functions to the SNMP toolkit MIB compiler</modulesummary>
   <description>
     <p>The module <c>snmpc</c> contains interface functions to the 
@@ -42,8 +43,8 @@
 
   <funcs>
     <func>
-      <name>compile(File)</name>
-      <name>compile(File, Options) -> {ok, BinFileName} | {error, Reason}</name>
+      <name since="">compile(File)</name>
+      <name since="">compile(File, Options) -> {ok, BinFileName} | {error, Reason}</name>
       <fsummary>Compile the specified MIB</fsummary>
       <type>
         <v>File = string()</v>
@@ -235,7 +236,7 @@
     </func>
 
     <func>
-      <name>is_consistent(Mibs) -> ok | {error, Reason}</name>
+      <name since="">is_consistent(Mibs) -> ok | {error, Reason}</name>
       <fsummary>Check for OID conflicts between MIBs</fsummary>
       <type>
         <v>Mibs = [MibName]</v>
@@ -251,7 +252,7 @@
     </func>
 
     <func>
-      <name>mib_to_hrl(MibName) -> ok | {error, Reason}</name>
+      <name since="">mib_to_hrl(MibName) -> ok | {error, Reason}</name>
       <fsummary>Generate constants for the objects in the MIB</fsummary>
       <type>
         <v>MibName = string()</v>

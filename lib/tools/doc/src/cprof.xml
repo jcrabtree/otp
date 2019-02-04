@@ -1,24 +1,25 @@
-<?xml version="1.0" encoding="latin1" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <!DOCTYPE erlref SYSTEM "erlref.dtd">
 
 <erlref>
   <header>
     <copyright>
       <year>2002</year>
-      <year>2011</year>
+      <year>2016</year>
       <holder>Ericsson AB, All Rights Reserved</holder>
     </copyright>
     <legalnotice>
-  The contents of this file are subject to the Erlang Public License,
-  Version 1.1, (the "License"); you may not use this file except in
-  compliance with the License. You should have received a copy of the
-  Erlang Public License along with this software. If not, it can be
-  retrieved online at http://www.erlang.org/.
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+ 
+      http://www.apache.org/licenses/LICENSE-2.0
 
-  Software distributed under the License is distributed on an "AS IS"
-  basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-  the License for the specific language governing rights and limitations
-  under the License.
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
 
   The Initial Developer of the Original Code is Ericsson AB.
     </legalnotice>
@@ -33,7 +34,7 @@
     <rev>PA1</rev>
     <file>cprof.sgml</file>
   </header>
-  <module>cprof</module>
+  <module since="">cprof</module>
   <modulesummary>A simple Call Count Profiling Tool using breakpoints for minimal runtime performance impact.</modulesummary>
   <description>
     <p>The <c>cprof</c> module is used to profile a program
@@ -64,10 +65,10 @@
   </description>
   <funcs>
     <func>
-      <name>analyse() -> {AllCallCount, ModAnalysisList}</name>
-      <name>analyse(Limit) -> {AllCallCount, ModAnalysisList}</name>
-      <name>analyse(Mod) -> ModAnlysis</name>
-      <name>analyse(Mod, Limit) -> ModAnalysis</name>
+      <name since="">analyse() -> {AllCallCount, ModAnalysisList}</name>
+      <name since="">analyse(Limit) -> {AllCallCount, ModAnalysisList}</name>
+      <name since="">analyse(Mod) -> ModAnalysis</name>
+      <name since="">analyse(Mod, Limit) -> ModAnalysis</name>
       <fsummary>Collect and analyse call counters.</fsummary>
       <type>
         <v>Limit = integer()</v>
@@ -121,7 +122,7 @@
       </desc>
     </func>
     <func>
-      <name>pause() -> integer()</name>
+      <name since="">pause() -> integer()</name>
       <fsummary>Pause running call count trace for all functions.</fsummary>
       <desc>
         <p>Pause call count tracing for all functions in all modules
@@ -136,9 +137,9 @@
       </desc>
     </func>
     <func>
-      <name>pause(FuncSpec) -> integer()</name>
-      <name>pause(Mod, Func) -> integer()</name>
-      <name>pause(Mod, Func, Arity) -> integer()</name>
+      <name since="">pause(FuncSpec) -> integer()</name>
+      <name since="">pause(Mod, Func) -> integer()</name>
+      <name since="">pause(Mod, Func, Arity) -> integer()</name>
       <fsummary>Pause running call count trace for matching functions.</fsummary>
       <type>
         <v>FuncSpec = Mod | {Mod,Func,Arity}, {FS}</v>
@@ -166,10 +167,10 @@
       </desc>
     </func>
     <func>
-      <name>restart() -> integer()</name>
-      <name>restart(FuncSpec) -> integer()</name>
-      <name>restart(Mod, Func) -> integer()</name>
-      <name>restart(Mod, Func, Arity) -> integer()</name>
+      <name since="">restart() -> integer()</name>
+      <name since="">restart(FuncSpec) -> integer()</name>
+      <name since="">restart(Mod, Func) -> integer()</name>
+      <name since="">restart(Mod, Func, Arity) -> integer()</name>
       <fsummary>Restart existing call counters for matching functions.</fsummary>
       <type>
         <v>FuncSpec = Mod | {Mod,Func,Arity}, {FS}</v>
@@ -196,7 +197,7 @@
       </desc>
     </func>
     <func>
-      <name>start() -> integer()</name>
+      <name since="">start() -> integer()</name>
       <fsummary>Start call count tracing for all functions.</fsummary>
       <desc>
         <p>Start call count tracing for all functions in all modules, 
@@ -211,9 +212,9 @@
       </desc>
     </func>
     <func>
-      <name>start(FuncSpec) -> integer()</name>
-      <name>start(Mod, Func) -> integer()</name>
-      <name>start(Mod, Func, Arity) -> integer()</name>
+      <name since="">start(FuncSpec) -> integer()</name>
+      <name since="">start(Mod, Func) -> integer()</name>
+      <name since="">start(Mod, Func, Arity) -> integer()</name>
       <fsummary>Start call count tracing for matching functions.</fsummary>
       <type>
         <v>FuncSpec = Mod | {Mod,Func,Arity}, {FS}</v>
@@ -239,7 +240,7 @@
       </desc>
     </func>
     <func>
-      <name>stop() -> integer()</name>
+      <name since="">stop() -> integer()</name>
       <fsummary>Stop call count tracing for all functions.</fsummary>
       <desc>
         <p>Stop call count tracing for all functions in all modules, 
@@ -254,9 +255,9 @@
       </desc>
     </func>
     <func>
-      <name>stop(FuncSpec) -> integer()</name>
-      <name>stop(Mod, Func) -> integer()</name>
-      <name>stop(Mod, Func, Arity) -> integer()</name>
+      <name since="">stop(FuncSpec) -> integer()</name>
+      <name since="">stop(Mod, Func) -> integer()</name>
+      <name since="">stop(Mod, Func, Arity) -> integer()</name>
       <fsummary>Stop call count tracing for matching functions.</fsummary>
       <type>
         <v>FuncSpec = Mod | {Mod,Func,Arity}, {FS}</v>

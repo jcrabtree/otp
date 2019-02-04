@@ -1,111 +1,812 @@
-<?xml version="1.0" encoding="iso-8859-1" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <!DOCTYPE erlref SYSTEM "erlref.dtd">
 
 <erlref>
   <header>
     <copyright>
-      <year>1999</year><year>2011</year>
+      <year>1999</year><year>2018</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
-      The contents of this file are subject to the Erlang Public License,
-      Version 1.1, (the "License"); you may not use this file except in
-      compliance with the License. You should have received a copy of the
-      Erlang Public License along with this software. If not, it can be
-      retrieved online at http://www.erlang.org/.
+      Licensed under the Apache License, Version 2.0 (the "License");
+      you may not use this file except in compliance with the License.
+      You may obtain a copy of the License at
 
-      Software distributed under the License is distributed on an "AS IS"
-      basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-      the License for the specific language governing rights and limitations
-      under the License.
+          http://www.apache.org/licenses/LICENSE-2.0
 
+      Unless required by applicable law or agreed to in writing, software
+      distributed under the License is distributed on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+      See the License for the specific language governing permissions and
+      limitations under the License.
     </legalnotice>
 
     <title>crypto</title>
-    <prepared>Peter H&ouml;gfeldt</prepared>
-    <docno></docno>
-    <date>2000-06-20</date>
-    <rev>B</rev>
   </header>
-  <module>crypto</module>
+  <module since="">crypto</module>
   <modulesummary>Crypto Functions</modulesummary>
   <description>
     <p>This module provides a set of cryptographic functions.
       </p>
-    <p>References:</p>
-    <list type="bulleted">
-      <item>
-        <p>md4: The MD4 Message Digest Algorithm (RFC 1320)</p>
-      </item>
-      <item>
-        <p>md5: The MD5 Message Digest Algorithm (RFC 1321)</p>
-      </item>
-      <item>
-        <p>sha: Secure Hash Standard (FIPS 180-2)</p>
-      </item>
-      <item>
-        <p>hmac: Keyed-Hashing for Message Authentication (RFC 2104)</p>
-      </item>
-      <item>
-        <p>des: Data Encryption Standard (FIPS 46-3)</p>
-      </item>
-      <item>
-        <p>aes: Advanced Encryption Standard (AES) (FIPS 197) </p>
-      </item>
-      <item>
-        <p>ecb, cbc, cfb, ofb, ctr: Recommendation for Block Cipher Modes
-          of Operation (NIST SP 800-38A).</p>
-      </item>
-      <item>
-        <p>rsa: Recommendation for Block Cipher Modes of Operation
-          (NIST 800-38A)</p>
-      </item>
-      <item>
-        <p>dss: Digital Signature Standard (FIPS 186-2)</p>
-      </item>
-    </list>
-    <p>The above publications can be found at <url href="http://csrc.nist.gov/publications">NIST publications</url>, at <url href="http://www.ietf.org">IETF</url>.
+      <taglist>
+	<tag>Hash functions</tag>
+	<item>
+	  <p></p>
+	  <taglist>
+	    <tag>SHA1, SHA2</tag>
+	    <item>
+	      <url href="https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf">
+		Secure Hash Standard [FIPS PUB 180-4]
+	      </url>
+	    </item>
+	    <tag>SHA3</tag>
+	      <item>
+		<url href="https://www.nist.gov/publications/sha-3-standard-permutation-based-hash-and-extendable-output-functions?pub_id=919061">
+		  SHA-3 Standard: Permutation-Based Hash and Extendable-Output Functions [FIPS PUB 202]
+		</url>		  
+	      </item>
+	    <tag>MD5</tag>
+	    <item>
+	      <url href="http://www.ietf.org/rfc/rfc1321.txt">The MD5 Message Digest Algorithm [RFC 1321]</url>
+	    </item>
+	    <tag>MD4</tag>
+	    <item>
+	      <url href="http://www.ietf.org/rfc/rfc1320.txt">The MD4 Message Digest Algorithm [RFC 1320]</url>
+	    </item>
+	  </taglist>
+	  <p></p>
+	</item>
+
+	<tag>MACs - Message Authentication Codes</tag>
+	<item>
+	  <p></p>
+	  <taglist>
+	    <tag>Hmac functions</tag>
+	    <item>
+              <url href="http://www.ietf.org/rfc/rfc2104.txt">
+		Keyed-Hashing for Message Authentication [RFC 2104]
+	      </url>
+	    </item>
+	    <tag>Cmac functions</tag>
+	    <item>
+              <url href="http://www.ietf.org/rfc/rfc4493.txt">
+		The AES-CMAC Algorithm [RFC 4493]
+	      </url>
+	    </item>
+	    <tag>POLY1305</tag>
+	    <item>
+	      <url href="http://www.ietf.org/rfc/rfc7539.txt">
+		ChaCha20 and Poly1305 for IETF Protocols [RFC 7539]
+	      </url>
+	    </item>
+	  </taglist>
+	  <p></p>
+	</item>
+
+	<tag>Symmetric Ciphers</tag>
+	<item>
+	  <p></p>
+	  <taglist>
+            <tag>DES, 3DES and AES</tag>
+	    <item>
+	      <url href="https://csrc.nist.gov/projects/block-cipher-techniques">Block Cipher Techniques [NIST]</url>
+	    </item>
+	    <tag>Blowfish</tag>
+	    <item>
+	      <url href="https://www.schneier.com/academic/archives/1994/09/description_of_a_new.html">
+		Fast Software Encryption, Cambridge Security Workshop Proceedings (December 1993), Springer-Verlag, 1994, pp. 191-204.
+	      </url>
+	    </item>
+	    <tag>Chacha20</tag>
+	    <item>
+	      <url href="http://www.ietf.org/rfc/rfc7539.txt">
+		ChaCha20 and Poly1305 for IETF Protocols [RFC 7539]
+	      </url>
+	    </item>
+	    <tag>Chacha20_poly1305</tag>
+	    <item>
+	      <url href="http://www.ietf.org/rfc/rfc7539.txt">
+		ChaCha20 and Poly1305 for IETF Protocols [RFC 7539]
+	      </url>
+	    </item>
+	  </taglist>
+	  <p></p>
+	</item>
+
+	<tag>Modes</tag>
+	<item>
+	  <p></p>
+	  <taglist>
+	    <tag>ECB, CBC, CFB, OFB and CTR</tag>
+	    <item>
+	      <url href="https://csrc.nist.gov/publications/detail/sp/800-38a/final">
+		Recommendation for Block Cipher Modes of Operation: Methods and Techniques [NIST SP 800-38A]
+	      </url>
+	    </item>
+	    <tag>GCM</tag>
+	    <item>
+              <url href="https://csrc.nist.gov/publications/detail/sp/800-38d/final">
+		Recommendation for Block Cipher Modes of Operation: Galois/Counter Mode (GCM) and GMAC [NIST SP 800-38D]
+	      </url>
+	    </item>
+	    <tag>CCM</tag>
+	    <item>
+	      <url href="https://nvlpubs.nist.gov/nistpubs/legacy/sp/nistspecialpublication800-38c.pdf">
+		Recommendation for Block Cipher Modes of Operation:
+		The CCM Mode for Authentication and Confidentiality [NIST SP 800-38C]
+	      </url>
+	    </item>
+	  </taglist>
+	  <p></p>
+	</item>
+
+	<tag>Asymetric Ciphers - Public Key Techniques</tag>
+	<item>
+	  <p></p>
+	  <taglist>
+	    <tag>RSA</tag>
+	    <item>
+              <url href="http://www.ietf.org/rfc/rfc3447.txt">
+		PKCS #1: RSA Cryptography Specifications [RFC 3447]
+	      </url>
+	    </item>
+	    <tag>DSS</tag>
+	    <item>
+	      <url href="https://csrc.nist.gov/publications/detail/fips/186/4/final">
+		Digital Signature Standard (DSS) [FIPS 186-4]
+	      </url>
+	    </item>
+	    <tag>ECDSA</tag>
+	    <item>
+	      <url href="http://csrc.nist.gov/groups/STM/cavp/documents/dss2/ecdsa2vs.pdf">
+		Elliptic Curve Digital Signature Algorithm [ECDSA]
+	      </url>
+	    </item>
+	    <tag>SRP</tag>
+	    <item>
+              <url href="http://www.ietf.org/rfc/rfc2945.txt">
+		The SRP Authentication and Key Exchange System [RFC 2945]
+	      </url>
+	    </item>
+	  </taglist>
+	  <p></p>
+	</item>
+      </taglist>
+
+    <note>
+      <p>The actual supported algorithms and features depends on their availability in the actual libcrypto used.
+      See the <seealso marker="crypto:crypto_app">crypto (App)</seealso> about dependencies.
       </p>
-    <p><em>Types</em></p>
-    <pre>
-byte() = 0 ... 255
-ioelem() = byte() | binary() | iolist()
-iolist() = [ioelem()]
-Mpint() = <![CDATA[<<ByteLen:32/integer-big, Bytes:ByteLen/binary>>]]>
-    </pre>
-    <p></p>
+      <p>Enabling FIPS mode will also disable algorithms and features.
+      </p>
+    </note>
+
+    <p>The <seealso marker="users_guide">CRYPTO User's Guide</seealso> has more information on
+    FIPS, Engines and Algorithm Details like key lengths.
+    </p>
   </description>
+
+  <datatypes>
+    <datatype_title>Ciphers</datatype_title>
+    <datatype>
+      <name name="stream_cipher"/>
+      <desc>
+	<p>Stream ciphers for
+	<seealso marker="#stream_encrypt-2">stream_encrypt/2</seealso> and
+	<seealso marker="#stream_decrypt-2">stream_decrypt/2</seealso> .
+	</p>
+      </desc>
+    </datatype>
+
+    <datatype>
+      <name name="block_cipher_with_iv"/>
+      <name name="cbc_cipher"/>
+      <name name="cfb_cipher"/>
+      <desc>
+	<p>Block ciphers with initialization vector for
+	<seealso marker="#block_encrypt-4">block_encrypt/4</seealso> and
+	<seealso marker="#block_decrypt-4">block_decrypt/4</seealso> .
+	</p>
+      </desc>
+    </datatype>
+
+    <datatype>
+      <name name="block_cipher_without_iv"/>
+      <name name="ecb_cipher"/>
+      <desc>
+	<p>Block ciphers without initialization vector for
+	<seealso marker="#block_encrypt-3">block_encrypt/3</seealso> and
+	<seealso marker="#block_decrypt-3">block_decrypt/3</seealso> .
+	</p>
+      </desc>
+    </datatype>
+
+    <datatype>
+      <name name="aead_cipher"/>
+      <desc>
+	<p>Ciphers with simultaneous MAC-calculation or MAC-checking.
+	<seealso marker="#block_encrypt-4">block_encrypt/4</seealso> and
+	<seealso marker="#block_decrypt-4">block_decrypt/4</seealso> .
+	</p>
+      </desc>
+    </datatype>
+
+    <datatype_title>Digests</datatype_title>
+    <datatype>
+      <name name="sha1"/>
+      <name name="sha2"/>
+      <name name="sha3"/>
+      <desc>
+      </desc>
+    </datatype>
+
+    <datatype>
+      <name name="compatibility_only_hash"/>
+      <desc>
+	<p>The <c>compatibility_only_hash()</c> algorithms are recommended only for compatibility with existing applications.</p>
+      </desc>
+    </datatype>
+
+    <datatype>
+      <name name="rsa_digest_type"/>
+      <desc>
+      </desc>
+    </datatype>
+
+    <datatype>
+      <name name="dss_digest_type"/>
+      <desc>
+      </desc>
+    </datatype>
+
+    <datatype>
+      <name name="ecdsa_digest_type"/>
+      <desc>
+      </desc>
+    </datatype>
+
+    <datatype_title>Elliptic Curves</datatype_title>
+    <datatype>
+      <name name="ec_named_curve"/>
+      <name name="edwards_curve_dh"/>
+      <name name="edwards_curve_ed"/>
+      <desc>
+	<p>Note that some curves are disabled if FIPS is enabled.</p>
+      </desc>
+    </datatype>
+
+    <datatype>
+      <name name="ec_explicit_curve"/>
+      <name name="ec_field"/>
+      <name name="ec_curve"/>
+      <desc>
+	<p>Parametric curve definition.</p>
+      </desc>
+    </datatype>
+
+    <datatype>
+      <name name="ec_prime_field"/>
+      <name name="ec_characteristic_two_field"/>
+      <name name="ec_basis"/>
+      <desc>
+	<p>Curve definition details.</p>
+      </desc>
+    </datatype>
+
+    <datatype_title>Keys</datatype_title>
+    <datatype>
+      <name name="key"/>
+      <name name="des3_key"/>
+      <desc>
+	<p>For keylengths, iv-sizes and blocksizes see the
+	<seealso marker="crypto:algorithm_details#ciphers">User's Guide</seealso>.
+	</p>
+	<p>A key for des3 is a list of three iolists</p>
+      </desc>
+    </datatype>
+
+    <datatype>
+      <name name="key_integer"/>
+      <desc>
+	<p>Always <c>binary()</c> when used as return value</p>
+      </desc>
+    </datatype>
+
+    <datatype_title>Public/Private Keys</datatype_title>
+    <datatype>
+      <name name="rsa_public"/>
+      <name name="rsa_private"/>
+      <name name="rsa_params"/>
+      <desc>
+	<code>rsa_public() = [E, N]</code>
+	<code>rsa_private() = [E, N, D] | [E, N, D, P1, P2, E1, E2, C]</code>
+	<p>Where E is the public exponent, N is public modulus and D is
+	the private exponent. The longer key format contains redundant
+	information that will make the calculation faster. P1,P2 are first
+	and second prime factors. E1,E2 are first and second exponents. C
+	is the CRT coefficient. Terminology is taken from <url href="http://www.ietf.org/rfc/rfc3477.txt"> RFC 3447</url>.</p>
+      </desc>
+    </datatype>
+
+    <datatype>
+      <name name="dss_public"/>
+      <name name="dss_private"/>
+      <desc>
+	<code>dss_public() = [P, Q, G, Y] </code>
+	<p>Where P, Q and G are the dss parameters and Y is the public key.</p>
+
+	<code>dss_private() = [P, Q, G, X] </code>
+	<p>Where P, Q and G are the dss parameters and X is the private key.</p>
+      </desc>
+    </datatype>
+
+    <datatype>
+      <name name="ecdsa_public"/>
+      <name name="ecdsa_private"/>
+      <name name="ecdsa_params"/>
+      <desc>
+      </desc>
+    </datatype>
+
+    <datatype>
+      <name name="eddsa_public"/>
+      <name name="eddsa_private"/>
+      <name name="eddsa_params"/>
+      <desc>
+      </desc>
+    </datatype>
+
+    <datatype>
+      <name name="srp_public"/>
+      <name name="srp_private"/>
+      <desc>
+	<code>srp_public() = key_integer() </code>
+	<p>Where is <c>A</c> or <c>B</c> from <url href="http://srp.stanford.edu/design.html">SRP design</url></p>
+	
+	<code>srp_private() = key_integer() </code>
+	<p>Where is  <c>a</c> or <c>b</c> from <url href="http://srp.stanford.edu/design.html">SRP design</url></p>
+      </desc>
+    </datatype>
+
+    <datatype>
+      <name name="srp_gen_params"/>
+      <name name="srp_comp_params"/>
+      <desc>
+	<marker id="type-srp_user_gen_params"/>
+	<code>srp_user_gen_params() = [DerivedKey::binary(), Prime::binary(), Generator::binary(), Version::atom()]</code>
+	<marker id="type-srp_host_gen_params"/>
+	<code>srp_host_gen_params() = [Verifier::binary(), Prime::binary(), Version::atom() ]</code>
+	<marker id="type-srp_user_comp_params"/>
+	<code>srp_user_comp_params() = [DerivedKey::binary(), Prime::binary(), Generator::binary(), Version::atom() | ScramblerArg::list()]</code>
+	<marker id="type-srp_host_comp_params"/>
+	<code>srp_host_comp_params() = [Verifier::binary(), Prime::binary(), Version::atom() | ScramblerArg::list()]</code>
+	<p>Where Verifier is <c>v</c>, Generator is <c>g</c> and Prime is<c> N</c>, DerivedKey is <c>X</c>, and Scrambler is
+	<c>u</c> (optional will be generated if not provided) from <url href="http://srp.stanford.edu/design.html">SRP design</url>
+	Version = '3' |  '6' |  '6a'
+	</p>
+      </desc>
+    </datatype>
+
+    <datatype_title>Public Key Ciphers</datatype_title>
+
+    <datatype>
+      <name name="pk_encrypt_decrypt_algs"/>
+      <desc>
+	<p>Algorithms for public key encrypt/decrypt. Only RSA is supported.</p>
+      </desc>
+    </datatype>
+
+    <datatype>
+      <name name="pk_encrypt_decrypt_opts"/>
+      <name name="rsa_opt"/>
+      <name name="rsa_padding"/>
+      <desc>
+	<p>Options for public key encrypt/decrypt. Only RSA is supported.</p>
+	 <warning>
+	   <!-- In RefMan rsa_opt(), rsa_sign_verify_opt() and User's man RSA -->
+	   <p>The RSA options are experimental.
+	   </p>
+	   <p>The exact set of options and there syntax <em>may</em> be changed
+	   without prior notice.</p>
+	</warning>
+      </desc>
+    </datatype>
+
+    <datatype>
+      <name name="rsa_compat_opts"/>
+      <desc>
+	<p>Those option forms are kept only for compatibility and should not be used in new code.</p>
+      </desc>
+    </datatype>
+
+    <datatype_title>Public Key Sign and Verify</datatype_title>
+
+    <datatype>
+      <name name="pk_sign_verify_algs"/>
+      <desc>
+	<p>Algorithms for sign and verify.</p>
+      </desc>
+    </datatype>
+
+    <datatype>
+      <name name="pk_sign_verify_opts"/>
+      <name name="rsa_sign_verify_opt"/>
+      <name name="rsa_sign_verify_padding"/>
+      <desc>
+	<p>Options for sign and verify.</p>
+	 <warning>
+	   <!-- In RefMan rsa_opt(), rsa_sign_verify_opt() and User's man RSA -->
+	   <p>The RSA options are experimental.
+	   </p>
+	   <p>The exact set of options and there syntax <em>may</em> be changed
+	   without prior notice.</p>
+	</warning>
+      </desc>
+    </datatype>
+
+    <datatype_title>Diffie-Hellman Keys and parameters</datatype_title>
+    <datatype>
+      <name name="dh_public"/>
+      <name name="dh_private"/>
+      <desc>
+      </desc>
+    </datatype>
+
+    <datatype>
+      <name name="dh_params"/>
+      <desc>
+	<code>dh_params() = [P, G] | [P, G, PrivateKeyBitLength]</code>
+      </desc>
+    </datatype>
+
+    <datatype>
+      <name name="ecdh_public"/>
+      <name name="ecdh_private"/>
+      <name name="ecdh_params"/>
+      <desc>
+      </desc>
+    </datatype>
+
+    <datatype_title>Types for Engines</datatype_title>
+
+    <datatype>
+      <name name="engine_key_ref"/>
+      <name name="engine_ref"/>
+      <desc>
+	<p>The result of a call to <seealso marker="#engine_load-3">engine_load/3</seealso>.
+	</p>
+      </desc>
+    </datatype>
+
+    <datatype>
+      <name name="key_id"/>
+      <desc>
+	<p>Identifies the key to be used. The format depends on the loaded engine. It is passed to
+	the <c>ENGINE_load_(private|public)_key</c> functions in libcrypto.
+	</p>
+      </desc>
+    </datatype>
+
+    <datatype>
+      <name name="password"/>
+      <desc>
+	<p>The password of the key stored in an engine.
+	</p>
+      </desc>
+    </datatype>
+
+    <datatype>
+      <name name="engine_method_type"/>
+    </datatype>
+
+    <datatype>
+      <name name="engine_cmnd"/>
+      <desc>
+	<p>Pre and Post commands for <seealso marker="#engine_load-3">engine_load/3 and /4</seealso>.
+	</p>
+      </desc>
+    </datatype>
+
+    <datatype_title>Internal data types</datatype_title>
+
+    <datatype>
+      <name name="stream_state"/>
+      <name name="hmac_state"/>
+      <name name="hash_state"/>
+      <desc>
+	<p>Contexts with an internal state that should not be manipulated but passed between function calls.
+	</p>
+      </desc>
+    </datatype>
+
+  </datatypes>
+
+  <!--================ FUNCTIONS ================-->
   <funcs>
     <func>
-      <name>start() -> ok</name>
-      <fsummary>Start the crypto server.</fsummary>
+      <name name="block_encrypt" arity="3" since="OTP 18.0"/>
+      <fsummary>Encrypt <c>PlainText</c> according to <c>Type</c> block cipher</fsummary>
       <desc>
-        <p>Starts the crypto server.</p>
+	<p>Encrypt <c>PlainText</c> according to <c>Type</c> block cipher.</p>
+	<p>May raise exception <c>error:notsup</c> in case the chosen <c>Type</c>
+	is not supported by the underlying libcrypto implementation.</p>
+	<p>For keylengths and blocksizes see the
+	<seealso marker="crypto:algorithm_details#ciphers">User's Guide</seealso>.
+	</p>
       </desc>
     </func>
+
     <func>
-      <name>stop() -> ok</name>
-      <fsummary>Stop the crypto server.</fsummary>
+      <name name="block_decrypt" arity="3" since="OTP 18.0"/>
+      <fsummary>Decrypt <c>CipherText</c> according to <c>Type</c> block cipher</fsummary>
       <desc>
-        <p>Stops the crypto server.</p>
+        <p>Decrypt <c>CipherText</c> according to <c>Type</c> block cipher.</p>
+	<p>May raise exception <c>error:notsup</c> in case the chosen <c>Type</c>
+	is not supported by the underlying libcrypto implementation.</p>
+	<p>For keylengths and blocksizes see the
+	<seealso marker="crypto:algorithm_details#ciphers">User's Guide</seealso>.
+	</p>
       </desc>
     </func>
+
     <func>
-      <name>info() -> [atom()]</name>
-      <fsummary>Provide a list of available crypto functions.</fsummary>
-      <desc>
-        <p>Provides the available crypto functions in terms of a list
-          of atoms.</p>
-      </desc>
-    </func>
-    <func>
-      <name>info_lib() -> [{Name,VerNum,VerStr}]</name>
-      <fsummary>Provides information about the libraries used by crypto.</fsummary>
+      <name since="OTP R16B01">block_encrypt(Type, Key, Ivec, PlainText) -> CipherText</name>
+      <name since="OTP R16B01">block_encrypt(AeadType, Key, Ivec, {AAD, PlainText}) -> {CipherText, CipherTag}</name>
+      <name since="OTP R16B01">block_encrypt(aes_gcm | aes_ccm, Key, Ivec, {AAD, PlainText, TagLength}) -> {CipherText, CipherTag}</name>
+      <fsummary>Encrypt <c>PlainText</c> according to <c>Type</c> block cipher</fsummary>
       <type>
-        <v>Name = binary()</v>
-        <v>VerNum = integer()</v>
-        <v>VerStr = binary()</v>
+	<v>Type = <seealso marker="#type-block_cipher_with_iv">block_cipher_with_iv()</seealso></v>
+	<v>AeadType = <seealso marker="#type-aead_cipher">aead_cipher()</seealso></v>
+	<v>Key = <seealso marker="#type-key">key()</seealso> | <seealso marker="#type-des3_key">des3_key()</seealso></v>
+        <v>PlainText = iodata()</v>
+        <v>AAD = IVec = CipherText = CipherTag = binary()</v>
+        <v>TagLength = 1..16</v>
       </type>
+      <desc>
+        <p>Encrypt <c>PlainText</c> according to <c>Type</c> block cipher.
+	<c>IVec</c> is an arbitrary initializing vector.</p>
+	<p>In AEAD (Authenticated Encryption with Associated Data) mode, encrypt
+	<c>PlainText</c>according to <c>Type</c> block cipher and calculate
+	<c>CipherTag</c> that also authenticates the <c>AAD</c> (Associated Authenticated Data).</p>
+	<p>May raise exception <c>error:notsup</c> in case the chosen <c>Type</c>
+	is not supported by the underlying libcrypto implementation.</p>
+	<p>For keylengths, iv-sizes and blocksizes see the
+	<seealso marker="crypto:algorithm_details#ciphers">User's Guide</seealso>.
+	</p>
+      </desc>
+    </func>
+
+    <func>
+      <name since="OTP R16B01">block_decrypt(Type, Key, Ivec, CipherText) -> PlainText</name>
+      <name since="OTP R16B01">block_decrypt(AeadType, Key, Ivec, {AAD, CipherText, CipherTag}) -> PlainText | error</name>
+      <fsummary>Decrypt <c>CipherText</c> according to <c>Type</c> block cipher</fsummary>
+      <type>
+	<v>Type = <seealso marker="#type-block_cipher_with_iv">block_cipher_with_iv()</seealso></v>
+	<v>AeadType = <seealso marker="#type-aead_cipher">aead_cipher()</seealso></v>
+	<v>Key = <seealso marker="#type-key">key()</seealso> | <seealso marker="#type-des3_key">des3_key()</seealso></v>
+        <v>PlainText = iodata()</v>
+        <v>AAD = IVec = CipherText = CipherTag = binary()</v>
+      </type>
+      <desc>
+        <p>Decrypt <c>CipherText</c> according to <c>Type</c> block cipher.
+	<c>IVec</c> is an arbitrary initializing vector.</p>
+        <p>In AEAD (Authenticated Encryption with Associated Data) mode, decrypt
+	<c>CipherText</c>according to <c>Type</c> block cipher and check the authenticity
+	the <c>PlainText</c> and <c>AAD</c> (Associated Authenticated Data) using the
+	<c>CipherTag</c>. May return <c>error</c> if the decryption or validation fail's</p>
+	<p>May raise exception <c>error:notsup</c> in case the chosen <c>Type</c>
+	is not supported by the underlying libcrypto implementation.</p>
+	<p>For keylengths, iv-sizes and blocksizes see the
+	<seealso marker="crypto:algorithm_details#ciphers">User's Guide</seealso>.
+	</p>
+      </desc>
+    </func>
+
+     <func>
+      <name name="bytes_to_integer" arity="1" since="OTP R16B01"/>
+      <fsummary>Convert binary representation, of an integer, to an Erlang integer.</fsummary>
+      <desc>
+        <p>Convert binary representation, of an integer, to an Erlang integer.
+         </p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="compute_key" arity="4" since="OTP R16B01"/>
+      <fsummary>Computes the shared secret</fsummary>
+      <desc>
+	<p>Computes the shared secret from the private key and the other party's public key.
+	 See also <seealso marker="public_key:public_key#compute_key-2">public_key:compute_key/2</seealso>
+	</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="exor" arity="2" since=""/>
+      <fsummary>XOR data</fsummary>
+      <desc>
+	<p>Performs bit-wise XOR (exclusive or) on the data supplied.</p>
+      </desc>
+    </func>
+
+
+    <func>
+      <name name="generate_key" arity="2" since="OTP R16B01"/>
+      <name name="generate_key" arity="3" since="OTP R16B01"/>
+      <fsummary>Generates a public key of type <c>Type</c></fsummary>
+      <desc>
+	<p>Generates a public key of type <c>Type</c>.
+	See also <seealso marker="public_key:public_key#generate_key-1">public_key:generate_key/1</seealso>.
+	May raise exception:
+        </p>
+        <list type="bulleted">
+          <item><c>error:badarg</c>: an argument is of wrong type or has an illegal value,</item>
+	  <item><c>error:low_entropy</c>: the random generator failed due to lack of secure "randomness",</item>
+          <item><c>error:computation_failed</c>: the computation fails of another reason than <c>low_entropy</c>.</item>
+        </list>
+	<note>
+	  <p>RSA key generation is only available if the runtime was
+	  built with dirty scheduler support. Otherwise, attempting to
+	  generate an RSA key will raise exception <c>error:notsup</c>.</p>
+	</note>
+      </desc>
+    </func>
+
+     <func>
+      <name name="hash" arity="2" since="OTP R15B02"/>
+      <fsummary></fsummary>
+      <desc>
+        <p>Computes a message digest of type <c>Type</c> from <c>Data</c>.</p>
+	<p>May raise exception <c>error:notsup</c> in case the chosen <c>Type</c>
+	is not supported by the underlying libcrypto implementation.</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="hash_init" arity="1" since="OTP R15B02"/>
+      <fsummary></fsummary>
+      <desc>
+        <p>Initializes the context for streaming hash operations. <c>Type</c> determines
+        which digest to use. The returned context should be used as argument
+	to <seealso marker="#hash_update-2">hash_update</seealso>.</p>
+	<p>May raise exception <c>error:notsup</c> in case the chosen <c>Type</c>
+	is not supported by the underlying libcrypto implementation.</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="hash_update" arity="2" since="OTP R15B02"/>
+      <fsummary></fsummary>
+      <desc>
+        <p>Updates the digest represented by <c>Context</c> using the given <c>Data</c>. <c>Context</c>
+        must have been generated using <seealso marker="#hash_init-1">hash_init</seealso>
+	or a previous call to this function. <c>Data</c> can be any length. <c>NewContext</c>
+        must be passed into the next call to <c>hash_update</c>
+	or <seealso marker="#hash_final-1">hash_final</seealso>.</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="hash_final" arity="1" since="OTP R15B02"/>
+      <fsummary></fsummary>
+      <desc>
+        <p>Finalizes the hash operation referenced by <c>Context</c> returned
+	from a previous call to <seealso marker="#hash_update-2">hash_update</seealso>.
+	The size of <c>Digest</c> is determined by the type of hash
+	function used to generate it.</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="hmac" arity="3" since="OTP R16B"/>
+      <name name="hmac" arity="4" since="OTP R16B"/>
+      <fsummary></fsummary>
+      <desc>
+        <p>Computes a HMAC of type <c>Type</c> from <c>Data</c> using
+        <c>Key</c> as the authentication key.</p> <p><c>MacLength</c>
+        will limit the size of the resultant <c>Mac</c>.</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="hmac_init" arity="2" since="OTP R14B03"/>
+      <fsummary></fsummary>
+      <desc>
+        <p>Initializes the context for streaming HMAC operations. <c>Type</c> determines
+        which hash function to use in the HMAC operation. <c>Key</c> is the authentication
+        key. The key can be any length.</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="hmac_update" arity="2" since="OTP R14B03"/>
+      <fsummary></fsummary>
+      <desc>
+        <p>Updates the HMAC represented by <c>Context</c> using the given <c>Data</c>. <c>Context</c>
+        must have been generated using an HMAC init function (such as
+        <seealso marker="#hmac_init-2">hmac_init</seealso>). <c>Data</c> can be any length. <c>NewContext</c>
+        must be passed into the next call to <c>hmac_update</c>
+	or to one of the functions <seealso marker="#hmac_final-1">hmac_final</seealso> and
+	<seealso marker="#hmac_final_n-2">hmac_final_n</seealso>
+	</p>
+	<warning><p>Do not use a <c>Context</c> as argument in more than one
+	call to	hmac_update or hmac_final. The semantics of reusing old contexts
+	in any way is undefined and could even crash the VM in earlier releases.
+	The reason for this limitation is a lack of support in the underlying
+	libcrypto	API.</p></warning>
+      </desc>
+    </func>
+
+    <func>
+      <name name="hmac_final" arity="1" since="OTP R14B03"/>
+      <fsummary></fsummary>
+      <desc>
+        <p>Finalizes the HMAC operation referenced by <c>Context</c>. The size of the resultant MAC is
+        determined by the type of hash function used to generate it.</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="hmac_final_n" arity="2" since="OTP R14B03"/>
+      <fsummary></fsummary>
+      <desc>
+        <p>Finalizes the HMAC operation referenced by <c>Context</c>. <c>HashLen</c> must be greater than
+        zero. <c>Mac</c> will be a binary with at most <c>HashLen</c> bytes. Note that if HashLen is greater than the actual number of bytes returned from the underlying hash, the returned hash will have fewer than <c>HashLen</c> bytes.</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="cmac" arity="3" since="OTP 20.0"/>
+      <name name="cmac" arity="4" since="OTP 20.0"/>
+      <fsummary>Calculates the Cipher-based Message Authentication Code.</fsummary>
+      <desc>
+        <p>Computes a CMAC of type <c>Type</c> from <c>Data</c> using
+        <c>Key</c> as the authentication key.</p> <p><c>MacLength</c>
+        will limit the size of the resultant <c>Mac</c>.</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="info_fips" arity="0" since="OTP 20.0"/>
+      <fsummary>Provides information about the FIPS operating status.</fsummary>
+      <desc>
+        <p>Provides information about the FIPS operating status of
+        crypto and the underlying libcrypto library. If crypto was built
+        with FIPS support this can be either <c>enabled</c> (when
+        running in FIPS mode) or <c>not_enabled</c>. For other builds
+        this value is always <c>not_supported</c>.
+	</p>
+	<p>See <seealso marker="#enable_fips_mode-1">enable_fips_mode/1</seealso> about how to enable
+	FIPS mode.
+	</p>
+        <warning>
+          <p>In FIPS mode all non-FIPS compliant algorithms are
+          disabled and raise exception <c>error:notsup</c>. Check
+          <seealso marker="#supports-0">supports</seealso> that in
+          FIPS mode returns the restricted list of available
+          algorithms.</p>
+        </warning>
+      </desc>
+    </func>
+
+    <func>
+      <name name="enable_fips_mode" arity="1" since="OTP 21.1"/>
+      <fsummary>Change FIPS mode.</fsummary>
+      <desc>
+        <p>Enables (<c>Enable = true</c>) or disables (<c>Enable = false</c>) FIPS mode. Returns <c>true</c> if
+	the operation was successful or <c>false</c> otherwise.
+	</p>
+	<p>Note that to enable FIPS mode succesfully, OTP must be built with the configure option <c>--enable-fips</c>,
+	and the underlying libcrypto must also support FIPS.
+	</p>
+	<p>See also <seealso marker="#info_fips-0">info_fips/0</seealso>.
+	</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="info_lib" arity="0" since=""/>
+      <fsummary>Provides information about the libraries used by crypto.</fsummary>
       <desc>
         <p>Provides the name and version of the libraries used by crypto.</p>
         <p><c>Name</c> is the name of the library. <c>VerNum</c> is
@@ -113,1110 +814,732 @@ Mpint() = <![CDATA[<<ByteLen:32/integer-big, Bytes:ByteLen/binary>>]]>
         scheme. <c>VerStr</c> contains a text variant of the version.</p>
         <pre>
 > <input>info_lib().</input>
-[{&lt;&lt;"OpenSSL"&gt;&gt;,9469983,&lt;&lt;"OpenSSL 0.9.8a 11 Oct 2005"&gt;&gt;}]
+[{&lt;&lt;"OpenSSL"&gt;&gt;,269484095,&lt;&lt;"OpenSSL 1.1.0c  10 Nov 2016""&gt;&gt;}]
         </pre>
-      </desc>
-    </func>
-    <func>
-      <name>md4(Data) -> Digest</name>
-      <fsummary>Compute an <c>MD4</c>message digest from <c>Data</c></fsummary>
-      <type>
-        <v>Data = iolist() | binary()</v>
-        <v>Digest = binary()</v>
-      </type>
-      <desc>
-        <p>Computes an <c>MD4</c> message digest from <c>Data</c>, where
-          the length of the digest is 128 bits (16 bytes).</p>
-      </desc>
-    </func>
-    <func>
-      <name>md4_init() -> Context</name>
-      <fsummary>Creates an MD4 context</fsummary>
-      <type>
-        <v>Context = binary()</v>
-      </type>
-      <desc>
-        <p>Creates an MD4 context, to be used in subsequent calls to
-          <c>md4_update/2</c>.</p>
-      </desc>
-    </func>
-    <func>
-      <name>md4_update(Context, Data) -> NewContext</name>
-      <fsummary>Update an MD4 <c>Context</c>with <c>Data</c>, and return a <c>NewContext</c></fsummary>
-      <type>
-        <v>Data = iolist() | binary()</v>
-        <v>Context = NewContext = binary()</v>
-      </type>
-      <desc>
-        <p>Updates an MD4 <c>Context</c> with <c>Data</c>, and returns
-          a <c>NewContext</c>.</p>
-      </desc>
-    </func>
-    <func>
-      <name>md4_final(Context) -> Digest</name>
-      <fsummary>Finish the update of an MD4 <c>Context</c>and return the computed <c>MD4</c>message digest</fsummary>
-      <type>
-        <v>Context = Digest = binary()</v>
-      </type>
-      <desc>
-        <p>Finishes the update of an MD4 <c>Context</c> and returns
-          the computed <c>MD4</c> message digest.</p>
-      </desc>
-    </func>
-    <func>
-      <name>md5(Data) -> Digest</name>
-      <fsummary>Compute an <c>MD5</c>message digest from <c>Data</c></fsummary>
-      <type>
-        <v>Data = iolist() | binary()</v>
-        <v>Digest = binary()</v>
-      </type>
-      <desc>
-        <p>Computes an <c>MD5</c> message digest from <c>Data</c>, where
-          the length of the digest is 128 bits (16 bytes).</p>
-      </desc>
-    </func>
-    <func>
-      <name>md5_init() -> Context</name>
-      <fsummary>Creates an MD5 context</fsummary>
-      <type>
-        <v>Context = binary()</v>
-      </type>
-      <desc>
-        <p>Creates an MD5 context, to be used in subsequent calls to 
-          <c>md5_update/2</c>.</p>
-      </desc>
-    </func>
-    <func>
-      <name>md5_update(Context, Data) -> NewContext</name>
-      <fsummary>Update an MD5 <c>Context</c>with <c>Data</c>, and return a <c>NewContext</c></fsummary>
-      <type>
-        <v>Data = iolist() | binary()</v>
-        <v>Context = NewContext = binary()</v>
-      </type>
-      <desc>
-        <p>Updates an MD5 <c>Context</c> with <c>Data</c>, and returns
-          a <c>NewContext</c>.</p>
-      </desc>
-    </func>
-    <func>
-      <name>md5_final(Context) -> Digest</name>
-      <fsummary>Finish the update of an MD5 <c>Context</c>and return the computed <c>MD5</c>message digest</fsummary>
-      <type>
-        <v>Context = Digest = binary()</v>
-      </type>
-      <desc>
-        <p>Finishes the update of an MD5 <c>Context</c> and returns
-          the computed <c>MD5</c> message digest.</p>
-      </desc>
-    </func>
-    <func>
-      <name>sha(Data) -> Digest</name>
-      <fsummary>Compute an <c>SHA</c>message digest from <c>Data</c></fsummary>
-      <type>
-        <v>Data = iolist() | binary()</v>
-        <v>Digest = binary()</v>
-      </type>
-      <desc>
-        <p>Computes an <c>SHA</c> message digest from <c>Data</c>, where
-          the length of the digest is 160 bits (20 bytes).</p>
-      </desc>
-    </func>
-    <func>
-      <name>sha_init() -> Context</name>
-      <fsummary>Create an SHA context</fsummary>
-      <type>
-        <v>Context = binary()</v>
-      </type>
-      <desc>
-        <p>Creates an SHA context, to be used in subsequent calls to 
-          <c>sha_update/2</c>.</p>
-      </desc>
-    </func>
-    <func>
-      <name>sha_update(Context, Data) -> NewContext</name>
-      <fsummary>Update an SHA context</fsummary>
-      <type>
-        <v>Data = iolist() | binary()</v>
-        <v>Context = NewContext = binary()</v>
-      </type>
-      <desc>
-        <p>Updates an SHA <c>Context</c> with <c>Data</c>, and returns
-          a <c>NewContext</c>.</p>
-      </desc>
-    </func>
-    <func>
-      <name>sha_final(Context) -> Digest</name>
-      <fsummary>Finish the update of an SHA context</fsummary>
-      <type>
-        <v>Context = Digest = binary()</v>
-      </type>
-      <desc>
-        <p>Finishes the update of an SHA <c>Context</c> and returns
-          the computed <c>SHA</c> message digest.</p>
-      </desc>
-    </func>
-    <func>
-      <name>md5_mac(Key, Data) -> Mac</name>
-      <fsummary>Compute an <c>MD5 MAC</c>message authentification code</fsummary>
-      <type>
-        <v>Key = Data = iolist() | binary()</v>
-        <v>Mac = binary()</v>
-      </type>
-      <desc>
-        <p>Computes an <c>MD5 MAC</c> message authentification code
-          from <c>Key</c> and <c>Data</c>, where the the length of the
-          Mac is 128 bits (16 bytes).</p>
-      </desc>
-    </func>
-    <func>
-      <name>md5_mac_96(Key, Data) -> Mac</name>
-      <fsummary>Compute an <c>MD5 MAC</c>message authentification code</fsummary>
-      <type>
-        <v>Key = Data = iolist() | binary()</v>
-        <v>Mac = binary()</v>
-      </type>
-      <desc>
-        <p>Computes an <c>MD5 MAC</c> message authentification code
-          from <c>Key</c> and <c>Data</c>, where the length of the Mac
-          is 96 bits (12 bytes).</p>
-      </desc>
-    </func>
-    <func>
-      <name>hmac_init(Type, Key) -> Context</name>
-      <fsummary></fsummary>
-      <type>
-        <v>Type = sha | md5 | ripemd160</v>
-        <v>Key = iolist() | binary()</v>
-        <v>Context = binary()</v>
-      </type>
-      <desc>
-        <p>Initializes the context for streaming HMAC operations. <c>Type</c> determines
-        which hash function to use in the HMAC operation. <c>Key</c> is the authentication
-        key. The key can be any length.</p>
-      </desc>
-    </func>
-    <func>
-      <name>hmac_update(Context, Data) -> NewContext</name>
-      <fsummary></fsummary>
-      <type>
-        <v>Context = NewContext = binary()</v>
-        <v>Data = iolist() | binary()</v>
-      </type>
-      <desc>
-        <p>Updates the HMAC represented by <c>Context</c> using the given <c>Data</c>. <c>Context</c>
-        must have been generated using an HMAC init function (such as 
-        <seealso marker="#hmac_init/2">hmac_init</seealso>). <c>Data</c> can be any length. <c>NewContext</c>
-        must be passed into the next call to <c>hmac_update</c>.</p>
-      </desc>
-    </func>
-    <func>
-      <name>hmac_final(Context) -> Mac</name>
-      <fsummary></fsummary>
-      <type>
-        <v>Context = Mac = binary()</v>
-      </type>
-      <desc>
-        <p>Finalizes the HMAC operation referenced by <c>Context</c>. The size of the resultant MAC is
-        determined by the type of hash function used to generate it.</p>
-      </desc>
-    </func>
-    <func>
-      <name>hmac_final_n(Context, HashLen) -> Mac</name>
-      <fsummary></fsummary>
-      <type>
-        <v>Context = Mac = binary()</v>
-        <v>HashLen = non_neg_integer()</v>
-      </type>
-      <desc>
-        <p>Finalizes the HMAC operation referenced by <c>Context</c>. <c>HashLen</c> must be greater than
-        zero. <c>Mac</c> will be a binary with at most <c>HashLen</c> bytes. Note that if HashLen is greater than the actual number of bytes returned from the underlying hash, the returned hash will have fewer than <c>HashLen</c> bytes.</p>
-      </desc>
-    </func>
-    <func>
-      <name>sha_mac(Key, Data) -> Mac</name>
-      <name>sha_mac(Key, Data, MacLength) -> Mac</name>
-      <fsummary>Compute an <c>MD5 MAC</c>message authentification code</fsummary>
-      <type>
-        <v>Key = Data = iolist() | binary()</v>
-        <v>Mac = binary()</v>
-	<v>MacLenength = integer() =&lt; 20 </v>
-      </type>
-      <desc>
-        <p>Computes an <c>SHA MAC</c> message authentification code
-          from <c>Key</c> and <c>Data</c>, where the default length of the Mac
-          is 160 bits (20 bytes).</p>
-      </desc>
-    </func>
-    <func>
-      <name>sha_mac_96(Key, Data) -> Mac</name>
-      <fsummary>Compute an <c>SHA MAC</c>message authentification code</fsummary>
-      <type>
-        <v>Key = Data = iolist() | binary()</v>
-        <v>Mac = binary()</v>
-      </type>
-      <desc>
-        <p>Computes an <c>SHA MAC</c> message authentification code
-          from <c>Key</c> and <c>Data</c>, where the length of the Mac
-          is 96 bits (12 bytes).</p>
-      </desc>
-    </func>
-    <func>
-      <name>des_cbc_encrypt(Key, IVec, Text) -> Cipher</name>
-      <fsummary>Encrypt <c>Text</c>according to DES in CBC mode</fsummary>
-      <type>
-        <v>Key = Text = iolist() | binary()</v>
-        <v>IVec = Cipher = binary()</v>
-      </type>
-      <desc>
-        <p>Encrypts <c>Text</c> according to DES in CBC
-          mode. <c>Text</c> must be a multiple of 64 bits (8
-          bytes). <c>Key</c> is the DES key, and <c>IVec</c> is an
-          arbitrary initializing vector. The lengths of <c>Key</c> and
-          <c>IVec</c> must be 64 bits (8 bytes).</p>
-      </desc>
-    </func>
-    <func>
-      <name>des_cbc_decrypt(Key, IVec, Cipher) -> Text</name>
-      <fsummary>Decrypt <c>Cipher</c>according to DES in CBC mode</fsummary>
-      <type>
-        <v>Key = Cipher = iolist() | binary()</v>
-        <v>IVec = Text = binary()</v>
-      </type>
-      <desc>
-        <p>Decrypts <c>Cipher</c> according to DES in CBC mode.
-          <c>Key</c> is the DES key, and <c>IVec</c> is an arbitrary
-          initializing vector.  <c>Key</c> and <c>IVec</c> must have
-          the same values as those used when encrypting. <c>Cipher</c>
-          must be a multiple of 64 bits (8 bytes).  The lengths of
-          <c>Key</c> and <c>IVec</c> must be 64 bits (8 bytes).</p>
-      </desc>
-    </func>
-    <func>
-      <name>des_cbc_ivec(Data) -> IVec</name>
-      <fsummary>Get <c>IVec</c> to be used in next iteration of
-                <c>des_cbc_[ecrypt|decrypt]</c></fsummary>
-      <type>
-        <v>Data = iolist() | binary()</v>
-        <v>IVec = binary()</v>
-      </type>
-      <desc>
-        <p>Returns the <c>IVec</c> to be used in a next iteration of 
-          <c>des_cbc_[encrypt|decrypt]</c>. <c>Data</c> is the encrypted
-          data from the previous iteration step.</p>
-      </desc>
-    </func>
-    <func>
-      <name>des_cfb_encrypt(Key, IVec, Text) -> Cipher</name>
-      <fsummary>Encrypt <c>Text</c>according to DES in CFB mode</fsummary>
-      <type>
-        <v>Key = Text = iolist() | binary()</v>
-        <v>IVec = Cipher = binary()</v>
-      </type>
-      <desc>
-        <p>Encrypts <c>Text</c> according to DES in 8-bit CFB
-          mode. <c>Key</c> is the DES key, and <c>IVec</c> is an
-          arbitrary initializing vector. The lengths of <c>Key</c> and
-          <c>IVec</c> must be 64 bits (8 bytes).</p>
-      </desc>
-    </func>
-    <func>
-      <name>des_cfb_decrypt(Key, IVec, Cipher) -> Text</name>
-      <fsummary>Decrypt <c>Cipher</c>according to DES in CFB mode</fsummary>
-      <type>
-        <v>Key = Cipher = iolist() | binary()</v>
-        <v>IVec = Text = binary()</v>
-      </type>
-      <desc>
-        <p>Decrypts <c>Cipher</c> according to DES in 8-bit CFB mode.
-          <c>Key</c> is the DES key, and <c>IVec</c> is an arbitrary
-          initializing vector.  <c>Key</c> and <c>IVec</c> must have
-          the same values as those used when encrypting.  The lengths of
-          <c>Key</c> and <c>IVec</c> must be 64 bits (8 bytes).</p>
-      </desc>
-    </func>
-    <func>
-      <name>des_cfb_ivec(IVec, Data) -> NextIVec</name>
-      <fsummary>Get <c>IVec</c> to be used in next iteration of
-                <c>des_cfb_[ecrypt|decrypt]</c></fsummary>
-      <type>
-        <v>IVec = iolist() | binary()</v>
-        <v>Data = iolist() | binary()</v>
-        <v>NextIVec = binary()</v>
-      </type>
-      <desc>
-        <p>Returns the <c>IVec</c> to be used in a next iteration of
-          <c>des_cfb_[encrypt|decrypt]</c>. <c>IVec</c> is the vector
-          used in the previous iteration step. <c>Data</c> is the encrypted
-          data from the previous iteration step.</p>
-      </desc>
-    </func>
-    <func>
-      <name>des3_cbc_encrypt(Key1, Key2, Key3, IVec, Text) -> Cipher</name>
-      <fsummary>Encrypt <c>Text</c>according to DES3 in CBC mode</fsummary>
-      <type>
-        <v>Key1 =Key2 = Key3 Text = iolist() | binary()</v>
-        <v>IVec = Cipher = binary()</v>
-      </type>
-      <desc>
-        <p>Encrypts <c>Text</c> according to DES3 in CBC
-          mode. <c>Text</c> must be a multiple of 64 bits (8
-          bytes). <c>Key1</c>, <c>Key2</c>, <c>Key3</c>, are the DES
-          keys, and <c>IVec</c> is an arbitrary initializing
-          vector. The lengths of each of <c>Key1</c>, <c>Key2</c>,
-          <c>Key3</c> and <c>IVec</c> must be 64 bits (8 bytes).</p>
-      </desc>
-    </func>
-    <func>
-      <name>des3_cbc_decrypt(Key1, Key2, Key3, IVec, Cipher) -> Text</name>
-      <fsummary>Decrypt <c>Cipher</c>according to DES3 in CBC mode</fsummary>
-      <type>
-        <v>Key1 = Key2 = Key3 = Cipher = iolist() | binary()</v>
-        <v>IVec = Text = binary()</v>
-      </type>
-      <desc>
-        <p>Decrypts <c>Cipher</c> according to DES3 in CBC mode.
-          <c>Key1</c>, <c>Key2</c>, <c>Key3</c> are the DES key, and
-          <c>IVec</c> is an arbitrary initializing vector.
-          <c>Key1</c>, <c>Key2</c>, <c>Key3</c> and <c>IVec</c> must
-          and <c>IVec</c> must have the same values as those used when
-          encrypting. <c>Cipher</c> must be a multiple of 64 bits (8
-          bytes).  The lengths of <c>Key1</c>, <c>Key2</c>,
-          <c>Key3</c>, and <c>IVec</c> must be 64 bits (8 bytes).</p>
-      </desc>
-    </func>
-    <func>
-      <name>des3_cfb_encrypt(Key1, Key2, Key3, IVec, Text) -> Cipher</name>
-      <fsummary>Encrypt <c>Text</c>according to DES3 in CFB mode</fsummary>
-      <type>
-        <v>Key1 =Key2 = Key3 Text = iolist() | binary()</v>
-        <v>IVec = Cipher = binary()</v>
-      </type>
-      <desc>
-        <p>Encrypts <c>Text</c> according to DES3 in 8-bit CFB
-          mode. <c>Key1</c>, <c>Key2</c>, <c>Key3</c>, are the DES
-          keys, and <c>IVec</c> is an arbitrary initializing
-          vector. The lengths of each of <c>Key1</c>, <c>Key2</c>,
-          <c>Key3</c> and <c>IVec</c> must be 64 bits (8 bytes).</p>
-      </desc>
-    </func>
-    <func>
-      <name>des3_cfb_decrypt(Key1, Key2, Key3, IVec, Cipher) -> Text</name>
-      <fsummary>Decrypt <c>Cipher</c>according to DES3 in CFB mode</fsummary>
-      <type>
-        <v>Key1 = Key2 = Key3 = Cipher = iolist() | binary()</v>
-        <v>IVec = Text = binary()</v>
-      </type>
-      <desc>
-        <p>Decrypts <c>Cipher</c> according to DES3 in 8-bit CFB mode.
-          <c>Key1</c>, <c>Key2</c>, <c>Key3</c> are the DES key, and
-          <c>IVec</c> is an arbitrary initializing vector.
-          <c>Key1</c>, <c>Key2</c>, <c>Key3</c> and <c>IVec</c> must
-          and <c>IVec</c> must have the same values as those used when
-          encrypting.  The lengths of <c>Key1</c>, <c>Key2</c>,
-          <c>Key3</c>, and <c>IVec</c> must be 64 bits (8 bytes).</p>
+	<note><p>
+	  From OTP R16 the <em>numeric version</em> represents the version of the OpenSSL
+	  <em>header files</em> (<c>openssl/opensslv.h</c>) used when crypto was compiled.
+	  The text variant represents the libcrypto library used at runtime.
+	  In earlier OTP versions both numeric and text was taken from the library.
+	</p></note>
       </desc>
     </func>
 
     <func>
-      <name>des_ecb_encrypt(Key, Text) -> Cipher</name>
-      <fsummary>Encrypt <c>Text</c>according to DES in ECB mode</fsummary>
-      <type>
-        <v>Key = Text = iolist() | binary()</v>
-        <v>Cipher = binary()</v>
-      </type>
+      <name name="mod_pow" arity="3" since="OTP R16B01"/>
+      <fsummary>Computes the function: N^P mod M</fsummary>
       <desc>
-        <p>Encrypts <c>Text</c> according to DES in ECB mode.
-          <c>Key</c> is the DES key. The lengths of <c>Key</c> and
-          <c>Text</c> must be 64 bits (8 bytes).</p>
-      </desc>
-    </func>
-    <func>
-      <name>des_ecb_decrypt(Key, Cipher) -> Text</name>
-      <fsummary>Decrypt <c>Cipher</c>according to DES in ECB mode</fsummary>
-      <type>
-        <v>Key = Cipher = iolist() | binary()</v>
-        <v>Text = binary()</v>
-      </type>
-      <desc>
-        <p>Decrypts <c>Cipher</c> according to DES in ECB mode.
-          <c>Key</c> is the DES key. The lengths of <c>Key</c> and
-          <c>Cipher</c> must be 64 bits (8 bytes).</p>
+	<p>Computes the function <c>N^P mod M</c>.</p>
       </desc>
     </func>
 
     <func>
-      <name>blowfish_ecb_encrypt(Key, Text) -> Cipher</name>
-      <fsummary>Encrypt the first 64 bits of <c>Text</c> using Blowfish in ECB mode</fsummary>
-      <type>
-        <v>Key = Text = iolist() | binary()</v>
-        <v>Cipher = binary()</v>
-      </type>
-      <desc>
-        <p>Encrypts the first 64 bits of <c>Text</c> using Blowfish in ECB mode. <c>Key</c> is the Blowfish key. The length of <c>Text</c> must be at least 64 bits (8 bytes).</p>
-      </desc>
-    </func>
-    <func>
-      <name>blowfish_ecb_decrypt(Key, Text) -> Cipher</name>
-      <fsummary>Decrypt the first 64 bits of <c>Text</c> using Blowfish in ECB mode</fsummary>
-      <type>
-        <v>Key = Text = iolist() | binary()</v>
-        <v>Cipher = binary()</v>
-      </type>
-      <desc>
-        <p>Decrypts the first 64 bits of <c>Text</c> using Blowfish in ECB mode. <c>Key</c> is the Blowfish key. The length of <c>Text</c> must be at least 64 bits (8 bytes).</p>
-      </desc>
-    </func>
-
-    <func>
-      <name>blowfish_cbc_encrypt(Key, IVec, Text) -> Cipher</name>
-      <fsummary>Encrypt <c>Text</c> using Blowfish in CBC mode</fsummary>
-      <type>
-        <v>Key = Text = iolist() | binary()</v>
-        <v>IVec = Cipher = binary()</v>
-      </type>
-      <desc>
-        <p>Encrypts <c>Text</c> using Blowfish in CBC mode. <c>Key</c> is the Blowfish key, and <c>IVec</c> is an
-          arbitrary initializing vector. The length of <c>IVec</c>
-          must be 64 bits (8 bytes). The length of <c>Text</c> must be a multiple of 64 bits (8 bytes).</p>
-      </desc>
-    </func>
-    <func>
-      <name>blowfish_cbc_decrypt(Key, IVec, Text) -> Cipher</name>
-      <fsummary>Decrypt <c>Text</c> using Blowfish in CBC mode</fsummary>
-      <type>
-        <v>Key = Text = iolist() | binary()</v>
-        <v>IVec = Cipher = binary()</v>
-      </type>
-      <desc>
-        <p>Decrypts <c>Text</c> using Blowfish in CBC mode. <c>Key</c> is the Blowfish key, and <c>IVec</c> is an
-          arbitrary initializing vector. The length of <c>IVec</c>
-          must be 64 bits (8 bytes). The length of <c>Text</c> must be a multiple 64 bits (8 bytes).</p>
-      </desc>
-    </func>
-
-    <func>
-      <name>blowfish_cfb64_encrypt(Key, IVec, Text) -> Cipher</name>
-      <fsummary>Encrypt <c>Text</c>using Blowfish in CFB mode with 64
-        bit feedback</fsummary>
-      <type>
-        <v>Key = Text = iolist() | binary()</v>
-        <v>IVec = Cipher = binary()</v>
-      </type>
-      <desc>
-        <p>Encrypts <c>Text</c> using Blowfish in CFB mode with 64 bit
-          feedback. <c>Key</c> is the Blowfish key, and <c>IVec</c> is an
-          arbitrary initializing vector. The length of <c>IVec</c>
-          must be 64 bits (8 bytes).</p>
-      </desc>
-    </func>
-    <func>
-      <name>blowfish_cfb64_decrypt(Key, IVec, Text) -> Cipher</name>
-      <fsummary>Decrypt <c>Text</c>using Blowfish in CFB mode with 64
-        bit feedback</fsummary>
-      <type>
-        <v>Key = Text = iolist() | binary()</v>
-        <v>IVec = Cipher = binary()</v>
-      </type>
-      <desc>
-        <p>Decrypts <c>Text</c> using Blowfish in CFB mode with 64 bit
-          feedback. <c>Key</c> is the Blowfish key, and <c>IVec</c> is an
-          arbitrary initializing vector. The length of <c>IVec</c>
-          must be 64 bits (8 bytes).</p>
-      </desc>
-    </func>
-
-    <func>
-      <name>blowfish_ofb64_encrypt(Key, IVec, Text) -> Cipher</name>
-      <fsummary>Encrypt <c>Text</c>using Blowfish in OFB mode with 64
-        bit feedback</fsummary>
-      <type>
-        <v>Key = Text = iolist() | binary()</v>
-        <v>IVec = Cipher = binary()</v>
-      </type>
-      <desc>
-        <p>Encrypts <c>Text</c> using Blowfish in OFB mode with 64 bit
-          feedback. <c>Key</c> is the Blowfish key, and <c>IVec</c> is an
-          arbitrary initializing vector. The length of <c>IVec</c>
-          must be 64 bits (8 bytes).</p>
-      </desc>
-    </func>
-
-    <func>
-      <name>aes_cfb_128_encrypt(Key, IVec, Text) -> Cipher</name>
-      <name>aes_cbc_128_encrypt(Key, IVec, Text) -> Cipher</name>
-      <fsummary>Encrypt <c>Text</c>according to AES in Cipher Feedback  mode or Cipher Block Chaining mode</fsummary>
-      <type>
-        <v>Key = Text = iolist() | binary()</v>
-        <v>IVec = Cipher = binary()</v>
-      </type>
-      <desc>
-        <p>Encrypts <c>Text</c> according to AES in Cipher Feedback 
-          mode (CFB) or Cipher Block Chaining mode (CBC). <c>Text</c>
-          must be a multiple of 128 bits (16 bytes). <c>Key</c> is the
-          AES key, and <c>IVec</c> is an arbitrary initializing vector.
-          The lengths of <c>Key</c> and <c>IVec</c> must be 128 bits
-          (16 bytes).</p>
-      </desc>
-    </func>
-    <func>
-      <name>aes_cfb_128_decrypt(Key, IVec, Cipher) -> Text</name>
-      <name>aes_cbc_128_decrypt(Key, IVec, Cipher) -> Text</name>
-      <fsummary>Decrypt <c>Cipher</c>according to AES in Cipher Feedback  mode or Cipher Block Chaining mode</fsummary>
-      <type>
-        <v>Key = Cipher = iolist() | binary()</v>
-        <v>IVec = Text = binary()</v>
-      </type>
-      <desc>
-        <p>Decrypts <c>Cipher</c> according to Cipher Feedback Mode (CFB)
-          or Cipher Block Chaining mode (CBC).
-          <c>Key</c> is the AES key, and <c>IVec</c> is an arbitrary
-          initializing vector. <c>Key</c> and <c>IVec</c> must have
-          the same values as those used when encrypting. <c>Cipher</c>
-          must be a multiple of 128 bits (16 bytes).  The lengths of
-          <c>Key</c> and <c>IVec</c> must be 128 bits (16 bytes).</p>
-      </desc>
-    </func>
-    <func>
-      <name>aes_cbc_ivec(Data) -> IVec</name>
-      <fsummary>Get <c>IVec</c> to be used in next iteration of
-                <c>aes_cbc_*_[ecrypt|decrypt]</c></fsummary>
-      <type>
-        <v>Data = iolist() | binary()</v>
-        <v>IVec = binary()</v>
-      </type>
-      <desc>
-        <p>Returns the <c>IVec</c> to be used in a next iteration of 
-          <c>aes_cbc_*_[encrypt|decrypt]</c>. <c>Data</c> is the encrypted
-          data from the previous iteration step.</p>
-      </desc>
-    </func>
-    <func>
-      <name>aes_ctr_encrypt(Key, IVec, Text) -> Cipher</name>
-      <fsummary>Encrypt <c>Text</c>according to AES in Counter mode</fsummary>
-      <type>
-        <v>Key = Text = iolist() | binary()</v>
-        <v>IVec = Cipher = binary()</v>
-      </type>
-      <desc>
-      <p>Encrypts <c>Text</c> according to AES in Counter mode (CTR). <c>Text</c>
-        can be any number of bytes. <c>Key</c> is the AES key and must be either
-        128, 192 or 256 bits long. <c>IVec</c> is an arbitrary initializing vector of 128 bits
-        (16 bytes).</p>
-    </desc>
-    </func>
-    <func>
-      <name>aes_ctr_decrypt(Key, IVec, Cipher) -> Text</name>
-      <fsummary>Decrypt <c>Cipher</c>according to AES in Counter mode</fsummary>
-      <type>
-        <v>Key = Cipher = iolist() | binary()</v>
-        <v>IVec = Text = binary()</v>
-      </type>
-      <desc>
-      <p>Decrypts <c>Cipher</c> according to AES in Counter mode (CTR). <c>Cipher</c>
-        can be any number of bytes. <c>Key</c> is the AES key and must be either
-        128, 192 or 256 bits long. <c>IVec</c> is an arbitrary initializing vector of 128 bits
-        (16 bytes).</p>
-    </desc>
-    </func>
-    <func>
-      <name>aes_ctr_stream_init(Key, IVec) -> State</name>
+      <name name="next_iv" arity="2" since="OTP R16B01"/>
+      <name name="next_iv" arity="3" since="OTP R16B01"/>
       <fsummary></fsummary>
-      <type>
-        <v>State = { K, I, E, C }</v>
-        <v>Key = K = iolist()</v>
-        <v>IVec = I = E = binary()</v>
-        <v>C = integer()</v>
-      </type>
       <desc>
-        <p>Initializes the state for use in streaming AES encryption using Counter mode (CTR).
-        <c>Key</c> is the AES key and must be either 128, 192, or 256 bts long. <c>IVec</c> is
-        an arbitrary initializing vector of 128 bits (16 bytes). This state is for use with
-        <seealso marker="#aes_ctr_stream_encrypt/2">aes_ctr_stream_encrypt</seealso> and 
-        <seealso marker="#aes_ctr_stream_decrypt/2">aes_ctr_stream_decrypt</seealso>.</p>
+	<p>Returns the initialization vector to be used in the next
+	iteration of encrypt/decrypt of type <c>Type</c>. <c>Data</c> is the
+	encrypted data from the previous iteration step. The <c>IVec</c>
+	argument is only needed for <c>des_cfb</c> as the vector used
+	in the previous iteration step.</p>
       </desc>
     </func>
+
     <func>
-      <name>aes_ctr_stream_encrypt(State, Text) -> { NewState, Cipher}</name>
+      <name name="poly1305" arity="2" since="OTP 21.1"/>
       <fsummary></fsummary>
-      <type>
-        <v>Text = iolist() | binary()</v>
-        <v>Cipher = binary()</v>
-      </type>
       <desc>
-      <p>Encrypts <c>Text</c> according to AES in Counter mode (CTR).  This function can be
-        used to encrypt a stream of text using a series of calls instead of requiring all
-        text to be in memory. <c>Text</c> can be any number of bytes. State is initialized using 
-        <seealso marker="#aes_ctr_stream_init/2">aes_ctr_stream_init</seealso>. <c>NewState</c> is the new streaming
-        encryption state that must be passed to the next call to <c>aes_ctr_stream_encrypt</c>.
-        <c>Cipher</c> is the encrypted cipher text.</p>
+        <p>Computes a POLY1305 message authentication code (<c>Mac</c>) from <c>Data</c> using
+        <c>Key</c> as the authentication key.</p>
       </desc>
     </func>
+
     <func>
-      <name>aes_ctr_stream_decrypt(State, Cipher) -> { NewState, Text }</name>
-      <fsummary></fsummary>
-      <type>
-        <v>Cipher = iolist() | binary()</v>
-        <v>Text = binary()</v>
-      </type>
+      <name name="private_decrypt" arity="4" since="OTP R16B01"/>
+      <fsummary>Decrypts CipherText using the private Key.</fsummary>
       <desc>
-      <p>Decrypts <c>Cipher</c> according to AES in Counter mode (CTR). This function can be
-        used to decrypt a stream of ciphertext using a series of calls instead of requiring all
-        ciphertext to be in memory.  <c>Cipher</c> can be any number of bytes. State is initialized using 
-        <seealso marker="#aes_ctr_stream_init/2">aes_ctr_stream_init</seealso>. <c>NewState</c> is the new streaming
-        encryption state that must be passed to the next call to <c>aes_ctr_stream_encrypt</c>.
-        <c>Text</c> is the decrypted data.</p>
+	<p>Decrypts the <c>CipherText</c>, encrypted with
+	<seealso marker="#public_encrypt-4">public_encrypt/4</seealso> (or equivalent function)
+	  using the <c>PrivateKey</c>, and returns the
+	  plaintext (message digest). This is a low level signature  verification operation
+	used for instance by older versions of the SSL protocol.
+	  See also <seealso marker="public_key:public_key#decrypt_private-2">public_key:decrypt_private/[2,3]</seealso>
+	</p>
       </desc>
     </func>
+
     <func>
-      <name>erlint(Mpint) -> N</name>
-      <name>mpint(N) -> Mpint</name>
-      <fsummary>Convert between binary multi-precision integer and erlang big integer</fsummary>
-      <type>
-        <v>Mpint = binary()</v>
-        <v>N = integer()</v>
-      </type>
+      <name name="private_encrypt" arity="4" since="OTP R16B01"/>
+      <fsummary>Encrypts PlainText using the private Key.</fsummary>
       <desc>
-        <p>Convert a binary multi-precision integer <c>Mpint</c> to and from
-          an erlang big integer. A multi-precision integer is a binary
-          with the following form:
-          <c><![CDATA[<<ByteLen:32/integer, Bytes:ByteLen/binary>>]]></c> where both
-          <c>ByteLen</c> and <c>Bytes</c> are big-endian. Mpints are used in
-          some of the functions in <c>crypto</c> and are not translated
-          in the API for performance reasons.</p>
+	<p>Encrypts the <c>PlainText</c> using the <c>PrivateKey</c>
+	and returns the ciphertext. This is a low level signature operation
+	used for instance by older versions of the SSL protocol. See
+	also <seealso
+	marker="public_key:public_key#encrypt_private-2">public_key:encrypt_private/[2,3]</seealso>
+	</p>
       </desc>
     </func>
+
     <func>
-      <name>rand_bytes(N) -> binary()</name>
+      <name name="public_decrypt" arity="4" since="OTP R16B01"/>
+      <fsummary>Decrypts CipherText using the public Key.</fsummary>
+      <desc>
+	<p>Decrypts the <c>CipherText</c>, encrypted with
+	<seealso marker="#private_encrypt-4">private_encrypt/4</seealso>(or equivalent function)
+	  using the <c>PrivateKey</c>, and returns the
+	  plaintext (message digest). This is a low level signature verification operation
+	  used for instance by older versions of the SSL protocol.
+	  See also <seealso marker="public_key:public_key#decrypt_public-2">public_key:decrypt_public/[2,3]</seealso>
+	</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="public_encrypt" arity="4" since="OTP R16B01"/>
+      <fsummary>Encrypts PlainText using the public Key.</fsummary>
+      <desc>
+	<p>Encrypts the <c>PlainText</c> (message digest) using the <c>PublicKey</c>
+	and returns the <c>CipherText</c>. This is a low level signature operation
+	used for instance by older versions of the SSL protocol. See also <seealso
+	marker="public_key:public_key#encrypt_public-2">public_key:encrypt_public/[2,3]</seealso>
+	</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="rand_seed" arity="1" since="OTP 17.0"/>
+      <fsummary>Set the seed for random bytes generation</fsummary>
+      <desc>
+        <p>Set the seed for PRNG to the given binary. This calls the
+        RAND_seed function from openssl. Only use this if the system
+        you are running on does not have enough "randomness" built in.
+        Normally this is when
+        <seealso marker="#strong_rand_bytes/1">strong_rand_bytes/1</seealso>
+        raises <c>error:low_entropy</c></p>
+      </desc>
+    </func>
+
+     <func>
+      <name since="">rand_uniform(Lo, Hi) -> N</name>
+      <fsummary>Generate a random number</fsummary>
+      <type>
+        <v>Lo, Hi, N = integer()</v>
+      </type>
+      <desc>
+        <p>Generate a random number <c><![CDATA[N, Lo =< N < Hi.]]></c> Uses the
+	<c>crypto</c> library pseudo-random number generator.
+	<c>Hi</c> must be larger than <c>Lo</c>.</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="start" arity="0" since=""/>
+      <fsummary> Equivalent to application:start(crypto). </fsummary>
+      <desc>
+        <p> Equivalent to application:start(crypto).</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="stop" arity="0" since=""/>
+      <fsummary> Equivalent to application:stop(crypto).</fsummary>
+      <desc>
+        <p> Equivalent to application:stop(crypto).</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="strong_rand_bytes" arity="1" since="OTP R14B03"/>
       <fsummary>Generate a binary of random bytes</fsummary>
-      <type>
-        <v>N = integer()</v>
-      </type>
-      <desc>
-        <p>Generates N bytes randomly uniform 0..255, and returns the
-          result in a binary. Uses the <c>crypto</c> library pseudo-random
-          number generator.</p>
-      </desc>
-    </func>
-    <func>
-      <name>strong_rand_bytes(N) -> binary()</name>
-      <fsummary>Generate a binary of random bytes</fsummary>
-      <type>
-        <v>N = integer()</v>
-      </type>
       <desc>
         <p>Generates N bytes randomly uniform 0..255, and returns the
         result in a binary. Uses a cryptographically secure prng seeded and
         periodically mixed with operating system provided entropy. By default
         this is the <c>RAND_bytes</c> method from OpenSSL.</p>
-	<p>May throw exception <c>low_entropy</c> in case the random generator
+	<p>May raise exception <c>error:low_entropy</c> in case the random generator
 	failed due to lack of secure "randomness".</p>
       </desc>
     </func>
+
     <func>
-      <name>rand_uniform(Lo, Hi) -> N</name>
-      <fsummary>Generate a random number</fsummary>
-      <type>
-        <v>Lo, Hi, N = Mpint | integer()</v>
-        <v>Mpint = binary()</v>
-      </type>
+      <name name="rand_seed" arity="0" since="OTP 20.0"/>
+      <fsummary>Strong random number generation plugin state</fsummary>
       <desc>
-        <p>Generate a random number <c><![CDATA[N, Lo =< N < Hi.]]></c> Uses the
-          <c>crypto</c> library pseudo-random number generator. The
-          arguments (and result) can be either erlang integers or binary
-          multi-precision integers. <c>Hi</c> must be larger than <c>Lo</c>.</p>
-      </desc>
-    </func>
-    <func>
-      <name>strong_rand_mpint(N, Top, Bottom) -> Mpint</name>
-      <fsummary>Generate an N bit random number</fsummary>
-      <type>
-        <v>N = non_neg_integer()</v>
-        <v>Top = -1 | 0 | 1</v>
-        <v>Bottom = 0 | 1</v>
-        <v>Mpint = binary()</v>
-      </type>
-      <desc>
-        <p>Generate an N bit random number using OpenSSL's
-        cryptographically strong pseudo random number generator
-        <c>BN_rand</c>.</p>
-        <p>The parameter <c>Top</c> places constraints on the most
-        significant bits of the generated number. If <c>Top</c> is 1, then the
-        two most significant bits will be set to 1, if <c>Top</c> is 0, the
-        most significant bit will be 1, and if <c>Top</c> is -1 then no
-        constraints are applied and thus the generated number may be less than
-        N bits long.</p>
-        <p>If <c>Bottom</c> is 1, then the generated number is
-        constrained to be odd.</p>
-	<p>May throw exception <c>low_entropy</c> in case the random generator
-	failed due to lack of secure "randomness".</p>
-      </desc>
-    </func>
-    <func>
-      <name>mod_exp(N, P, M) -> Result</name>
-      <fsummary>Perform N ^ P mod M</fsummary>
-      <type>
-        <v>N, P, M, Result = Mpint</v>
-        <v>Mpint = binary()</v>
-      </type>
-      <desc>
-        <p>This function performs the exponentiation <c>N ^ P mod M</c>,
-          using the <c>crypto</c> library.</p>
+	<p>
+          Creates state object for
+	  <seealso marker="stdlib:rand">random number generation</seealso>,
+          in order to generate cryptographically strong random numbers
+          (based on OpenSSL's <c>BN_rand_range</c>),
+          and saves it in the process dictionary before returning it as well.
+          See also
+	  <seealso marker="stdlib:rand#seed-1">rand:seed/1</seealso> and
+	  <seealso marker="#rand_seed_s-0">rand_seed_s/0</seealso>.
+	</p>
+	<p>
+	  When using the state object from this function the 
+	  <seealso marker="stdlib:rand">rand</seealso> functions using it
+	  may raise exception <c>error:low_entropy</c> in case the random generator
+	  failed due to lack of secure "randomness".
+	</p>
+        <p><em>Example</em></p>
+        <pre>
+_ = crypto:rand_seed(),
+_IntegerValue = rand:uniform(42), % [1; 42]
+_FloatValue = rand:uniform().     % [0.0; 1.0[</pre>
       </desc>
     </func>
 
     <func>
-      <name>rsa_sign(Data, Key) -> Signature</name>
-      <name>rsa_sign(DigestType, Data, Key) -> Signature</name> 
-      <fsummary>Sign the data using rsa with the given key.</fsummary>
-      <type>
-        <v>Data = Mpint</v>
-        <v>Key = [E, N, D] | [E, N, D, P1, P2, E1, E2, C]</v>
-        <v>E, N, D = Mpint</v>
-        <d>Where <c>E</c> is the public exponent, <c>N</c> is public modulus and 
-	  <c>D</c> is the private exponent.</d>
-	<v>P1, P2, E1, E2, C = Mpint</v>
-	<d>The longer key format contains redundant information that will make
-	   the calculation faster. <c>P1,P2</c> are first and second prime factors.
-           <c>E1,E2</c> are first and second exponents. <c>C</c> is the CRT coefficient.
-           Terminology is taken from RFC 3447.</d>
-	<v>DigestType = md5 | sha</v>
-	<d>The default <c>DigestType</c> is sha.</d>
-        <v>Mpint = binary()</v>
-        <v>Signature = binary()</v>
-      </type>
+      <name name="rand_seed_s" arity="0" since="OTP 20.0"/>
+      <fsummary>Strong random number generation plugin state</fsummary>
       <desc>
-        <p>Calculates a <c>DigestType</c> digest of the <c>Data</c>
-	  and creates a RSA signature with the private key <c>Key</c>
-	  of the digest.</p>
+	<p>
+          Creates state object for
+	  <seealso marker="stdlib:rand">random number generation</seealso>,
+          in order to generate cryptographically strongly random numbers
+          (based on OpenSSL's <c>BN_rand_range</c>).
+          See also
+	  <seealso marker="stdlib:rand#seed_s-1">rand:seed_s/1</seealso>.
+	</p>
+	<p>
+	  When using the state object from this function the 
+	  <seealso marker="stdlib:rand">rand</seealso> functions using it
+	  may raise exception <c>error:low_entropy</c> in case the random generator
+	  failed due to lack of secure "randomness".
+	</p>
+	<note>
+	  <p>
+	    The state returned from this function can not be used
+	    to get a reproducable random sequence as from
+	    the other 
+	    <seealso marker="stdlib:rand">rand</seealso>
+	    functions,
+	    since reproducability does not match cryptographically safe.
+	  </p>
+	  <p>
+	    The only supported usage is to generate one distinct
+	    random sequence from this start state.
+	  </p>
+	</note>
       </desc>
     </func>
 
     <func>
-      <name>rsa_verify(Data, Signature, Key) -> Verified</name>
-      <name>rsa_verify(DigestType, Data, Signature, Key) -> Verified </name> 
-      <fsummary>Verify the digest and signature using rsa with given public key.</fsummary>
+      <name since="OTP 21.0">rand_seed_alg(Alg) -> rand:state()</name>
+      <fsummary>Strong random number generation plugin state</fsummary>
       <type>
-        <v>Verified = boolean()</v>
-        <v>Data, Signature = Mpint</v>
-        <v>Key = [E, N]</v>
-        <v>E, N = Mpint</v>
-        <d>Where <c>E</c> is the public exponent and <c>N</c> is public modulus.</d>
-	<v>DigestType = md5 | sha | sha256 | sha384 | sha512</v>
-	<d> The default <c>DigestType</c> is sha.</d>
-        <v>Mpint = binary()</v>
+        <v>Alg = crypto | crypto_cache</v>
       </type>
       <desc>
-        <p>Calculates a <c>DigestType</c> digest of the <c>Data</c>
-          and verifies that the digest matches the RSA signature using the
-          signer's public key <c>Key</c>.
+	<marker id="rand_seed_alg-1" />
+	<p>
+          Creates state object for
+	  <seealso marker="stdlib:rand">random number generation</seealso>,
+          in order to generate cryptographically strong random numbers.
+          See also
+	  <seealso marker="stdlib:rand#seed-1">rand:seed/1</seealso> and
+	  <seealso marker="#rand_seed_alg_s-1">rand_seed_alg_s/1</seealso>.
 	</p>
-	<p>May throw exception <c>notsup</c> in case the chosen <c>DigestType</c>
-	is not supported by the underlying OpenSSL implementation.</p>
-      </desc>
-    </func>
-    
-    <func>
-      <name>rsa_public_encrypt(PlainText, PublicKey, Padding) -> ChipherText</name> 
-      <fsummary>Encrypts Msg using the public Key.</fsummary>
-      <type>
-	<v>PlainText = binary()</v>
-	<v>PublicKey = [E, N]</v>
-	<v>E, N = Mpint</v>	
-	<d>Where <c>E</c> is the public exponent and <c>N</c> is public modulus.</d>
-	<v>Padding = rsa_pkcs1_padding | rsa_pkcs1_oaep_padding | rsa_no_padding</v>
-        <v>ChipherText = binary()</v>
-      </type>
-      <desc>
-	<p>Encrypts the <c>PlainText</c> (usually a session key) using the <c>PublicKey</c>
-	  and returns the cipher. The <c>Padding</c> decides what padding mode is used,
-	  <c>rsa_pkcs1_padding</c> is PKCS #1 v1.5 currently the most
-	  used mode and <c>rsa_pkcs1_oaep_padding</c> is EME-OAEP as
-	  defined in PKCS #1 v2.0 with SHA-1, MGF1 and an empty encoding
-	  parameter. This mode is recommended for all new applications.
-	  The size of the <c>Msg</c> must be less
-	  than <c>byte_size(N)-11</c> if
-	  <c>rsa_pkcs1_padding</c> is used, <c>byte_size(N)-41</c> if 
-	  <c>rsa_pkcs1_oaep_padding</c> is used and <c>byte_size(N)</c> if <c>rsa_no_padding</c> 
-	  is used.
-	  Where byte_size(N) is the size part of an <c>Mpint-1</c>.
+	<p>
+	  When using the state object from this function the 
+	  <seealso marker="stdlib:rand">rand</seealso> functions using it
+	  may raise exception <c>error:low_entropy</c> in case the random generator
+	  failed due to lack of secure "randomness".
 	</p>
+	<p>
+	  The cache size can be changed from its default value using the
+	  <seealso marker="crypto_app">
+	    crypto app's
+	  </seealso> configuration parameter <c>rand_cache_size</c>.
+	</p>
+        <p><em>Example</em></p>
+        <pre>
+_ = crypto:rand_seed_alg(crypto_cache),
+_IntegerValue = rand:uniform(42), % [1; 42]
+_FloatValue = rand:uniform().     % [0.0; 1.0[</pre>
       </desc>
     </func>
 
     <func>
-      <name>rsa_private_decrypt(ChipherText, PrivateKey, Padding) -> PlainText</name> 
-      <fsummary>Decrypts ChipherText using the private Key.</fsummary>
+      <name since="OTP 21.0">rand_seed_alg_s(Alg) -> rand:state()</name>
+      <fsummary>Strong random number generation plugin state</fsummary>
       <type>
-	<v>ChipherText = binary()</v>
-	<v>PrivateKey = [E, N, D] | [E, N, D, P1, P2, E1, E2, C]</v>
-	<v>E, N, D = Mpint</v>
-	<d>Where <c>E</c> is the public exponent, <c>N</c> is public modulus  and 
-	  <c>D</c> is the private exponent.</d>
-	<v>P1, P2, E1, E2, C = Mpint</v>
-	<d>The longer key format contains redundant information that will make
-	   the calculation faster. <c>P1,P2</c> are first and second prime factors.
-           <c>E1,E2</c> are first and second exponents. <c>C</c> is the CRT coefficient.
-           Terminology is taken from RFC 3447.</d>
-	<v>Padding = rsa_pkcs1_padding | rsa_pkcs1_oaep_padding | rsa_no_padding</v>
-        <v>PlainText = binary()</v>
+        <v>Alg = crypto | crypto_cache</v>
       </type>
       <desc>
-	<p>Decrypts the <c>ChipherText</c> (usually a session key encrypted with 
-	  <seealso marker="#rsa_public_encrypt/3">rsa_public_encrypt/3</seealso>) 
-	  using the <c>PrivateKey</c> and returns the
-	  message. The <c>Padding</c> is the padding mode that was
-	  used to encrypt the data, 
-	  see <seealso marker="#rsa_public_encrypt/3">rsa_public_encrypt/3</seealso>.
+	<marker id="rand_seed_alg_s-1" />
+	<p>
+          Creates state object for
+	  <seealso marker="stdlib:rand">random number generation</seealso>,
+          in order to generate cryptographically strongly random numbers.
+          See also
+	  <seealso marker="stdlib:rand#seed_s-1">rand:seed_s/1</seealso>.
 	</p>
+	<p>
+	  If <c>Alg</c> is <c>crypto</c> this function behaves exactly like
+	  <seealso marker="#rand_seed_s-0">rand_seed_s/0</seealso>.
+	</p>
+	<p>
+	  If <c>Alg</c> is <c>crypto_cache</c> this function
+	  fetches random data with OpenSSL's <c>RAND_bytes</c>
+	  and caches it for speed using an internal word size
+	  of 56 bits that makes calculations fast on 64 bit machines.
+	</p>
+	<p>
+	  When using the state object from this function the 
+	  <seealso marker="stdlib:rand">rand</seealso> functions using it
+	  may raise exception <c>error:low_entropy</c> in case the random generator
+	  failed due to lack of secure "randomness".
+	</p>
+	<p>
+	  The cache size can be changed from its default value using the
+	  <seealso marker="crypto_app">
+	    crypto app's
+	  </seealso> configuration parameter <c>rand_cache_size</c>.
+	</p>
+	<note>
+	  <p>
+	    The state returned from this function can not be used
+	    to get a reproducable random sequence as from
+	    the other 
+	    <seealso marker="stdlib:rand">rand</seealso>
+	    functions,
+	    since reproducability does not match cryptographically safe.
+	  </p>
+	  <p>
+	    In fact since random data is cached some numbers may
+	    get reproduced if you try, but this is unpredictable.
+	  </p>
+	  <p>
+	    The only supported usage is to generate one distinct
+	    random sequence from this start state.
+	  </p>
+	</note>
       </desc>
     </func>
+
     <func>
-      <name>rsa_private_encrypt(PlainText, PrivateKey, Padding) -> ChipherText</name> 
-      <fsummary>Encrypts Msg using the private Key.</fsummary>
-      <type>
-	<v>PlainText = binary()</v>
-	<v>PrivateKey = [E, N, D] | [E, N, D, P1, P2, E1, E2, C]</v>
-	<v>E, N, D = Mpint</v>
-	<d>Where <c>E</c> is the public exponent, <c>N</c> is public modulus and 
-	  <c>D</c> is the private exponent.</d>
-	<v>P1, P2, E1, E2, C = Mpint</v>
-	<d>The longer key format contains redundant information that will make
-	   the calculation faster. <c>P1,P2</c> are first and second prime factors.
-           <c>E1,E2</c> are first and second exponents. <c>C</c> is the CRT coefficient.
-           Terminology is taken from RFC 3447.</d>
-	<v>Padding = rsa_pkcs1_padding | rsa_no_padding</v>
-        <v>ChipherText = binary()</v>
-      </type>
+      <name name="stream_init" arity="2" since="OTP R16B01"/>
+      <fsummary></fsummary>
       <desc>
-	<p>Encrypts the <c>PlainText</c> using the <c>PrivateKey</c>
-	  and returns the cipher. The <c>Padding</c> decides what padding mode is used,
-	  <c>rsa_pkcs1_padding</c> is PKCS #1 v1.5 currently the most
-	  used mode.
-	  The size of the <c>Msg</c> must be less than <c>byte_size(N)-11</c> if
-	  <c>rsa_pkcs1_padding</c> is used, and <c>byte_size(N)</c> if <c>rsa_no_padding</c> 
-	  is used.  Where byte_size(N) is the size part of an <c>Mpint-1</c>.
+        <p>Initializes the state for use in RC4 stream encryption
+        <seealso marker="#stream_encrypt-2">stream_encrypt</seealso> and
+        <seealso marker="#stream_decrypt-2">stream_decrypt</seealso></p>
+	<p>For keylengths see the
+	<seealso marker="crypto:algorithm_details#stream-ciphers">User's Guide</seealso>.
 	</p>
       </desc>
     </func>
 
-    <func>
-      <name>rsa_public_decrypt(ChipherText, PublicKey, Padding) -> PlainText</name> 
-      <fsummary>Decrypts ChipherText using the public Key.</fsummary>
-      <type>
-	<v>ChipherText = binary()</v>
-	<v>PublicKey = [E, N]</v>
-	<v>E, N = Mpint</v>
-	<d>Where <c>E</c> is the public exponent and <c>N</c> is public modulus</d>
-	<v>Padding = rsa_pkcs1_padding | rsa_no_padding</v>
-        <v>PlainText = binary()</v>
-      </type>
+   <func>
+      <name name="stream_init" arity="3" since="OTP R16B01"/>
+      <fsummary></fsummary>
       <desc>
-	<p>Decrypts the <c>ChipherText</c> (encrypted with 
-	  <seealso marker="#rsa_private_encrypt/3">rsa_private_encrypt/3</seealso>) 
-	  using the <c>PrivateKey</c> and returns the
-	  message. The <c>Padding</c> is the padding mode that was
-	  used to encrypt the data, 
-	  see <seealso marker="#rsa_private_encrypt/3">rsa_private_encrypt/3</seealso>.
-	</p>
-      </desc>
-    </func>
-      
-    <func>
-      <name>dss_sign(Data, Key) -> Signature</name>
-      <name>dss_sign(DigestType, Data, Key) -> Signature</name>
-      <fsummary>Sign the data using dsa with given private key.</fsummary>
-      <type>
-        <v>DigestType = sha | none (default is sha)</v>
-        <v>Data = Mpint | ShaDigest</v>
-        <v>Key = [P, Q, G, X]</v>
-        <v>P, Q, G, X = Mpint</v>
-	<d> Where <c>P</c>, <c>Q</c> and <c>G</c> are the dss
-	  parameters and <c>X</c> is the private key.</d>
-        <v>ShaDigest = binary() with length 20 bytes</v>
-        <v>Signature = binary()</v>
-      </type>
-      <desc>
-        <p>Creates a DSS signature with the private key <c>Key</c> of a digest.
-        If <c>DigestType</c> is 'sha', the digest is calculated as SHA1 of <c>Data</c>.
-        If <c>DigestType</c> is 'none', <c>Data</c> is the precalculated SHA1 digest.</p>
-      </desc>
-    </func>
-
-    <func>
-      <name>dss_verify(Data, Signature, Key) -> Verified</name>
-      <name>dss_verify(DigestType, Data, Signature, Key) -> Verified</name>
-      <fsummary>Verify the data and signature using dsa with given public key.</fsummary>
-      <type>
-        <v>Verified = boolean()</v>
-        <v>DigestType = sha | none</v>
-        <v>Data = Mpint | ShaDigest</v>
-        <v>Signature = Mpint</v>
-        <v>Key = [P, Q, G, Y]</v>
-        <v>P, Q, G, Y = Mpint</v>
-	<d> Where <c>P</c>, <c>Q</c> and <c>G</c> are the dss
-	  parameters and <c>Y</c> is the public key.</d>
-        <v>ShaDigest = binary() with length 20 bytes</v>
-      </type>
-      <desc>
-        <p>Verifies that a digest matches the DSS signature using the public key <c>Key</c>.
-        If <c>DigestType</c> is 'sha', the digest is calculated as SHA1 of <c>Data</c>.
-        If <c>DigestType</c> is 'none', <c>Data</c> is the precalculated SHA1 digest.</p>
-      </desc>
-    </func>
-
-    <func>
-      <name>rc2_cbc_encrypt(Key, IVec, Text) -> Cipher</name>
-      <fsummary>Encrypt <c>Text</c>according to RC2 in CBC mode</fsummary>
-      <type>
-        <v>Key = Text = iolist() | binary()</v>
-        <v>Ivec = Cipher = binary()</v>
-      </type>
-      <desc>
-        <p>Encrypts <c>Text</c> according to RC2 in CBC mode.</p>
-      </desc>
-    </func>
-
-    <func>
-      <name>rc2_cbc_decrypt(Key, IVec, Cipher) -> Text</name>
-      <fsummary>Decrypts <c>Cipher</c>according to RC2 in CBC mode</fsummary>
-      <type>
-        <v>Key = Text = iolist() | binary()</v>
-        <v>Ivec = Cipher = binary()</v>
-      </type>
-      <desc>
-        <p>Decrypts <c>Cipher</c> according to RC2 in CBC mode.</p>
-      </desc>
-    </func>
-    
-    <func>
-      <name>rc4_encrypt(Key, Data) -> Result</name>
-      <fsummary>Encrypt data using RC4</fsummary>
-      <type>
-	<v>Key, Data = iolist() | binary()</v>
-	<v>Result = binary()</v>
-      </type>
-      <desc>
-	<p>Encrypts the data with RC4 symmetric stream encryption.
-	  Since it is symmetric, the same function is used for
-	  decryption.</p>
-      </desc>
-    </func>
-
-    <func>
-      <name>dh_generate_key(DHParams) -> {PublicKey,PrivateKey} </name>
-      <name>dh_generate_key(PrivateKey, DHParams) -> {PublicKey,PrivateKey} </name>
-      <fsummary>Generates a Diffie-Hellman public key</fsummary>
-      <type>
-	<v>DHParameters = [P, G]</v>
-	<v>P, G = Mpint</v>
-	<d> Where <c>P</c> is the shared prime number and <c>G</c> is the shared generator.</d>
-	<v>PublicKey, PrivateKey = Mpint()</v>
-      </type>
-      <desc>
-	<p>Generates a Diffie-Hellman <c>PublicKey</c> and <c>PrivateKey</c> (if not given).
+        <p>Initializes the state for use in streaming AES encryption using Counter mode (CTR).
+        <c>Key</c> is the AES key and must be either 128, 192, or 256 bits long. <c>IVec</c> is
+        an arbitrary initializing vector of 128 bits (16 bytes). This state is for use with
+        <seealso marker="#stream_encrypt-2">stream_encrypt</seealso> and
+        <seealso marker="#stream_decrypt-2">stream_decrypt</seealso>.</p>
+	<p>For keylengths and iv-sizes see the
+	<seealso marker="crypto:algorithm_details#stream-ciphers">User's Guide</seealso>.
 	</p>
       </desc>
     </func>
 
     <func>
-      <name>dh_compute_key(OthersPublicKey, MyPrivateKey, DHParams) -> SharedSecret</name>
-      <fsummary>Computes the shared secret</fsummary>
-      <type>
-	<v>DHParameters = [P, G]</v>
-	<v>P, G = Mpint</v>
-	<d> Where <c>P</c> is the shared prime number and <c>G</c> is the shared generator.</d>
-	<v>OthersPublicKey, MyPrivateKey = Mpint()</v>
-	<v>SharedSecret = binary()</v>
-      </type>
+      <name name="stream_encrypt" arity="2" since="OTP R16B01"/>
+      <fsummary></fsummary>
       <desc>
-	<p>Computes the shared secret from the private key and the other party's public key.
+	<p>Encrypts <c>PlainText</c> according to the stream cipher <c>Type</c> specified in stream_init/3.
+	<c>Text</c> can be any number of bytes. The initial <c>State</c> is created using
+        <seealso marker="#stream_init-2">stream_init</seealso>.
+	<c>NewState</c> must be passed into the next call to <c>stream_encrypt</c>.</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="stream_decrypt" arity="2" since="OTP R16B01"/>
+      <fsummary></fsummary>
+      <desc>
+	<p>Decrypts <c>CipherText</c> according to the stream cipher <c>Type</c> specified in stream_init/3.
+	<c>PlainText</c> can be any number of bytes. The initial <c>State</c> is created using
+        <seealso marker="#stream_init-2">stream_init</seealso>.
+	<c>NewState</c> must be passed into the next call to <c>stream_decrypt</c>.</p>
+      </desc>
+    </func>
+
+   <func>
+      <name name="supports" arity="0" since="OTP R16B01"/>
+      <fsummary>Provide a list of available crypto algorithms.</fsummary>
+      <desc>
+        <p> Can be used to determine which crypto algorithms that are supported
+	by the underlying libcrypto library</p>
+	<p>Note: the <c>rsa_opts</c> entry is in an experimental state and may change or be removed without notice.
+	No guarantee for the accuarcy of the rsa option's value list should be assumed.
 	</p>
       </desc>
     </func>
-   
 
     <func>
-      <name>exor(Data1, Data2) -> Result</name>
-      <fsummary>XOR data</fsummary>
-      <type>
-	<v>Data1, Data2 = iolist() | binary()</v>
-	<v>Result = binary()</v>
-      </type>
+      <name name="ec_curves" arity="0" since="OTP 17.0"/>
+      <fsummary>Provide a list of available named elliptic curves.</fsummary>
       <desc>
-	<p>Performs bit-wise XOR (exclusive or) on the data supplied.</p>
+        <p>Can be used to determine which named elliptic curves are supported.</p>
       </desc>
     </func>
-  </funcs>
 
-  <section>
-    <title>DES in CBC mode</title>
-    <p>The Data Encryption Standard (DES) defines an algorithm for
-      encrypting and decrypting an 8 byte quantity using an 8 byte key
-      (actually only 56 bits of the key is used).
-      </p>
-    <p>When it comes to encrypting and decrypting blocks that are
-      multiples of 8 bytes various modes are defined (NIST SP
-      800-38A). One of those modes is the Cipher Block Chaining (CBC)
-      mode, where the encryption of an 8 byte segment depend not only
-      of the contents of the segment itself, but also on the result of
-      encrypting the previous segment: the encryption of the previous
-      segment becomes the initializing vector of the encryption of the
-      current segment.
-      </p>
-    <p>Thus the encryption of every segment depends on the encryption
-      key (which is secret) and the encryption of the previous
-      segment, except the first segment which has to be provided with
-      an initial initializing vector. That vector could be chosen at
-      random, or be a counter of some kind. It does not have to be
-      secret.
-      </p>
-    <p>The following example is drawn from the old FIPS 81 standard
-      (replaced by NIST SP 800-38A), where both the plain text and the
-      resulting cipher text is settled. The following code fragment
-      returns `true'.
-      </p>
-    <pre><![CDATA[
+    <func>
+      <name name="ec_curve" arity="1" since="OTP 17.0"/>
+      <fsummary>Get the defining parameters of a elliptic curve.</fsummary>
+      <desc>
+        <p>Return the defining parameters of a elliptic curve.</p>
+      </desc>
+    </func>
 
-      Key = <<16#01,16#23,16#45,16#67,16#89,16#ab,16#cd,16#ef>>,
-      IVec = <<16#12,16#34,16#56,16#78,16#90,16#ab,16#cd,16#ef>>,
-      P = "Now is the time for all ",
-      C = crypto:des_cbc_encrypt(Key, IVec, P),
-         % Which is the same as 
-      P1 = "Now is t", P2 = "he time ", P3 = "for all ",
-      C1 = crypto:des_cbc_encrypt(Key, IVec, P1),
-      C2 = crypto:des_cbc_encrypt(Key, C1, P2),
-      C3 = crypto:des_cbc_encrypt(Key, C2, P3),
+    <func>
+      <name name="sign" arity="4" since="OTP R16B01"/>
+      <name name="sign" arity="5" since="OTP 20.1"/>
+      <fsummary> Create digital signature.</fsummary>
+      <desc>
+	<p>Creates a digital signature.</p>
+	<p>The msg is either the binary "cleartext" data to be
+	signed or it is the hashed value of "cleartext" i.e. the
+	digest (plaintext).</p>
+	<p>Algorithm <c>dss</c> can only be used together with digest type
+	<c>sha</c>.</p>
+	<p>See also <seealso marker="public_key:public_key#sign-3">public_key:sign/3</seealso>.</p>
+      </desc>
+    </func>
 
-      C = <<C1/binary, C2/binary, C3/binary>>,
-      C = <<16#e5,16#c7,16#cd,16#de,16#87,16#2b,16#f2,16#7c,
-             16#43,16#e9,16#34,16#00,16#8c,16#38,16#9c,16#0f,
-             16#68,16#37,16#88,16#49,16#9a,16#7c,16#05,16#f6>>,
-      <<"Now is the time for all ">> == 
-                        crypto:des_cbc_decrypt(Key, IVec, C).
-    ]]></pre>
-    <p>The following is true for the DES CBC mode. For all
-      decompositions <c>P1 ++ P2 = P</c> of a plain text message
-      <c>P</c> (where the length of all quantities are multiples of 8
-      bytes), the encryption <c>C</c> of <c>P</c> is equal to <c>C1 ++
-      C2</c>, where <c>C1</c> is obtained by encrypting <c>P1</c> with
-      <c>Key</c> and the initializing vector <c>IVec</c>, and where
-      <c>C2</c> is obtained by encrypting <c>P2</c> with <c>Key</c>
-      and the initializing vector <c>last8(C1)</c>,
-      where <c>last(Binary)</c> denotes the last 8 bytes of the
-      binary <c>Binary</c>.
-      </p>
-    <p>Similarly, for all decompositions <c>C1 ++ C2 = C</c> of a
-      cipher text message <c>C</c> (where the length of all quantities
-      are multiples of 8 bytes), the decryption <c>P</c> of <c>C</c>
-      is equal to <c>P1 ++ P2</c>, where <c>P1</c> is obtained by
-      decrypting <c>C1</c> with <c>Key</c> and the initializing vector
-      <c>IVec</c>, and where <c>P2</c> is obtained by decrypting
-      <c>C2</c> with <c>Key</c> and the initializing vector
-      <c>last8(C1)</c>, where <c>last8(Binary)</c> is as above.
-      </p>
-    <p>For DES3 (which uses three 64 bit keys) the situation is the
-      same.
-    </p>
-  </section>
+    <func>
+      <name name="verify" arity="5" since="OTP R16B01"/>
+      <name name="verify" arity="6" since="OTP 20.1"/>
+      <fsummary>Verifies a digital signature.</fsummary>
+      <desc>
+	<p>Verifies a digital signature</p>
+	<p>The msg is either the binary "cleartext" data to be
+	signed or it is the hashed value of "cleartext" i.e. the
+	digest (plaintext).</p>
+	<p>Algorithm <c>dss</c> can only be used together with digest type
+	<c>sha</c>.</p>
+
+	<p>See also <seealso marker="public_key:public_key#verify-4">public_key:verify/4</seealso>.</p>
+      </desc>
+    </func>
+
+    <!-- Engine functions -->
+    <func>
+      <name name="privkey_to_pubkey" arity="2" since="OTP 20.2"/>
+      <fsummary>Fetches a public key from an Engine stored private key.</fsummary>
+      <desc>
+	<p>Fetches the corresponding public key from a private key stored in an Engine.
+	The key must be of the type indicated by the Type parameter.
+	</p>	
+      </desc>
+    </func>
+
+    <func>
+      <name name="engine_get_all_methods" arity="0" since="OTP 20.2"/>
+      <fsummary>Return list of all possible engine methods</fsummary>
+      <desc>
+	<p>
+	  Returns a list of all possible engine methods.
+	</p>
+	<p>
+	  May raise exception <c>error:notsup</c> in case there is
+	  no engine support in the underlying OpenSSL implementation.
+	</p>
+	<p>
+	  See also the chapter <seealso marker="crypto:engine_load#engine_load">Engine Load</seealso>
+	  in the User's Guide.
+	</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="engine_load" arity="3" since="OTP 20.2"/>
+      <fsummary>Dynamical load an encryption engine</fsummary>
+      <desc>
+	<p>
+	  Loads the OpenSSL engine given by <c>EngineId</c> if it is available and then returns ok and
+	  an engine handle. This function is the same as calling <c>engine_load/4</c> with
+	  <c>EngineMethods</c> set to a list of all the possible methods.  An error tuple is
+	  returned if the engine can't be loaded.
+	</p>
+	<p>
+	  The function raises a <c>error:badarg</c> if the parameters are in wrong format.
+	  It may also raise the exception <c>error:notsup</c> in case there is
+	  no engine support in the underlying OpenSSL implementation.
+	</p>
+	<p>
+	  See also the chapter <seealso marker="crypto:engine_load#engine_load">Engine Load</seealso>
+	  in the User's Guide.
+	</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="engine_load" arity="4" since="OTP 20.2"/>
+      <fsummary>Dynamical load an encryption engine</fsummary>
+      <desc>
+	<p>
+	  Loads the OpenSSL engine given by <c>EngineId</c> if it is available and then returns ok and
+	  an engine handle. An error tuple is returned if the engine can't be loaded.
+	</p>
+	<p>
+	  The function raises a <c>error:badarg</c> if the parameters are in wrong format.
+	  It may also raise the exception <c>error:notsup</c> in case there is
+	  no engine support in the underlying OpenSSL implementation.
+	</p>
+	<p>
+	  See also the chapter <seealso marker="crypto:engine_load#engine_load">Engine Load</seealso>
+	  in the User's Guide.
+	</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="engine_unload" arity="1" since="OTP 20.2"/>
+      <fsummary>Dynamical load an encryption engine</fsummary>
+      <desc>
+	<p>
+	  Unloads the OpenSSL engine given by <c>Engine</c>.
+	  An error tuple is returned if the engine can't be unloaded.
+	</p>
+	<p>
+	  The function raises a <c>error:badarg</c> if the parameter is in wrong format.
+	  It may also raise the exception <c>error:notsup</c> in case there is
+	  no engine support in the underlying OpenSSL implementation.
+	</p>
+	<p>
+	  See also the chapter <seealso marker="crypto:engine_load#engine_load">Engine Load</seealso>
+	  in the User's Guide.
+	</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="engine_by_id" arity="1" since="OTP 21.0.6"/>
+      <fsummary>Get a reference to an already loaded engine</fsummary>
+      <desc>
+	<p>
+	  Get a reference to an already loaded engine with <c>EngineId</c>.
+	  An error tuple is returned if the engine can't be unloaded.
+	</p>
+	<p>
+	  The function raises a <c>error:badarg</c> if the parameter is in wrong format.
+	  It may also raise the exception <c>error:notsup</c> in case there is
+	  no engine support in the underlying OpenSSL implementation.
+	</p>
+	<p>
+	  See also the chapter <seealso marker="crypto:engine_load#engine_load">Engine Load</seealso>
+	  in the User's Guide.
+	</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="engine_ctrl_cmd_string" arity="3" since="OTP 20.2"/>
+      <fsummary>Sends ctrl commands to an OpenSSL engine</fsummary>
+      <desc>
+	<p>
+	  Sends ctrl commands to the OpenSSL engine given by <c>Engine</c>.
+	  This function is the same as calling <c>engine_ctrl_cmd_string/4</c> with
+	  <c>Optional</c> set to <c>false</c>.
+	</p>
+	<p>
+	  The function raises a <c>error:badarg</c> if the parameters are in wrong format.
+	  It may also raise the exception <c>error:notsup</c> in case there is
+	  no engine support in the underlying OpenSSL implementation.
+	</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="engine_ctrl_cmd_string" arity="4" since="OTP 20.2"/>
+      <fsummary>Sends ctrl commands to an OpenSSL engine</fsummary>
+      <desc>
+	<p>
+	  Sends ctrl commands to the OpenSSL engine given by <c>Engine</c>.
+	  <c>Optional</c> is a boolean argument that can relax the semantics of the function.
+	  If set to <c>true</c> it will only return failure if the ENGINE supported the given
+	  command name but failed while executing it, if the ENGINE doesn't support the command
+	  name it will simply return success without doing anything. In this case we assume
+	  the user is only supplying commands specific to the given ENGINE so we set this to
+	  <c>false</c>.
+	</p>
+	<p>
+	  The function raises a <c>error:badarg</c> if the parameters are in wrong format.
+	  It may also raise the exception <c>error:notsup</c> in case there is
+	  no engine support in the underlying OpenSSL implementation.
+	</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="engine_add" arity="1" since="OTP 21.0.6"/>
+      <fsummary>Add engine to OpenSSL internal list</fsummary>
+      <desc>
+	<p>Add the engine to OpenSSL's internal list.</p>
+	<p>
+	  The function raises a <c>error:badarg</c> if the parameters are in wrong format.
+	  It may also raise the exception <c>error:notsup</c> in case there is
+	  no engine support in the underlying OpenSSL implementation.
+	</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="engine_remove" arity="1" since="OTP 21.0.6"/>
+      <fsummary>Remove engine to OpenSSL internal list</fsummary>
+      <desc>
+	<p>Remove the engine from OpenSSL's internal list.</p>
+	<p>
+	  The function raises a <c>error:badarg</c> if the parameters are in wrong format.
+	  It may also raise the exception <c>error:notsup</c> in case there is
+	  no engine support in the underlying OpenSSL implementation.
+	</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="engine_get_id" arity="1" since="OTP 21.0.6"/>
+      <fsummary>Fetch engine ID</fsummary>
+      <desc>
+	<p>Return the ID for the engine, or an empty binary if there is no id set.</p>
+	<p>
+	  The function raises a <c>error:badarg</c> if the parameters are in wrong format.
+	  It may also raise the exception <c>error:notsup</c> in case there is
+	  no engine support in the underlying OpenSSL implementation.
+	</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="engine_get_name" arity="1" since="OTP 21.0.6"/>
+      <fsummary>Fetch engine name</fsummary>
+      <desc>
+	<p>Return the name (eg a description) for the engine, or an empty binary if there is no name set.</p>
+	<p>
+	  The function raises a <c>error:badarg</c> if the parameters are in wrong format.
+	  It may also raise the exception <c>error:notsup</c> in case there is
+	  no engine support in the underlying OpenSSL implementation.
+	</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="engine_list" arity="0" since="OTP 20.2"/>
+      <fsummary>List the known engine ids</fsummary>
+      <desc>
+	<p>List the id's of all engines in OpenSSL's internal list.</p>
+	<p>
+	  It may also raise the exception <c>error:notsup</c> in case there is
+	  no engine support in the underlying OpenSSL implementation.
+	</p>
+	<p>
+	  See also the chapter <seealso marker="crypto:engine_load#engine_load">Engine Load</seealso>
+	  in the User's Guide.
+	</p>
+	<p>
+	  May raise exception <c>error:notsup</c> in case engine functionality is not supported by the underlying
+	  OpenSSL implementation.
+	</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="ensure_engine_loaded" arity="2" since="OTP 21.0.6"/>
+      <fsummary>Ensure encryption engine just loaded once</fsummary>
+      <desc>
+	<p>
+	  Loads the OpenSSL engine given by <c>EngineId</c> and the path to the dynamic library
+	  implementing the engine. This function is the same as calling <c>ensure_engine_loaded/3</c> with
+	  <c>EngineMethods</c> set to a list of all the possible methods. An error tuple is
+	  returned if the engine can't be loaded.
+	</p>
+	<p>
+	  The function raises a <c>error:badarg</c> if the parameters are in wrong format.
+	  It may also raise the exception <c>error:notsup</c> in case there is
+	  no engine support in the underlying OpenSSL implementation.
+	</p>
+	<p>
+	  See also the chapter <seealso marker="crypto:engine_load#engine_load">Engine Load</seealso>
+	  in the User's Guide.
+	</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="ensure_engine_loaded" arity="3" since="OTP 21.0.6"/>
+      <fsummary>Ensure encryption engine just loaded once</fsummary>
+      <desc>
+	<p>
+	  Loads the OpenSSL engine given by <c>EngineId</c> and the path to the dynamic library
+	  implementing the engine. This function differs from the normal engine_load in that sense it
+	  also add the engine id to the internal list in OpenSSL. Then in the following calls to the function
+	  it just fetch the reference to the engine instead of loading it again.
+	  An error tuple is returned if the engine can't be loaded.
+	</p>
+	<p>
+	  The function raises a <c>error:badarg</c> if the parameters are in wrong format.
+	  It may also raise the exception <c>error:notsup</c> in case there is
+	  no engine support in the underlying OpenSSL implementation.
+	</p>
+	<p>
+	  See also the chapter <seealso marker="crypto:engine_load#engine_load">Engine Load</seealso>
+	  in the User's Guide.
+	</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="ensure_engine_unloaded" arity="1" since="OTP 21.0.6"/>
+      <fsummary>Unload an engine loaded with the ensure function</fsummary>
+      <desc>
+	<p>
+	  Unloads an engine loaded with the <c>ensure_engine_loaded</c> function.
+	  It both removes the label from the OpenSSL internal engine list and unloads the engine.
+	  This function is the same as calling <c>ensure_engine_unloaded/2</c> with
+	  <c>EngineMethods</c> set to a list of all the possible methods. An error tuple is
+	  returned if the engine can't be unloaded.
+	</p>
+	<p>
+	  The function raises a <c>error:badarg</c> if the parameters are in wrong format.
+	  It may also raise the exception <c>error:notsup</c> in case there is
+	  no engine support in the underlying OpenSSL implementation.
+	</p>
+	<p>
+	  See also the chapter <seealso marker="crypto:engine_load#engine_load">Engine Load</seealso>
+	  in the User's Guide.
+	</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="ensure_engine_unloaded" arity="2" since="OTP 21.0.6"/>
+      <fsummary>Unload an engine loaded with the ensure function</fsummary>
+      <desc>
+	<p>
+	  Unloads an engine loaded with the <c>ensure_engine_loaded</c> function.
+	  It both removes the label from the OpenSSL internal engine list and unloads the engine.
+	  An error tuple is returned if the engine can't be unloaded.
+	</p>
+	<p>
+	  The function raises a <c>error:badarg</c> if the parameters are in wrong format.
+	  It may also raise the exception <c>error:notsup</c> in case there is
+	  no engine support in the underlying OpenSSL implementation.
+	</p>
+	<p>
+	  See also the chapter <seealso marker="crypto:engine_load#engine_load">Engine Load</seealso>
+	  in the User's Guide.
+	</p>
+      </desc>
+    </func>
+
+ </funcs>
+
+
 </erlref>
-

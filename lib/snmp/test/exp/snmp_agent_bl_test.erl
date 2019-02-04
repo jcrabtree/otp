@@ -1,18 +1,19 @@
 %% 
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2005-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2005-2016. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %% 
@@ -95,24 +96,13 @@ end_per_testcase(_Case, Config) when list(Config) ->
     Config.
 
 cases() ->
-    case ?OSTYPE() of
-	vxworks ->
-	    %% No crypto app, so skip v3 testcases
- 	    [
-	     app_info, 
-	     test_v1, test_v2, test_v1_v2, 
-	     test_multi_threaded, 
- 	     mib_storage, 
-	     tickets];
-	_Else ->
-  	    [
-	     app_info, 
- 	     test_v1, test_v2, test_v1_v2, test_v3, 
-   	     test_multi_threaded, 
-	     mib_storage, 
-	     tickets
-	    ]
-    end.
+    [
+	app_info, 
+	test_v1, test_v2, test_v1_v2, test_v3, 
+	test_multi_threaded, 
+	mib_storage, 
+	tickets
+    ].
 
 
 %%%-----------------------------------------------------------------
@@ -1187,21 +1177,16 @@ init_v3(Config) when list(Config) ->
     %% and we will be stuck with a bunch of mnesia tables for
     %% the rest of this suite...
     ?DBG("start_agent -> start crypto app",[]),
-    case os:type() of
-	vxworks ->
-	    no_crypto;
-	_ ->
-	    case ?CRYPTO_START() of
-		ok ->
-		    case ?CRYPTO_SUPPORT() of
-			{no, Reason} ->
-			    ?SKIP({unsupported_encryption, Reason});
-			yes ->
-			    ok
-		    end;
-		{error, Reason} ->
-		    ?SKIP({failed_starting_crypto, Reason})
-	    end
+    case ?CRYPTO_START() of
+	ok ->
+	    case ?CRYPTO_SUPPORT() of
+		{no, Reason} ->
+		    ?SKIP({unsupported_encryption, Reason});
+		yes ->
+		    ok
+	    end;
+	{error, Reason} ->
+	    ?SKIP({failed_starting_crypto, Reason})
     end,
     SaNode = ?config(snmp_sa, Config),
     create_tables(SaNode),
@@ -5071,12 +5056,7 @@ run(F, A, Opts) ->
     CtxEngineID = snmp_misc:get_option(context_engine_id, Opts, EngineID),
     Community = snmp_misc:get_option(community, Opts, "all-rights"),
     ?DBG("run -> start crypto app",[]),
-    Crypto = case os:type() of
-		 vxworks ->
-		     no_crypto;
-		 _ ->
-		     ?CRYPTO_START()
-	     end,
+    Crypto = ?CRYPTO_START(),
     ?DBG("run -> Crypto: ~p",[Crypto]),
     catch snmp_test_mgr:stop(), % If we had a running mgr from a failed case
     StdM = filename:join(code:priv_dir(snmp), "mibs") ++ "/",

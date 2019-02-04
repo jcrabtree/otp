@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2003-2011. All Rights Reserved.
+ * Copyright Ericsson AB 2003-2016. All Rights Reserved.
  *
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  * %CopyrightEnd%
  */
@@ -23,7 +24,6 @@
 #include "config.h"
 #endif
 #include "global.h"
-#include <sys/mman.h>
 
 #include "hipe_arch.h"
 #include "hipe_native_bif.h"	/* nbif_callemu() */
@@ -87,8 +87,8 @@ int hipe_patch_call(void *callAddress, void *destAddress, void *trampoline)
 {
     Uint32 relDest, newI;
 
-    if (trampoline)
-	return -1;
+    ASSERT(trampoline == NULL);
+
     relDest = (Uint32)((Sint32)destAddress - (Sint32)callAddress);
     newI = (1 << 30) | (relDest >> 2);
     *(Uint32*)callAddress = newI;
@@ -96,104 +96,9 @@ int hipe_patch_call(void *callAddress, void *destAddress, void *trampoline)
     return 0;
 }
 
-/*
- * Memory allocator for executable code.
- *
- * This is required on x86 because some combinations
- * of Linux kernels and CPU generations default to
- * non-executable memory mappings, causing ordinary
- * malloc() memory to be non-executable.
- */
-static unsigned int code_bytes;
-static char *code_next;
-
-#if 0	/* change to non-zero to get allocation statistics at exit() */
-static unsigned int total_mapped, nr_joins, nr_splits, total_alloc, nr_allocs, nr_large, total_lost;
-static unsigned int atexit_done;
-
-static void alloc_code_stats(void)
-{
-    printf("\r\nalloc_code_stats: %u bytes mapped, %u joins, %u splits, %u bytes allocated, %u average alloc, %u large allocs, %u bytes lost\r\n",
-	   total_mapped, nr_joins, nr_splits, total_alloc, nr_allocs ? total_alloc/nr_allocs : 0, nr_large, total_lost);
-}
-
-static void atexit_alloc_code_stats(void)
-{
-    if (!atexit_done) {
-	atexit_done = 1;
-	(void)atexit(alloc_code_stats);
-    }
-}
-
-#define ALLOC_CODE_STATS(X)	do{X;}while(0)
-#else
-#define ALLOC_CODE_STATS(X)	do{}while(0)
-#endif
-
-static void morecore(unsigned int alloc_bytes)
-{
-    unsigned int map_bytes;
-    char *map_hint, *map_start;
-
-    /* Page-align the amount to allocate. */
-    map_bytes = (alloc_bytes + 4095) & ~4095;
-
-    /* Round up small allocations. */
-    if (map_bytes < 1024*1024)
-	map_bytes = 1024*1024;
-    else
-	ALLOC_CODE_STATS(++nr_large);
-
-    /* Create a new memory mapping, ensuring it is executable
-       and in the low 2GB of the address space. Also attempt
-       to make it adjacent to the previous mapping. */
-    map_hint = code_next + code_bytes;
-    if ((unsigned long)map_hint & 4095)
-	abort();
-    map_start = mmap(map_hint, map_bytes,
-		     PROT_EXEC|PROT_READ|PROT_WRITE,
-		     MAP_PRIVATE|MAP_ANONYMOUS
-#ifdef __x86_64__
-		     |MAP_32BIT
-#endif
-		     ,
-		     -1, 0);
-    if (map_start == MAP_FAILED) {
-	perror("mmap");
-	abort();
-    }
-    ALLOC_CODE_STATS(total_mapped += map_bytes);
-
-    /* Merge adjacent mappings, so the trailing portion of the previous
-       mapping isn't lost. In practice this is quite successful. */
-    if (map_start == map_hint) {
-	ALLOC_CODE_STATS(++nr_joins);
-	code_bytes += map_bytes;
-    } else {
-	ALLOC_CODE_STATS(++nr_splits);
-	ALLOC_CODE_STATS(total_lost += code_bytes);
-	code_next = map_start;
-	code_bytes = map_bytes;
-    }
-
-    ALLOC_CODE_STATS(atexit_alloc_code_stats());
-}
-
 static void *alloc_code(unsigned int alloc_bytes)
 {
-    void *res;
-
-    /* Align function entries. */
-    alloc_bytes = (alloc_bytes + 3) & ~3;
-
-    if (code_bytes < alloc_bytes)
-	morecore(alloc_bytes);
-    ALLOC_CODE_STATS(++nr_allocs);
-    ALLOC_CODE_STATS(total_alloc += alloc_bytes);
-    res = code_next;
-    code_next += alloc_bytes;
-    code_bytes -= alloc_bytes;
-    return res;
+    return erts_alloc(ERTS_ALC_T_HIPE_EXEC, alloc_bytes);
 }
 
 void *hipe_alloc_code(Uint nrbytes, Eterm callees, Eterm *trampolines, Process *p)
@@ -204,22 +109,27 @@ void *hipe_alloc_code(Uint nrbytes, Eterm callees, Eterm *trampolines, Process *
     return alloc_code(nrbytes);
 }
 
-/* called from hipe_bif0.c:hipe_bifs_make_native_stub_2()
-   and hipe_bif0.c:hipe_make_stub() */
-void *hipe_make_native_stub(void *beamAddress, unsigned int beamArity)
+void hipe_free_code(void* code, unsigned int nrbytes)
+{
+    erts_free(ERTS_ALC_T_HIPE_EXEC, code);
+}
+
+void *hipe_make_native_stub(void *callee_exp, unsigned int beamArity)
 {
     unsigned int *code;
     unsigned int callEmuOffset;
     int i;
 
     code = alloc_code(5*sizeof(int));
+    if (!code)
+	return NULL;
 
     /* sethi %hi(Address), %i4 */
-    code[0] = 0x39000000 | (((unsigned int)beamAddress >> 10) & 0x3FFFFF);
+    code[0] = 0x39000000 | (((unsigned int)callee_exp >> 10) & 0x3FFFFF);
     /* or %g0, %o7, %i3 ! mov %o7, %i3 */
     code[1] = 0xB610000F;
     /* or %i4, %lo(Address), %i4 */
-    code[2] = 0xB8172000 | ((unsigned int)beamAddress & 0x3FF);
+    code[2] = 0xB8172000 | ((unsigned int)callee_exp & 0x3FF);
     /* call callemu */
     callEmuOffset = (char*)nbif_callemu - (char*)&code[3];
     code[3] = (1 << 30) | ((callEmuOffset >> 2) & 0x3FFFFFFF);
@@ -231,6 +141,11 @@ void *hipe_make_native_stub(void *beamAddress, unsigned int beamArity)
 	hipe_flush_icache_word(&code[i]);
 
     return code;
+}
+
+void hipe_free_native_stub(void* stub)
+{
+    erts_free(ERTS_ALC_T_HIPE_EXEC, stub);
 }
 
 void hipe_arch_print_pcb(struct hipe_process_state *p)

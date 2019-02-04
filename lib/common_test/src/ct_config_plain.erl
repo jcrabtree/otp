@@ -1,18 +1,19 @@
 %%--------------------------------------------------------------------
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2010-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2010-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%----------------------------------------------------------------------
@@ -47,7 +48,7 @@ read_config(ConfigFile) ->
 		{error,no_crypt_file} ->
 		    {error,{config_file_error,
 			    lists:flatten(
-			      io_lib:format("~s",[file:format_error(Reason)]))}};
+			      io_lib:format("~ts",[file:format_error(Reason)]))}};
 		{error,CryptError} ->
 		    {error,{decrypt_file_error,CryptError}};
 		_ when is_list(Key) ->
@@ -105,7 +106,7 @@ read_config_terms1({done,{eof,EL},_}, L, _, _) ->
 read_config_terms1({done,{error,Info,EL},_}, L, _, _) ->
     {error,{Info,{L,EL}}};
 read_config_terms1({more,_}, L, Terms, Rest) ->
-    case string:tokens(Rest, [$\n,$\r,$\t]) of
+    case string:lexemes(Rest, [$\n,[$\r,$\n],$\t]) of
 	[] ->
 	    lists:reverse(Terms);
 	_ ->

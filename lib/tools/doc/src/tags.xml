@@ -1,24 +1,25 @@
-<?xml version="1.0" encoding="latin1" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <!DOCTYPE erlref SYSTEM "erlref.dtd">
 
 <erlref>
   <header>
     <copyright>
       <year>1998</year>
-      <year>2011</year>
+      <year>2016</year>
       <holder>Ericsson AB, All Rights Reserved</holder>
     </copyright>
     <legalnotice>
-  The contents of this file are subject to the Erlang Public License,
-  Version 1.1, (the "License"); you may not use this file except in
-  compliance with the License. You should have received a copy of the
-  Erlang Public License along with this software. If not, it can be
-  retrieved online at http://www.erlang.org/.
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+ 
+      http://www.apache.org/licenses/LICENSE-2.0
 
-  Software distributed under the License is distributed on an "AS IS"
-  basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-  the License for the specific language governing rights and limitations
-  under the License.
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
 
   The Initial Developer of the Original Code is Ericsson AB.
     </legalnotice>
@@ -31,7 +32,7 @@
     <rev>A</rev>
     <file>tags.sgml</file>
   </header>
-  <module>tags</module>
+  <module since="">tags</module>
   <modulesummary>Generate Emacs TAGS file from Erlang source files</modulesummary>
   <description>
     <p>A <c>TAGS</c> file is used by Emacs to find function and variable
@@ -41,14 +42,14 @@
   </description>
   <funcs>
     <func>
-      <name>file(File [, Options])</name>
+      <name since="">file(File [, Options])</name>
       <fsummary>Create a <c>TAGS</c>file for the file <c>File</c>.</fsummary>
       <desc>
         <p>Create a <c>TAGS</c> file for the file <c>File</c>.</p>
       </desc>
     </func>
     <func>
-      <name>files(FileList [, Options])</name>
+      <name since="">files(FileList [, Options])</name>
       <fsummary>Create a TAGS file for the files in the list<c>FileList</c>.</fsummary>
       <desc>
         <p>Create a TAGS file for the files in the list
@@ -56,7 +57,7 @@
       </desc>
     </func>
     <func>
-      <name>dir(Dir [, Options])</name>
+      <name since="">dir(Dir [, Options])</name>
       <fsummary>Create a TAGS file for all files in directory<c>Dir</c>.</fsummary>
       <desc>
         <p>Create a TAGS file for all files in directory
@@ -64,7 +65,7 @@
       </desc>
     </func>
     <func>
-      <name>dirs(DirList [, Options])</name>
+      <name since="">dirs(DirList [, Options])</name>
       <fsummary>Create a TAGS file for all files in any directory in<c>DirList</c>.</fsummary>
       <desc>
         <p>Create a TAGS file for all files in any directory in
@@ -72,7 +73,7 @@
       </desc>
     </func>
     <func>
-      <name>subdir(Dir [, Options])</name>
+      <name since="">subdir(Dir [, Options])</name>
       <fsummary>Descend recursively down the directory <c>Dir</c>and create a <c>TAGS</c>file based on all files found.</fsummary>
       <desc>
         <p>Descend recursively down the directory <c>Dir</c> and
@@ -80,7 +81,7 @@
       </desc>
     </func>
     <func>
-      <name>subdirs(DirList [, Options])</name>
+      <name since="">subdirs(DirList [, Options])</name>
       <fsummary>Descend recursively down all the directories in<c>DirList</c>and create a <c>TAGS</c>file based on all files found.</fsummary>
       <desc>
         <p>Descend recursively down all the directories in
@@ -89,7 +90,7 @@
       </desc>
     </func>
     <func>
-      <name>root([Options])</name>
+      <name since="">root([Options])</name>
       <fsummary>Create a <c>TAGS</c>file covering all files in the Erlang distribution.</fsummary>
       <desc>
         <p>Create a <c>TAGS</c> file covering all files in

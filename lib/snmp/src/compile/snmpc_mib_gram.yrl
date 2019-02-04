@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1996-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2017. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -244,16 +245,36 @@ listofdefinitions -> definition : ['$1'] .
 listofdefinitions -> listofdefinitions definition : ['$2' | '$1'].
 
 import -> '$empty' : [].
-import -> 'IMPORTS' imports ';' : '$2'.
+import -> 'IMPORTS' imports ';' : 
+%%           i("import ->"
+%% 	    "~n   imports: ~p", ['$2']), 
+          '$2'.
 
-imports -> imports_from_one_mib : ['$1'].
-imports -> imports_from_one_mib imports : ['$1' | '$2'].
+imports -> imports_from_one_mib : 
+%%            i("imports ->"
+%%              "~n   imports_from_one_mib: ~p", ['$1']), 
+           ['$1'].
+imports -> imports_from_one_mib imports : 
+%%            i("imports ->"
+%%              "~n   imports_from_one_mib: ~p"
+%%              "~n   imports:              ~p", ['$1', '$2']), 
+           ['$1' | '$2'].
 
 imports_from_one_mib -> listofimports 'FROM' variable :
+%%                         i("imports_from_one_mib ->"
+%%                           "~n   listofimports: ~p"
+%%                           "~n   variable:      ~p", ['$1', '$3']), 
                         {{val('$3'), lreverse(imports_from_one_mib, '$1')}, line_of('$2')}.
 
-listofimports -> import_stuff : ['$1'].
-listofimports -> listofimports ',' import_stuff : ['$3' | '$1'].
+listofimports -> import_stuff : 
+%%                  i("listofimports ->"
+%%                    "~n   import_stuff: ~p", ['$1']), 
+                 ['$1'].
+listofimports -> listofimports ',' import_stuff : 
+%%                  i("listofimports ->"
+%%                    "~n   listofimports: ~p"
+%%                    "~n   import_stuff:  ~p", ['$1', '$3']), 
+                 ['$3' | '$1'].
 
 import_stuff -> 'OBJECT-TYPE' : {builtin, 'OBJECT-TYPE'}.
 import_stuff -> 'TRAP-TYPE' : {builtin, 'TRAP-TYPE'}.
@@ -314,6 +335,8 @@ import_stuff -> 'TDomain'
        : ensure_ver(2,'$1'), {builtin, 'TDomain'}.
 import_stuff -> 'TAddress' 
        : ensure_ver(2,'$1'), {builtin, 'TAddress'}.
+import_stuff -> 'BITS' 
+       : ensure_ver(2,'$1'), {builtin, 'BITS'}.
 
 traptype -> objectname 'TRAP-TYPE' 'ENTERPRISE' objectname varpart
 	    description referpart implies integer :
@@ -364,10 +387,12 @@ syntax -> type : {{type, cat('$1')},line_of('$1')}.
 syntax -> type size : {{type_with_size, cat('$1'), '$2'},line_of('$1')}.
 syntax -> usertype size : {{type_with_size,val('$1'), '$2'},line_of('$1')}.
 syntax -> 'INTEGER' '{' namedbits '}' : 
-          {{integer_with_enum, 'INTEGER', '$3'}, line_of('$1')}.
+          {{type_with_enum, 'INTEGER', '$3'}, line_of('$1')}.
 syntax -> 'BITS' '{' namedbits '}' : 
           ensure_ver(2,'$1'), 
           {{bits, '$3'}, line_of('$1')}.
+syntax -> usertype '{' namedbits '}' :
+          {{type_with_enum, 'INTEGER', '$3'}, line_of('$1')}.
 syntax -> 'SEQUENCE' 'OF' usertype : 
           {{sequence_of,val('$3')},line_of('$1')}.
 
@@ -748,7 +773,7 @@ statusv1(Tok) ->
         obsolete -> obsolete;
         deprecated -> deprecated;
         Else -> return_error(line_of(Tok),
-                             "syntax error before: " ++ atom_to_list(Else))
+                             "(statusv1) syntax error before: " ++ atom_to_list(Else))
     end.
 
 statusv2(Tok) ->
@@ -757,7 +782,7 @@ statusv2(Tok) ->
         deprecated -> deprecated;
         obsolete -> obsolete;
         Else -> return_error(line_of(Tok),
-                             "syntax error before: " ++ atom_to_list(Else))
+                             "(statusv2) syntax error before: " ++ atom_to_list(Else))
     end.
 
 ac_status(Tok) ->
@@ -765,7 +790,7 @@ ac_status(Tok) ->
         current -> current;
         obsolete -> obsolete;
         Else -> return_error(line_of(Tok),
-                             "syntax error before: " ++ atom_to_list(Else))
+                             "(ac_status) syntax error before: " ++ atom_to_list(Else))
     end.
 
 accessv1(Tok) ->
@@ -775,7 +800,7 @@ accessv1(Tok) ->
         'write-only' -> 'write-only';
         'not-accessible' -> 'not-accessible';
         Else -> return_error(line_of(Tok),
-                             "syntax error before: " ++ atom_to_list(Else))
+                             "(accessv1) syntax error before: " ++ atom_to_list(Else))
     end.
 
 accessv2(Tok) ->
@@ -786,7 +811,7 @@ accessv2(Tok) ->
         'read-write' -> 'read-write';
         'read-create' -> 'read-create';
         Else -> return_error(line_of(Tok),
-                             "syntax error before: " ++ atom_to_list(Else))
+                             "(accessv2) syntax error before: " ++ atom_to_list(Else))
     end.
 
 ac_access(Tok) ->
@@ -798,7 +823,7 @@ ac_access(Tok) ->
         'read-create' -> 'read-create';
         'write-only' -> 'write-only'; % for backward-compatibility only
         Else -> return_error(line_of(Tok),
-                             "syntax error before: " ++ atom_to_list(Else))
+                             "(ac_access) syntax error before: " ++ atom_to_list(Else))
     end.
 
 %% ---------------------------------------------------------------------

@@ -1,18 +1,23 @@
 %% =====================================================================
-%% This library is free software; you can redistribute it and/or modify
-%% it under the terms of the GNU Lesser General Public License as
-%% published by the Free Software Foundation; either version 2 of the
-%% License, or (at your option) any later version.
+%% Licensed under the Apache License, Version 2.0 (the "License"); you may
+%% not use this file except in compliance with the License. You may obtain
+%% a copy of the License at <http://www.apache.org/licenses/LICENSE-2.0>
 %%
-%% This library is distributed in the hope that it will be useful, but
-%% WITHOUT ANY WARRANTY; without even the implied warranty of
-%% MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-%% Lesser General Public License for more details.
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
-%% You should have received a copy of the GNU Lesser General Public
-%% License along with this library; if not, write to the Free Software
-%% Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307
-%% USA
+%% Alternatively, you may use this file under the terms of the GNU Lesser
+%% General Public License (the "LGPL") as published by the Free Software
+%% Foundation; either version 2.1, or (at your option) any later version.
+%% If you wish to allow use of your version of this file only under the
+%% terms of the LGPL, you should delete the provisions above and replace
+%% them with the notice and other provisions required by the LGPL; see
+%% <http://www.gnu.org/licenses/>. If you do not delete the provisions
+%% above, a recipient may use your version of this file under the terms of
+%% either the Apache License or the LGPL.
 %%
 %% @private
 %% @copyright 2001-2003 Richard Carlsson
@@ -25,7 +30,7 @@
 
 -module(edoc_types).
 
--export([is_predefined/2, is_new_predefined/2, is_predefined_otp_type/2,
+-export([is_predefined/2, is_new_predefined/2,
          to_ref/1, to_xml/2, to_label/1, arg_names/1, set_arg_names/2,
          arg_descs/1, range_desc/1]).
 
@@ -34,65 +39,12 @@
 -include("edoc_types.hrl").
 -include_lib("xmerl/include/xmerl.hrl").
 
-
-is_predefined(any, 0) -> true;
-is_predefined(atom, 0) -> true;
-is_predefined(binary, 0) -> true;
-is_predefined(bool, 0) -> true;    % kept for backwards compatibility
-is_predefined(char, 0) -> true;
 is_predefined(cons, 2) -> true;
 is_predefined(deep_string, 0) -> true;
-is_predefined(float, 0) -> true;
-is_predefined(function, 0) -> true;
-is_predefined(integer, 0) -> true;
-is_predefined(list, 0) -> true;
-is_predefined(list, 1) -> true;
-is_predefined(nil, 0) -> true;
-is_predefined(none, 0) -> true;
-is_predefined(no_return, 0) -> true;
-is_predefined(number, 0) -> true;
-is_predefined(pid, 0) -> true;
-is_predefined(port, 0) -> true;
-is_predefined(reference, 0) -> true;
-is_predefined(string, 0) -> true;
-is_predefined(term, 0) -> true;
-is_predefined(tuple, 0) -> true;
-is_predefined(F, A) -> is_new_predefined(F, A).
+is_predefined(F, A) -> erl_internal:is_type(F, A).
 
-%% Should eventually be coalesced with is_predefined/2.
-is_new_predefined(arity, 0) -> true;
-is_new_predefined(bitstring, 0) -> true;
-is_new_predefined(boolean, 0) -> true;
-is_new_predefined(byte, 0) -> true;
-is_new_predefined(iodata, 0) -> true;
-is_new_predefined(iolist, 0) -> true;
-is_new_predefined(maybe_improper_list, 0) -> true;
-is_new_predefined(maybe_improper_list, 2) -> true;
-is_new_predefined(mfa, 0) -> true;
-is_new_predefined(module, 0) -> true;
-is_new_predefined(neg_integer, 0) -> true;
-is_new_predefined(node, 0) -> true;
-is_new_predefined(non_neg_integer, 0) -> true;
-is_new_predefined(nonempty_improper_list, 2) -> true;
-is_new_predefined(nonempty_list, 0) -> true;
-is_new_predefined(nonempty_list, 1) -> true;
-is_new_predefined(nonempty_maybe_improper_list, 0) -> true;
-is_new_predefined(nonempty_maybe_improper_list, 2) -> true;
-is_new_predefined(nonempty_string, 0) -> true;
-is_new_predefined(pos_integer, 0) -> true;
-is_new_predefined(timeout, 0) -> true;
+is_new_predefined(map, 0) -> true;
 is_new_predefined(_, _) -> false.
-
-%% The following types will be removed later, but they are currently
-%% kind of built-in.
-is_predefined_otp_type(array, 0) -> true;
-is_predefined_otp_type(dict, 0) -> true;
-is_predefined_otp_type(digraph, 0) -> true;
-is_predefined_otp_type(gb_set, 0) -> true;
-is_predefined_otp_type(gb_tree, 0) -> true;
-is_predefined_otp_type(queue, 0) -> true;
-is_predefined_otp_type(set, 0) -> true;
-is_predefined_otp_type(_, _) -> false.
 
 to_ref(#t_typedef{name = N}) ->
     to_ref(N);
@@ -128,8 +80,7 @@ to_xml(#t_type{name = N, args = As}, Env) ->
     Predef = case N of
 		 #t_name{module = [], name = T} ->
                      NArgs = length(As),
-		     (is_predefined(T, NArgs)
-                      orelse is_predefined_otp_type(T, NArgs));
+		     is_predefined(T, NArgs);
 		 _ ->
 		     false
 	     end,
@@ -141,6 +92,10 @@ to_xml(#t_type{name = N, args = As}, Env) ->
 to_xml(#t_fun{args = As, range = T}, Env) ->
     {'fun', [{argtypes, map(fun wrap_utype/2, As, Env)},
 	     wrap_utype(T, Env)]};
+to_xml(#t_map{ types = Ts}, Env) ->
+    {map, map(fun to_xml/2, Ts, Env)};
+to_xml(#t_map_field{assoc_type = AT, k_type=K, v_type=V}, Env) ->
+    {map_field, [{assoc_type, AT}], [wrap_utype(K,Env), wrap_utype(V, Env)]};
 to_xml(#t_tuple{types = Ts}, Env) ->
     {tuple, map(fun wrap_utype/2, Ts, Env)};
 to_xml(#t_list{type = T}, Env) ->
@@ -152,7 +107,7 @@ to_xml(#t_paren{type = T}, Env) ->
 to_xml(#t_nonempty_list{type = T}, Env) ->
     {nonempty_list, [wrap_utype(T, Env)]};
 to_xml(#t_atom{val = V}, _Env) ->
-    {atom, [{value, io_lib:write(V)}], []};
+    {atom, [{value, atom_to_list(V)}], []};
 to_xml(#t_integer{val = V}, _Env) ->
     {integer, [{value, integer_to_list(V)}], []};
 to_xml(#t_integer_range{from = From, to = To}, _Env) ->

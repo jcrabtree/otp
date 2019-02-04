@@ -1,19 +1,20 @@
 #
 # %CopyrightBegin%
-# 
-# Copyright Ericsson AB 1997-2009. All Rights Reserved.
-# 
-# The contents of this file are subject to the Erlang Public License,
-# Version 1.1, (the "License"); you may not use this file except in
-# compliance with the License. You should have received a copy of the
-# Erlang Public License along with this software. If not, it can be
-# retrieved online at http://www.erlang.org/.
-# 
-# Software distributed under the License is distributed on an "AS IS"
-# basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-# the License for the specific language governing rights and limitations
-# under the License.
-# 
+#
+# Copyright Ericsson AB 1997-2017. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
 # %CopyrightEnd%
 #
 include $(ERL_TOP)/make/target.mk
@@ -42,16 +43,14 @@ XML_REF3_FILES = cpu_sup.xml \
 	os_sup.xml \
 	nteventlog.xml
 
-XML_REF6_FILES = os_mon_app.xml 
+XML_REF6_FILES = os_mon_app.xml
 
-XML_PART_FILES = part_notes.xml
+XML_PART_FILES =
 XML_CHAPTER_FILES = notes.xml
 
 BOOK_FILES = book.xml
 
-GIF_FILES = \
-	note.gif \
-	warning.gif
+GIF_FILES =
 
 XML_FILES = \
 	$(BOOK_FILES) $(XML_CHAPTER_FILES) \
@@ -73,9 +72,9 @@ HTML_REF_MAN_FILE = $(HTMLDIR)/index.html
 TOP_PDF_FILE = $(PDFDIR)/$(APPLICATION)-$(VSN).pdf
 
 # ----------------------------------------------------
-# FLAGS 
+# FLAGS
 # ----------------------------------------------------
-XML_FLAGS += 
+XML_FLAGS +=
 
 # ----------------------------------------------------
 # Targets
@@ -95,17 +94,18 @@ man: $(MAN3_FILES) $(MAN6_FILES)
 
 gifs: $(GIF_FILES:%=$(HTMLDIR)/%)
 
-debug opt: 
+debug opt:
 
 clean clean_docs:
 	rm -rf $(HTMLDIR)/*
+	rm -rf $(XMLDIR)
 	rm -f $(MAN3DIR)/*
 	rm -f $(TOP_PDF_FILE) $(TOP_PDF_FILE:%.pdf=%.fo)
-	rm -f errs core *~ 
+	rm -f errs core *~
 
 # ----------------------------------------------------
 # Release Target
-# ---------------------------------------------------- 
+# ----------------------------------------------------
 include $(ERL_TOP)/make/otp_release_targets.mk
 
 release_docs_spec: docs
@@ -121,4 +121,3 @@ release_docs_spec: docs
 	$(INSTALL_DATA) $(MAN6DIR)/* "$(RELEASE_PATH)/man/man6"
 
 release_spec:
-

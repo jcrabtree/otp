@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2010-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2010-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -23,9 +24,15 @@
 %%----------------------------------------------------------------------
 -module(wx_app_SUITE).
 
--compile(export_all).
+-export([all/0, suite/0,groups/0,init_per_group/2,end_per_group/2,
+	 init_per_suite/1, end_per_suite/1,
+	 init_per_testcase/2, end_per_testcase/2]).
+
+-export([t/0, t/1, fields/1, modules/1, exportall/1, app_depend/1,
+         undef_funcs/0, undef_funcs/1, appup/1]).
 
 -include("wx_test_lib.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 
 t()     -> wx_test_lib:t(?MODULE).
@@ -47,10 +54,10 @@ end_per_testcase(Func,Config) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-suite() -> [{ct_hooks,[ts_install_cth]}].
+suite() -> [{ct_hooks,[ts_install_cth]}, {timetrap,{minutes,5}}].
 
 all() -> 
-    [fields, modules, exportall, app_depend, undef_funcs].
+    [fields, modules, exportall, app_depend, undef_funcs, appup].
 
 groups() -> 
     [].
@@ -219,12 +226,10 @@ check_apps([App|Apps]) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-undef_funcs(suite) ->
-    [];
-undef_funcs(doc) ->
-    [];
+undef_funcs() ->
+    [{timetrap,{minutes,10}}].
+
 undef_funcs(Config) when is_list(Config) ->
-    catch test_server:timetrap(timer:minutes(10)),
     App            = wx,
     AppFile        = key1search(app_file, Config),
     Mods           = key1search(modules, AppFile),
@@ -281,3 +286,9 @@ key1search(Key, L) ->
 	{value, {Key, Value}} ->
 	    Value
     end.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% Test that the wx appup file is ok
+appup(Config) when is_list(Config) ->
+    ok = ?t:appup_test(wx).

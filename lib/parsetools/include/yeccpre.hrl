@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -55,8 +56,7 @@ return_error(Line, Message) ->
 yeccpars0(Tokens, Tzr, State, States, Vstack) ->
     try yeccpars1(Tokens, Tzr, State, States, Vstack)
     catch 
-        error: Error ->
-            Stacktrace = erlang:get_stacktrace(),
+        error: Error: Stacktrace ->
             try yecc_error_type(Error, Stacktrace) of
                 Desc ->
                     erlang:raise(error, {yecc_bug, ?CODE_VERSION, Desc},
@@ -124,21 +124,10 @@ yecc_end(Line) ->
     {'$end', Line}.
 
 yecctoken_end_location(Token) ->
-    try
-        {text, Str} = erl_scan:token_info(Token, text),
-        {line, Line} = erl_scan:token_info(Token, line),
-        Parts = re:split(Str, "\n"),
-        Dline = length(Parts) - 1,
-        Yline = Line + Dline,
-        case erl_scan:token_info(Token, column) of
-            {column, Column} ->
-                Col = byte_size(lists:last(Parts)),
-                {Yline, Col + if Dline =:= 0 -> Column; true -> 1 end};
-            undefined ->
-                Yline
-        end
-    catch _:_ ->
-        yecctoken_location(Token)
+    try erl_anno:end_location(element(2, Token)) of
+        undefined -> yecctoken_location(Token);
+        Loc -> Loc
+    catch _:_ -> yecctoken_location(Token)
     end.
 
 -compile({nowarn_unused_function, yeccerror/1}).
@@ -149,33 +138,32 @@ yeccerror(Token) ->
 
 -compile({nowarn_unused_function, yecctoken_to_string/1}).
 yecctoken_to_string(Token) ->
-    case catch erl_scan:token_info(Token, text) of
-        {text, Txt} -> Txt;
-        _ -> yecctoken2string(Token)
+    try erl_scan:text(Token) of
+        undefined -> yecctoken2string(Token);
+        Txt -> Txt
+    catch _:_ -> yecctoken2string(Token)
     end.
 
 yecctoken_location(Token) ->
-    case catch erl_scan:token_info(Token, location) of
-        {location, Loc} -> Loc;
-        _ -> element(2, Token)
+    try erl_scan:location(Token)
+    catch _:_ -> element(2, Token)
     end.
 
 -compile({nowarn_unused_function, yecctoken2string/1}).
-yecctoken2string({atom, _, A}) -> io_lib:write(A);
+yecctoken2string({atom, _, A}) -> io_lib:write_atom(A);
 yecctoken2string({integer,_,N}) -> io_lib:write(N);
 yecctoken2string({float,_,F}) -> io_lib:write(F);
 yecctoken2string({char,_,C}) -> io_lib:write_char(C);
 yecctoken2string({var,_,V}) -> io_lib:format("~s", [V]);
-yecctoken2string({string,_,S}) -> io_lib:write_unicode_string(S);
+yecctoken2string({string,_,S}) -> io_lib:write_string(S);
 yecctoken2string({reserved_symbol, _, A}) -> io_lib:write(A);
-yecctoken2string({_Cat, _, Val}) -> io_lib:format("~p",[Val]);
+yecctoken2string({_Cat, _, Val}) -> io_lib:format("~tp", [Val]);
 yecctoken2string({dot, _}) -> "'.'";
-yecctoken2string({'$end', _}) ->
-    [];
+yecctoken2string({'$end', _}) -> [];
 yecctoken2string({Other, _}) when is_atom(Other) ->
-    io_lib:write(Other);
+    io_lib:write_atom(Other);
 yecctoken2string(Other) ->
-    io_lib:write(Other).
+    io_lib:format("~tp", [Other]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 

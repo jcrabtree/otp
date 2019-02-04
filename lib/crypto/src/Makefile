@@ -1,18 +1,19 @@
 #
 # %CopyrightBegin%
 #
-# Copyright Ericsson AB 1999-2010. All Rights Reserved.
+# Copyright Ericsson AB 1999-2018. All Rights Reserved.
 #
-# The contents of this file are subject to the Erlang Public License,
-# Version 1.1, (the "License"); you may not use this file except in
-# compliance with the License. You should have received a copy of the
-# Erlang Public License along with this software. If not, it can be
-# retrieved online at http://www.erlang.org/.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-# Software distributed under the License is distributed on an "AS IS"
-# basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-# the License for the specific language governing rights and limitations
-# under the License.
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 #
 # %CopyrightEnd%
 #
@@ -35,13 +36,10 @@ RELSYSDIR = $(RELEASE_PATH)/lib/crypto-$(VSN)
 # ----------------------------------------------------
 
 MODULES= \
-	crypto_app \
 	crypto \
-	crypto_server \
-	crypto_sup
+	crypto_ec_curves
 
-HRL_FILES= 
-
+HRL_FILES=
 ERL_FILES= $(MODULES:%=%.erl)
 
 TARGET_FILES= $(MODULES:%=$(EBIN)/%.$(EMULATOR))
@@ -57,29 +55,29 @@ APPUP_TARGET= $(EBIN)/$(APPUP_FILE)
 # ----------------------------------------------------
 # FLAGS
 # ----------------------------------------------------
-ERL_COMPILE_FLAGS += +warn_obsolete_guard -DCRYPTO_VSN=\"$(VSN)\"
+ERL_COMPILE_FLAGS += -DCRYPTO_VSN=\"$(VSN)\" -Werror -I../include
 
 # ----------------------------------------------------
 # Targets
 # ----------------------------------------------------
 
-debug opt valgrind: $(TARGET_FILES) $(APP_TARGET) $(APPUP_TARGET) 
+debug opt valgrind: $(TARGET_FILES) $(APP_TARGET) $(APPUP_TARGET)
 
 clean:
-	rm -f $(TARGET_FILES) $(APP_TARGET) $(APPUP_TARGET) 
+	rm -f $(TARGET_FILES) $(APP_TARGET) $(APPUP_TARGET)
 	rm -f errs core *~
 
 $(APP_TARGET): $(APP_SRC) ../vsn.mk
-	sed -e 's;%VSN%;$(VSN);' $< > $@
+	$(vsn_verbose)sed -e 's;%VSN%;$(VSN);' $< > $@
 
 $(APPUP_TARGET): $(APPUP_SRC) ../vsn.mk
-	sed -e 's;%VSN%;$(VSN);' $< > $@
+	$(vsn_verbose)sed -e 's;%VSN%;$(VSN);' $< > $@
 
 docs:
 
 # ----------------------------------------------------
 # Release Target
-# ---------------------------------------------------- 
+# ----------------------------------------------------
 include $(ERL_TOP)/make/otp_release_targets.mk
 
 release_spec: opt
@@ -90,10 +88,3 @@ release_spec: opt
 		$(APPUP_TARGET) "$(RELSYSDIR)/ebin"
 
 release_docs_spec:
-
-
-
-
-
-
-

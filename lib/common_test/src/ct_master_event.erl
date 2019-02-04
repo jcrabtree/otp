@@ -1,29 +1,30 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2006-2009. All Rights Reserved.
+%% Copyright Ericsson AB 2006-2018. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
 
-%%% @doc Common Test Framework Event Handler
+%%% Common Test Framework Event Handler
 %%%
-%%% <p>This module implements an event handler that the CT Master
+%%% This module implements an event handler that the CT Master
 %%% uses to handle status and progress notifications sent to the
 %%% master node during test runs. This module may be used as a 
 %%% template for other event handlers that can be plugged in to 
-%%% handle logging and reporting on the master node.</p>
+%%% handle logging and reporting on the master node.
 -module(ct_master_event).
 
 -behaviour(gen_event).
@@ -66,16 +67,30 @@ add_handler(Args) ->
 %% Description: Stops the event manager
 %%--------------------------------------------------------------------
 stop() ->
-    flush(),
-    gen_event:stop(?CT_MEVMGR_REF).
+    case flush() of
+	{error,Reason} ->
+	    ct_master_logs:log("Error",
+			       "No response from CT Master Event.\n"
+			       "Reason = ~tp\n"
+			       "Terminating now!\n",[Reason]),
+	    %% communication with event manager fails, kill it
+	    catch exit(whereis(?CT_MEVMGR_REF), kill);
+	_ ->
+	    gen_event:stop(?CT_MEVMGR_REF)
+    end.
 
 flush() ->
-    case gen_event:call(?CT_MEVMGR_REF,?MODULE,flush) of
+    try gen_event:call(?CT_MEVMGR_REF,?MODULE,flush,1800000) of
 	flushing ->
 	    timer:sleep(1),
 	    flush();
 	done ->
-	    ok
+	    ok;
+	Error = {error,_} ->
+	    Error
+    catch
+	_:Reason ->
+	    {error,Reason}
     end.
 
 %%--------------------------------------------------------------------
@@ -101,6 +116,7 @@ sync_notify(Event) ->
 %% this function is called to initialize the event handler.
 %%--------------------------------------------------------------------
 init(_) ->
+    ct_util:mark_process(),
     ct_master_logs:log("CT Master Event Handler started","",[]),
     {ok,#state{}}.
 
@@ -114,13 +130,13 @@ init(_) ->
 %% each installed event handler to handle the event. 
 %%--------------------------------------------------------------------
 handle_event(#event{name=start_logging,node=Node,data=RunDir},State) ->
-    ct_master_logs:log("CT Master Event Handler","Got ~s from ~p",[RunDir,Node]),
+    ct_master_logs:log("CT Master Event Handler","Got ~ts from ~w",[RunDir,Node]),
     ct_master_logs:nodedir(Node,RunDir),
     {ok,State};
 
 handle_event(#event{name=Name,node=Node,data=Data},State) ->
     print("~n=== ~w ===~n", [?MODULE]),
-    print("~p on ~p: ~p~n", [Name,Node,Data]),
+    print("~tw on ~w: ~tp~n", [Name,Node,Data]),
     {ok,State}.
 
 %%--------------------------------------------------------------------
@@ -154,7 +170,7 @@ handle_info(_Info,State) ->
     {ok,State}.
 
 %%--------------------------------------------------------------------
-%% Function: terminate(Reason, State) -> void()
+%% Function: terminate(Reason, State) -> ok
 %% Description:Whenever an event handler is deleted from an event manager,
 %% this function is called. It should be the opposite of Module:init/1 and 
 %% do any necessary cleaning up. 

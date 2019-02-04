@@ -1,30 +1,33 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2006-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2006-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
 
-%%% @doc Logging functionality for Common Test Master.
+%%% Logging functionality for Common Test Master.
 %%%
-%%% <p>This module implements a logger for the master
-%%% node.</p>
+%%% This module implements a logger for the master
+%%% node.
 -module(ct_master_logs).
 
 -export([start/2, make_all_runs_index/0, log/3, nodedir/2,
 	 stop/0]).
+
+-include("ct_util.hrl").
 
 -record(state, {log_fd, start_time, logdir, rundir, 
 		nodedir_ix_fd, nodes, nodedirs=[]}).
@@ -33,8 +36,9 @@
 -define(all_runs_name, "master_runs.html").
 -define(nodedir_index_name, "index.html").
 -define(details_file_name,"details.info").
--define(css_default, "ct_default.css").
 -define(table_color,"lightblue").
+
+-define(now, os:timestamp()).
 
 %%%--------------------------------------------------------------------
 %%% API
@@ -53,7 +57,7 @@ start(LogDir,Nodes) ->
     end.
 
 log(Heading,Format,Args) ->
-    cast({log,self(),[{int_header(),[log_timestamp(now()),Heading]},
+    cast({log,self(),[{int_header(),[log_timestamp(?now),Heading]},
 		      {Format,Args},
 		      {int_footer(),[]}]}),
     ok.
@@ -84,55 +88,57 @@ stop() ->
 
 init(Parent,LogDir,Nodes) ->
     register(?MODULE,self()),
+    ct_util:mark_process(),
     Time = calendar:local_time(),
     RunDir = make_dirname(Time),
     RunDirAbs = filename:join(LogDir,RunDir),
-    file:make_dir(RunDirAbs),
-    write_details_file(RunDirAbs,{node(),Nodes}),
+    ok = make_dir(RunDirAbs),
+    _ = write_details_file(RunDirAbs,{node(),Nodes}),
 
     case basic_html() of
 	true ->
 	    put(basic_html, true);
 	BasicHtml ->
 	    put(basic_html, BasicHtml),
-	    %% copy stylesheet to log dir (both top dir and test run
+	    %% copy priv files to log dir (both top dir and test run
 	    %% dir) so logs are independent of Common Test installation
 	    CTPath = code:lib_dir(common_test),
-	    CSSFileSrc = filename:join(filename:join(CTPath, "priv"),
-				       ?css_default),
-	    CSSFileDestTop = filename:join(LogDir, ?css_default),
-	    CSSFileDestRun = filename:join(RunDirAbs, ?css_default),
-	    case file:copy(CSSFileSrc, CSSFileDestTop) of
-		{error,Reason0} ->
+	    PrivFiles = [?css_default,?jquery_script,?tablesorter_script],
+	    PrivFilesSrc = [filename:join(filename:join(CTPath, "priv"), F) ||
+			       F <- PrivFiles],
+	    PrivFilesDestTop = [filename:join(LogDir, F) || F <- PrivFiles],
+	    PrivFilesDestRun = [filename:join(RunDirAbs, F) || F <- PrivFiles],
+	    case copy_priv_files(PrivFilesSrc, PrivFilesDestTop) of
+		{error,Src1,Dest1,Reason1} ->
 		    io:format(user, "ERROR! "++
-			      "CSS file ~p could not be copied to ~p. "++
-			      "Reason: ~p~n",
-			      [CSSFileSrc,CSSFileDestTop,Reason0]),
-		    exit({css_file_error,CSSFileDestTop});
-		_ ->
-		    case file:copy(CSSFileSrc, CSSFileDestRun) of
-			{error,Reason1} ->
+			      "Priv file ~tp could not be copied to ~tp. "++
+			      "Reason: ~tp~n",
+			      [Src1,Dest1,Reason1]),
+		    exit({priv_file_error,Dest1});
+		ok ->
+		    case copy_priv_files(PrivFilesSrc, PrivFilesDestRun) of
+			{error,Src2,Dest2,Reason2} ->
 			    io:format(user, "ERROR! "++
-				      "CSS file ~p could not be copied to ~p. "++
-				      "Reason: ~p~n",
-				      [CSSFileSrc,CSSFileDestRun,Reason1]),
-			    exit({css_file_error,CSSFileDestRun});
-			_ ->
+				      "Priv file ~tp could not be copied to ~tp. "++
+				      "Reason: ~tp~n",
+				      [Src2,Dest2,Reason2]),
+			    exit({priv_file_error,Dest2});
+			ok ->
 			    ok
 		    end
 	    end
     end,
 
-    make_all_runs_index(LogDir),
+    _ = make_all_runs_index(LogDir),
     CtLogFd = open_ct_master_log(RunDirAbs),
     NodeStr = 
 	lists:flatten(lists:map(fun(N) ->
 					atom_to_list(N) ++ " "
 				end,Nodes)),
 
-    io:format(CtLogFd,int_header(),[log_timestamp(now()),"Test Nodes\n"]),
-    io:format(CtLogFd,"~s\n",[NodeStr]),
-    io:format(CtLogFd,int_footer()++"\n",[]),
+    io:format(CtLogFd,int_header(),[log_timestamp(?now),"Test Nodes\n"]),
+    io:format(CtLogFd,"~ts\n",[NodeStr]),
+    io:put_chars(CtLogFd,[int_footer(),"\n"]),
 
     NodeDirIxFd = open_nodedir_index(RunDirAbs,Time),
     Parent ! {started,self(),{Time,RunDirAbs}},
@@ -146,6 +152,16 @@ init(Parent,LogDir,Nodes) ->
 					   {N,""}
 				   end,Nodes)}).
 
+copy_priv_files([SrcF | SrcFs], [DestF | DestFs]) ->
+    case file:copy(SrcF, DestF) of
+	{error,Reason} ->
+	    {error,SrcF,DestF,Reason};
+	_ ->
+	    copy_priv_files(SrcFs, DestFs)
+    end;
+copy_priv_files([], []) ->
+    ok.
+
 loop(State) ->
     receive
 	{log,_From,List} ->
@@ -155,7 +171,7 @@ loop(State) ->
 			case catch io:format(Fd,Str++"\n",Args) of
 			    {'EXIT',Reason} ->
 				io:format(Fd, 
-					  "Logging fails! Str: ~p, Args: ~p~n",
+					  "Logging fails! Str: ~tp, Args: ~tp~n",
 					  [Str,Args]),
 				exit({logging_failed,Reason}),
 				ok;
@@ -166,7 +182,7 @@ loop(State) ->
 	    lists:foreach(Fun,List),
 	    loop(State);
 	{make_all_runs_index,From} ->
-	    make_all_runs_index(State#state.logdir),
+	    _ = make_all_runs_index(State#state.logdir),
 	    return(From,State#state.logdir),
 	    loop(State);	
 	{{nodedir,Node,RunDir},From} ->
@@ -174,12 +190,12 @@ loop(State) ->
 	    return(From,ok),
 	    loop(State);	
 	stop ->
-	    make_all_runs_index(State#state.logdir),
+	    _ = make_all_runs_index(State#state.logdir),
 	    io:format(State#state.log_fd,
 		      int_header()++int_footer(),
-		      [log_timestamp(now()),"Finished!"]),
-	    close_ct_master_log(State#state.log_fd),
-	    close_nodedir_index(State#state.nodedir_ix_fd),
+		      [log_timestamp(?now),"Finished!"]),
+	    _ = close_ct_master_log(State#state.log_fd),
+	    _ = close_nodedir_index(State#state.nodedir_ix_fd),
 	    ok
     end.
 
@@ -189,25 +205,22 @@ loop(State) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%
 open_ct_master_log(Dir) ->
     FullName = filename:join(Dir,?ct_master_log_name),
-    {ok,Fd} = file:open(FullName,[write]),
-    io:format(Fd,header("Common Test Master Log"),[]),
+    {ok,Fd} = file:open(FullName,[write,{encoding,utf8}]),
+    io:put_chars(Fd,header("Common Test Master Log", {[],[1,2],[]})),
     %% maybe add config info here later
-    io:format(Fd, config_table([]), []),
-    io:format(Fd,
-	      "<style>\n"
-	      "div.ct_internal { background:lightgrey; color:black }\n"
-	      "div.default     { background:lightgreen; color:black }\n"
-	      "</style>\n",
-	      []),
-    io:format(Fd, 
-	      xhtml("<br><h2>Progress Log</h2>\n<pre>\n",
-		    "<br /><h2>Progress Log</h2>\n<pre>\n"),
-	      []),
+    io:put_chars(Fd,config_table([])),
+    io:put_chars(Fd,
+		 "<style>\n"
+		 "div.ct_internal { background:lightgrey; color:black }\n"
+		 "div.default     { background:lightgreen; color:black }\n"
+		 "</style>\n"),
+    io:put_chars(Fd, 
+		 xhtml("<br><h2>Progress Log</h2>\n<pre>\n",
+		       "<br /><h2>Progress Log</h2>\n<pre>\n")),
     Fd.
 
 close_ct_master_log(Fd) ->
-    io:format(Fd,"</pre>",[]),
-    io:format(Fd,footer(),[]),
+    io:put_chars(Fd,["</pre>",footer()]),
     file:close(Fd).
 
 config_table(Vars) ->
@@ -216,48 +229,54 @@ config_table(Vars) ->
 config_table_header() ->
     ["<h2>Configuration</h2>\n",
      xhtml(["<table border=\"3\" cellpadding=\"5\" "
-	    "bgcolor=\"",?table_color,"\"\n"], "<table>\n"),
-     "<tr><th>Key</th><th>Value</th></tr>\n"].
+	    "bgcolor=\"",?table_color,"\"\n"],
+	   ["<table id=\"",?sortable_table_name,"\">\n",
+	    "<thead>\n"]),
+     "<tr><th>Key</th><th>Value</th></tr>\n",
+     xhtml("", "</thead>\n<tbody>\n")].
 
 config_table1([]) ->
-    ["</table>\n"].
+    ["</tbody>\n</table>\n"].
 
 int_header() ->
-    "<div class=\"ct_internal\"><b>*** CT MASTER ~s *** ~s</b>".
+    "</pre>\n<div class=\"ct_internal\"><pre><b>*** CT MASTER ~s *** ~ts</b>".
 int_footer() ->
-    "</div>".
+    "</pre></div>\n<pre>".
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% NodeDir Index functions %%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 open_nodedir_index(Dir,StartTime) ->
     FullName = filename:join(Dir,?nodedir_index_name),
-    {ok,Fd} = file:open(FullName,[write]),
-    io:format(Fd,nodedir_index_header(StartTime),[]),
+    {ok,Fd} = file:open(FullName,[write,{encoding,utf8}]),
+    io:put_chars(Fd,nodedir_index_header(StartTime)),
     Fd.
 
 print_nodedir(Node,RunDir,Fd) ->
     Index = filename:join(RunDir,"index.html"),
-    io:format(Fd,
-	      ["<tr>\n"
-	       "<td align=center>",atom_to_list(Node),"</td>\n",
-	       "<td align=left><a href=\"",Index,"\">",Index,"</a></td>\n",
-	       "</tr>\n"],[]),
+    io:put_chars(Fd,
+		 ["<tr>\n"
+		  "<td align=center>",atom_to_list(Node),"</td>\n",
+		  "<td align=left><a href=\"",ct_logs:uri(Index),"\">",Index,
+		  "</a></td>\n",
+		  "</tr>\n"]),
     ok.
 
 close_nodedir_index(Fd) ->
-    io:format(Fd,index_footer(),[]),
+    io:put_chars(Fd,index_footer()),
     file:close(Fd).
 
 nodedir_index_header(StartTime) ->
-    [header("Log Files " ++ format_time(StartTime)) |
+    [header("Log Files " ++ format_time(StartTime), {[],[1,2],[]}) |
      ["<center>\n",
       "<p><a href=\"",?ct_master_log_name,"\">Common Test Master Log</a></p>",
       xhtml(["<table border=\"3\" cellpadding=\"5\" "
-	     "bgcolor=\"",?table_color,"\">\n"], "<table>\n"),
+	     "bgcolor=\"",?table_color,"\">\n"],
+	    ["<table id=\"",?sortable_table_name,"\">\n",
+	     "<thead>\n<tr>\n"]),
       "<th><b>Node</b></th>\n",
       "<th><b>Log</b></th>\n",
-      "\n"]].
+      xhtml("", "</tr>\n</thead>\n<tbody>\n")]].
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% All Run Index functions %%%
@@ -269,7 +288,9 @@ make_all_runs_index(LogDir) ->
     DirsSorted = (catch sort_all_runs(Dirs)),
     Header = all_runs_header(),
     Index = [runentry(Dir) || Dir <- DirsSorted],
-    Result = file:write_file(FullName,Header++Index++index_footer()),
+    Result = file:write_file(FullName,
+			     unicode:characters_to_binary(
+			       Header++Index++index_footer())),
     Result.    
 
 sort_all_runs(Dirs) ->
@@ -277,7 +298,7 @@ sort_all_runs(Dirs) ->
     %% "YYYY-MM-DD_HH.MM.SS"
     KeyList =
 	lists:map(fun(Dir) ->
-			  case lists:reverse(string:tokens(Dir,[$.,$_])) of
+			  case lists:reverse(string:lexemes(Dir,[$.,$_])) of
 			      [SS,MM,HH,Date|_] ->
 				  {{Date,HH,MM,SS},Dir};
 			      _Other ->
@@ -292,40 +313,33 @@ runentry(Dir) ->
     {MasterStr,NodesStr} = 
 	case read_details_file(Dir) of
 	    {Master,Nodes} when is_list(Nodes) ->
-		[_,Host] = string:tokens(atom_to_list(Master),"@"),
-		NodesList = 
-		    lists:reverse(lists:map(fun(N) ->
-						    atom_to_list(N) ++ ", "
-					    end,Nodes)),
-		case NodesList of
-		    [N|NListR] ->
-			N1 = string:sub_string(N,1,length(N)-2),
-			{Host,lists:flatten(lists:reverse([N1|NListR]))};
-		    [] ->
-			{Host,""}
-		end;
+		[_,Host] = string:lexemes(atom_to_list(Master),"@"),
+                {Host,lists:concat(lists:join(", ",Nodes))};
 	    _Error ->
 		{"unknown",""}
 	end,
     Index = filename:join(Dir,?nodedir_index_name),
     ["<tr>\n"
-     "<td align=center><a href=\"",Index,"\">",timestamp(Dir),"</a></td>\n",
+     "<td align=center><a href=\"",ct_logs:uri(Index),"\">",
+     timestamp(Dir),"</a></td>\n",
      "<td align=center>",MasterStr,"</td>\n",
      "<td align=center>",NodesStr,"</td>\n",
      "</tr>\n"].
 
 all_runs_header() ->
-    [header("Master Test Runs") |
+    [header("Master Test Runs", {[1],[2,3],[]}) |
      ["<center>\n",
       xhtml(["<table border=\"3\" cellpadding=\"5\" "
-	     "bgcolor=\"",?table_color,"\">\n"], "<table>\n"),
+	     "bgcolor=\"",?table_color,"\">\n"],
+	    ["<table id=\"",?sortable_table_name,"\">\n",
+	     "<thead>\n<tr>\n"]),
       "<th><b>History</b></th>\n"
       "<th><b>Master Host</b></th>\n"
-      "<th><b>Test Nodes</b></th>\n"
-      "\n"]].
+      "<th><b>Test Nodes</b></th>\n",
+      xhtml("", "</tr></thead>\n<tbody>\n")]].
 
 timestamp(Dir) ->
-    [S,Min,H,D,M,Y|_] = lists:reverse(string:tokens(Dir,".-_")),
+    [S,Min,H,D,M,Y|_] = lists:reverse(string:lexemes(Dir,".-_")),
     [S1,Min1,H1,D1,M1,Y1] = [list_to_integer(N) || N <- [S,Min,H,D,M,Y]],
     format_time({{Y1,M1,D1},{H1,Min1,S1}}).
 
@@ -346,9 +360,16 @@ read_details_file(Dir) ->
 %%% Internal functions
 %%%--------------------------------------------------------------------
 
-header(Title) ->
+header(Title, TableCols) ->
     CSSFile = xhtml(fun() -> "" end, 
-		    fun() -> make_relative(locate_default_css_file()) end),
+		    fun() -> make_relative(locate_priv_file(?css_default)) end),
+    JQueryFile =
+	xhtml(fun() -> "" end, 
+	      fun() -> make_relative(locate_priv_file(?jquery_script)) end),
+    TableSorterFile =
+	xhtml(fun() -> "" end, 
+	      fun() -> make_relative(locate_priv_file(?tablesorter_script)) end),
+
     [xhtml(["<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 3.2 Final//EN\">\n",
 	    "<html>\n"],
 	   ["<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\"\n",
@@ -357,9 +378,22 @@ header(Title) ->
      "<!-- autogenerated by '"++atom_to_list(?MODULE)++"' -->\n",
      "<head>\n",
      "<title>" ++ Title ++ "</title>\n",
-     "<meta http-equiv=\"cache-control\" content=\"no-cache\">\n",
+     "<meta http-equiv=\"cache-control\" content=\"no-cache\"></meta>\n",
+     "<meta http-equiv=\"content-type\" content=\"text/html; ",
+     "charset=utf-8\"></meta>\n",
      xhtml("",
-	   ["<link rel=\"stylesheet\" href=\"",CSSFile,"\" type=\"text/css\">"]),
+	   ["<link rel=\"stylesheet\" href=\"",ct_logs:uri(CSSFile),
+	    "\" type=\"text/css\"></link>\n"]),
+     xhtml("",
+	   ["<script type=\"text/javascript\" src=\"",JQueryFile,
+	    "\"></script>\n"]),
+     xhtml("",
+	   ["<script type=\"text/javascript\" src=\"",TableSorterFile,
+	    "\"></script>\n"]),
+     xhtml(fun() -> "" end,
+	   fun() -> ct_logs:insert_javascript({tablesorter,
+					       ?sortable_table_name,
+					       TableCols}) end),
      "</head>\n",
      body_tag(),
      "<center>\n",
@@ -367,7 +401,7 @@ header(Title) ->
      "</center>\n"].
 
 index_footer() ->
-    ["</table>\n"
+    ["</tbody>\n</table>\n"
      "</center>\n" | footer()].
 
 footer() ->
@@ -377,7 +411,7 @@ footer() ->
      "Copyright &copy; ", year(),
      " <a href=\"http://www.erlang.org\">Open Telecom Platform</a>",
      xhtml("<br>\n", "<br />\n"),
-     "Updated: <!date>", current_time(), "<!/date>",
+     "Updated: <!--date-->", current_time(), "<--!/date-->",
      xhtml("<br>\n", "<br />\n"),
      xhtml("</font></p>\n", "</div>\n"),
      "</center>\n"
@@ -393,7 +427,7 @@ current_time() ->
 
 format_time({{Y, Mon, D}, {H, Min, S}}) ->
     Weekday = weekday(calendar:day_of_the_week(Y, Mon, D)),
-    lists:flatten(io_lib:format("~s ~s ~p ~w ~2.2.0w:~2.2.0w:~2.2.0w",
+    lists:flatten(io_lib:format("~s ~s ~2.2.0w ~w ~2.2.0w:~2.2.0w:~2.2.0w",
 				[Weekday, month(Mon), D, Y, H, Min, S])).
 
 weekday(1) -> "Mon";
@@ -446,14 +480,14 @@ basic_html() ->
 xhtml(HTML, XHTML) ->
     ct_logs:xhtml(HTML, XHTML).
 
-locate_default_css_file() ->
-    ct_logs:locate_default_css_file().
+locate_priv_file(File) ->
+    ct_logs:locate_priv_file(File).
 
 make_relative(Dir) ->
     ct_logs:make_relative(Dir).
 
 force_write_file(Name,Contents) ->
-    force_delete(Name),
+    _ = force_delete(Name),
     file:write_file(Name,Contents).
 
 force_delete(Name) ->
@@ -491,13 +525,34 @@ call(Msg) ->
     end.
 
 return({To,Ref},Result) ->
-    To ! {Ref, Result}.
+    To ! {Ref, Result},
+    ok.
 
 cast(Msg) ->
     case whereis(?MODULE) of
 	undefined ->
-	    {error,does_not_exist};
+	    io:format("Warning: ct_master_logs not started~n"),
+	    {_,_,Content} = Msg,
+	    FormatArgs = get_format_args(Content),
+	    _ = [io:format(Format, Args) || {Format, Args} <- FormatArgs],
+	    ok;
 	_Pid ->
-	    ?MODULE ! Msg
+	    ?MODULE ! Msg,
+	    ok
     end.
 
+get_format_args(Content) ->
+    lists:map(fun(C) ->
+		  case C of
+		      {_, FA, _} -> FA;
+		      _ -> C
+		  end
+	      end, Content).
+
+make_dir(Dir) ->
+    case file:make_dir(Dir) of
+	{error, eexist} ->
+		ok;
+	    Else ->
+		Else
+    end.

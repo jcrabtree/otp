@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2003-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2003-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -63,21 +64,21 @@
 %%%-----------------------------------------------------------------
 %%% User API
 start() ->
-    webtool:start(),
-    webtool:start_tools([],"app=vts").
+    {ok, _} = ct_webtool:start(),
+    ct_webtool:start_tools([],"app=vts").
 
 init_data(ConfigFiles,EvHandlers,LogDir,LogOpts,Tests) ->
     call({init_data,ConfigFiles,EvHandlers,LogDir,LogOpts,Tests}).
 
 stop() ->
-    webtool:stop_tools([],"app=vts"),
-    webtool:stop().
+    ct_webtool:stop_tools([],"app=vts"),
+    ct_webtool:stop().
 
 report(What,Data) ->
     call({report,What,Data}).
 
 %%%-----------------------------------------------------------------
-%%% Return config data used by webtool
+%%% Return config data used by ct_webtool
 config_data() ->
     {ok,LogDir} =
 	case lists:keysearch(logdir,1,init:get_arguments()) of
@@ -156,6 +157,7 @@ test_info(_VtsPid,Type,Data) ->
 init(Parent) ->
     register(?MODULE,self()),
     process_flag(trap_exit,true),
+    ct_util:mark_process(),
     Parent ! {self(),started},
     {ok,Cwd} = file:get_cwd(),
     InitState = #state{start_dir=Cwd},
@@ -168,7 +170,7 @@ loop(State) ->
 	    NewState = State#state{config=Config,event_handler=EvHandlers,
 				   current_log_dir=LogDir,
 				   logopts=LogOpts,tests=Tests},
-	    ct_install(NewState),
+	    _ = ct_install(NewState),
 	    return(From,ok),
 	    loop(NewState);
 	{start_page,From} ->
@@ -191,12 +193,12 @@ loop(State) ->
 	    loop(State);
 	{{add_config_file,Input},From} ->
 	    {Return,State1} = add_config_file1(Input,State),
-	    ct_install(State1),
+	    _ = ct_install(State1),
 	    return(From,Return),
 	    loop(State1);
 	{{remove_config_file,Input},From} ->
 	    {Return,State1} = remove_config_file1(Input,State),
-	    ct_install(State1),
+	    _ = ct_install(State1),
 	    return(From,Return),
 	    loop(State1);
 	{run_frame,From} ->
@@ -232,7 +234,7 @@ loop(State) ->
 	    return(From,result_summary_frame1(State)),
 	    loop(State);
 	stop_reload_results ->
-	    file:set_cwd(State#state.start_dir),
+	    ok = file:set_cwd(State#state.start_dir),
 	    loop(State#state{reload_results=false});
 	{no_result_log_frame,From} ->
 	    return(From,no_result_log_frame1()),
@@ -249,7 +251,7 @@ loop(State) ->
 	{'EXIT',Pid,Reason} ->
 	    case State#state.test_runner of
 		Pid ->
-		    io:format("Test run error: ~p\n",[Reason]),
+		    io:format("Test run error: ~tp\n",[Reason]),
 		    loop(State);
 		_ ->
 		    loop(State)
@@ -276,13 +278,14 @@ call(Msg) ->
     end.
 
 return({To,Ref},Result) ->
-    To ! {Ref, Result}.
-
+    To ! {Ref, Result},
+    ok.
 
 run_test1(State=#state{tests=Tests,current_log_dir=LogDir,
 		       logopts=LogOpts}) ->
     Self=self(),
     RunTest = fun() ->
+                      ct_util:mark_process(),
 		      case ct_run:do_run(Tests,[],LogDir,LogOpts) of
 			  {error,_Reason} ->
 			      aborted();
@@ -310,7 +313,6 @@ run_test1(State=#state{tests=Tests,current_log_dir=LogDir,
 ct_install(#state{config=Config,event_handler=EvHandlers,
 		  current_log_dir=LogDir}) ->
     ct_run:install([{config,Config},{event_handler,EvHandlers}],LogDir).
-    
 %%%-----------------------------------------------------------------
 %%% HTML
 start_page1() ->
@@ -548,10 +550,10 @@ case_select(Dir,Suite,Case,N) ->
 	end,
     case MakeResult of
 	ok ->
-	    code:add_pathz(Dir),
+	    true = code:add_pathz(Dir),
 	    case catch apply(Suite,all,[]) of
 		{'EXIT',Reason} ->
-		    io:format("\n~p\n",[Reason]),
+		    io:format("\n~tp\n",[Reason]),
 		    red(["COULD NOT READ TESTCASES!!",br(),
 			 "See erlang shell for info"]);
 		{skip,_Reason} ->
@@ -754,7 +756,7 @@ report1(tests_start,{TestName,_N},State) ->
 	end,
     State#state{testruns=TestRuns};
 report1(tests_done,{_Ok,_Fail,_Skip},State) ->
-    timer:send_after(5000, self(),stop_reload_results),
+    {ok, _}  = timer:send_after(5000, self(),stop_reload_results),
     State#state{running=State#state.running-1,reload_results=true};
 report1(tc_start,{_Suite,_Case},State) ->
     State;
@@ -917,7 +919,7 @@ get_input_data(Input,Key)->
     end.
 
 parse(Input) ->
-    httpd:parse_query(Input).
+    uri_string:dissect_query(Input).
 
 vts_integer_to_list(X) when is_atom(X) ->
     atom_to_list(X);

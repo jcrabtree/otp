@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2010-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2010-2017. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -58,7 +59,7 @@ enc(M, #diameter_packet{msg = Vs} = P) ->
                           P#diameter_packet{msg = [M|Vs]}).
 
 run(M, Pkt) ->
-    dec(M, diameter_codec:decode(diameter_test_recv, Pkt)).
+    dec(M, diameter_codec:decode(diameter_test_recv, opts(M), Pkt)).
 %% Note that the recv dictionary defines neither XXX nor YYY.
 
 dec('AR', #diameter_packet
@@ -71,6 +72,14 @@ dec('AR', #diameter_packet
 dec('BR', #diameter_packet
            {msg = #recv_BR{'Origin-Host'  = ?HOST,
                            'Origin-Realm' = ?REALM},
-            errors = [{5008, ?NOT_MANDATORY_YYY},
-                      {5001, ?MANDATORY_XXX}]}) ->
+            errors = [{5001, ?MANDATORY_XXX},
+                      {5008, ?NOT_MANDATORY_YYY}]}) ->
     ok.
+
+opts(Mod) ->
+    #{app_dictionary => Mod,
+      decode_format => record,
+      string_decode => true,
+      strict_mbit => true,
+      rfc => 6733,
+      failed_avp => false}.

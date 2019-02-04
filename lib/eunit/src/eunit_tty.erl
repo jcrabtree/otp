@@ -1,17 +1,22 @@
-%% This library is free software; you can redistribute it and/or modify
-%% it under the terms of the GNU Lesser General Public License as
-%% published by the Free Software Foundation; either version 2 of the
-%% License, or (at your option) any later version.
+%% Licensed under the Apache License, Version 2.0 (the "License"); you may
+%% not use this file except in compliance with the License. You may obtain
+%% a copy of the License at <http://www.apache.org/licenses/LICENSE-2.0>
 %%
-%% This library is distributed in the hope that it will be useful, but
-%% WITHOUT ANY WARRANTY; without even the implied warranty of
-%% MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-%% Lesser General Public License for more details.
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
-%% You should have received a copy of the GNU Lesser General Public
-%% License along with this library; if not, write to the Free Software
-%% Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307
-%% USA
+%% Alternatively, you may use this file under the terms of the GNU Lesser
+%% General Public License (the "LGPL") as published by the Free Software
+%% Foundation; either version 2.1, or (at your option) any later version.
+%% If you wish to allow use of your version of this file only under the
+%% terms of the LGPL, you should delete the provisions above and replace
+%% them with the notice and other provisions required by the LGPL; see
+%% <http://www.gnu.org/licenses/>. If you do not delete the provisions
+%% above, a recipient may use your version of this file under the terms of
+%% either the Apache License or the LGPL.
 %%
 %% @author Richard Carlsson <carlsson.richard@gmail.com>
 %% @copyright 2006-2009 Richard Carlsson
@@ -67,6 +72,8 @@ terminate({ok, Data}, St) ->
 		    end,
 		    if Pass =:= 1 ->
 			    fwrite("  Test passed.\n");
+		       Pass =:= 2 ->
+			    fwrite("  2 tests passed.\n");
 		       true ->
 			    fwrite("  All ~w tests passed.\n", [Pass])
 		    end
@@ -83,7 +90,7 @@ terminate({ok, Data}, St) ->
 	    sync_end(error)
     end;
 terminate({error, Reason}, _St) ->
-    fwrite("Internal error: ~P.\n", [Reason, 25]),
+    fwrite("Internal error: ~tP.\n", [Reason, 25]),
     sync_end(error).
 
 sync_end(Result) ->
@@ -177,7 +184,7 @@ indent(_N) ->
 
 print_group_start(I, Desc) ->
     indent(I),
-    fwrite("~s\n", [Desc]).
+    fwrite("~ts\n", [Desc]).
 
 print_group_end(I, Time) ->
     if Time > 0 ->
@@ -195,13 +202,13 @@ print_test_begin(I, Data) ->
 	   true -> io_lib:fwrite("~w:", [Line])
 	end,
     D = if Desc =:= "" ; Desc =:= undefined -> "";
-	   true -> io_lib:fwrite(" (~s)", [Desc])
+	   true -> io_lib:fwrite(" (~ts)", [Desc])
 	end,
     case proplists:get_value(source, Data) of
 	{Module, Name, _Arity} ->
-	    fwrite("~s:~s ~s~s...", [Module, L, Name, D]);
+	    fwrite("~ts:~ts ~ts~ts...", [Module, L, Name, D]);
 	_ ->
-	    fwrite("~s~s...", [L, D])
+	    fwrite("~ts~ts...", [L, D])
     end.
 
 print_test_end(Data) ->
@@ -209,26 +216,26 @@ print_test_end(Data) ->
     T = if Time > 0 -> io_lib:fwrite("[~.3f s] ", [Time/1000]);
 	   true -> ""
 	end,
-    fwrite("~sok\n", [T]).
+    fwrite("~tsok\n", [T]).
 
 print_test_error({error, Exception}, Data) ->
     Output = proplists:get_value(output, Data),
-    fwrite("*failed*\n~s", [eunit_lib:format_exception(Exception)]),
+    fwrite("*failed*\n~ts", [eunit_lib:format_exception(Exception)]),
     case Output of
 	<<>> ->
 	    fwrite("\n\n");
 	<<Text:800/binary, _:1/binary, _/binary>> ->
-	    fwrite("  output:<<\"~s\">>...\n\n", [Text]);
+	    fwrite("  output:<<\"~ts\">>...\n\n", [Text]);
 	_ ->
-	    fwrite("  output:<<\"~s\">>\n\n", [Output])
+	    fwrite("  output:<<\"~ts\">>\n\n", [Output])
     end;
 print_test_error({skipped, Reason}, _) ->
-    fwrite("*did not run*\n::~s\n", [format_skipped(Reason)]).
+    fwrite("*did not run*\n::~ts\n", [format_skipped(Reason)]).
 
 format_skipped({module_not_found, M}) ->
     io_lib:fwrite("missing module: ~w", [M]);
 format_skipped({no_such_function, {M,F,A}}) ->
-    io_lib:fwrite("no such function: ~w:~w/~w", [M,F,A]).
+    io_lib:fwrite("no such function: ~w:~tw/~w", [M,F,A]).
 
 print_test_cancel(Reason) ->
     fwrite(format_cancel(Reason)).
@@ -244,12 +251,12 @@ format_cancel(undefined) ->
 format_cancel(timeout) ->
     "*timed out*\n";
 format_cancel({startup, Reason}) ->
-    io_lib:fwrite("*could not start test process*\n::~P\n\n",
+    io_lib:fwrite("*could not start test process*\n::~tP\n\n",
 		  [Reason, 15]);
 format_cancel({blame, _SubId}) ->
     "*cancelled because of subtask*\n";
 format_cancel({exit, Reason}) ->
-    io_lib:fwrite("*unexpected termination of test process*\n::~P\n\n",
+    io_lib:fwrite("*unexpected termination of test process*\n::~tP\n\n",
 		  [Reason, 15]);
 format_cancel({abort, Reason}) ->
     eunit_lib:format_error(Reason).

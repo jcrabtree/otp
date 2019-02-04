@@ -1,13 +1,14 @@
-/* ``The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved via the world wide web at http://www.erlang.org/.
- * 
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+/* ``Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  * 
  * The Initial Developer of the Original Code is Ericsson Utvecklings AB.
  * Portions created by Ericsson are Copyright 1999, Ericsson Utvecklings
@@ -42,6 +43,7 @@
 typedef struct {
     TestCaseState_t visible;
     ErlDrvPort port;
+    ErlDrvTermData port_id;
     int result;
     jmp_buf done_jmp_buf;
     char *comment;
@@ -98,6 +100,7 @@ testcase_drv_start(ErlDrvPort port, char *command)
     itcs->visible.testcase_name = testcase_name();
     itcs->visible.extra = NULL;
     itcs->port = port;
+    itcs->port_id = driver_mk_port(port);
     itcs->result = TESTCASE_FAILED;
     itcs->comment = "";
 
@@ -143,7 +146,7 @@ testcase_drv_run(ErlDrvData drv_data, char *buf, ErlDrvSizeT len)
     msg[1] = (ErlDrvTermData) result_atom;
 
     msg[2] = ERL_DRV_PORT;
-    msg[3] = driver_mk_port(itcs->port);
+    msg[3] = itcs->port_id;
 
     msg[4] = ERL_DRV_ATOM;
     msg[5] = driver_mk_atom(itcs->visible.testcase_name);
@@ -155,7 +158,7 @@ testcase_drv_run(ErlDrvData drv_data, char *buf, ErlDrvSizeT len)
     msg[9] = ERL_DRV_TUPLE;
     msg[10] = (ErlDrvTermData) 4;
 
-    driver_output_term(itcs->port, msg, 11);
+    erl_drv_output_term(itcs->port_id, msg, 11);
 }
 
 int
@@ -185,7 +188,7 @@ testcase_printf(TestCaseState_t *tcs, char *frmt, ...)
     msg[1] = (ErlDrvTermData) driver_mk_atom("print");
 
     msg[2] = ERL_DRV_PORT;
-    msg[3] = driver_mk_port(itcs->port);
+    msg[3] = itcs->port_id;
 
     msg[4] = ERL_DRV_ATOM;
     msg[5] = driver_mk_atom(itcs->visible.testcase_name);
@@ -197,7 +200,7 @@ testcase_printf(TestCaseState_t *tcs, char *frmt, ...)
     msg[9] = ERL_DRV_TUPLE;
     msg[10] = (ErlDrvTermData) 4;
 
-    driver_output_term(itcs->port, msg, 11);
+    erl_drv_output_term(itcs->port_id, msg, 11);
 }
 
 

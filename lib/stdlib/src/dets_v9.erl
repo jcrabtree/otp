@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2001-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2001-2016. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -23,8 +24,8 @@
 
 -export([mark_dirty/1, read_file_header/2,
          check_file_header/2, do_perform_save/1, initiate_file/11,
-         prep_table_copy/9, init_freelist/2, fsck_input/4,
-         bulk_input/3, output_objs/4, bchunk_init/2,
+         prep_table_copy/9, init_freelist/1, fsck_input/4,
+         bulk_input/3, output_objs/3, bchunk_init/2,
          try_bchunk_header/2, compact_init/3, read_bchunks/2,
          write_cache/1, may_grow/3, find_object/2, slot_objs/2,
          scan_objs/8, db_hash/2, no_slots/1, table_parameters/1]).
@@ -32,6 +33,8 @@
 -export([file_info/1, v_segments/1]).
 
 -export([cache_segps/3]).
+
+-dialyzer(no_improper_lists).
 
 -compile({inline, [{max_objsize,1},{maxobjsize,1}]}).
 -compile({inline, [{write_segment_file,6}]}). 
@@ -225,8 +228,8 @@
 -define(CLOSED_PROPERLY_POS, 8).
 -define(D_POS, 20).
 
-%%% Dets file versions up to 8 are handled in dets_v8. This module
-%%% handles version 9, introduced in R8.
+%%% This module handles Dets file format version 9, introduced in
+%%% Erlang/OTP R8.
 %%% 
 %%% Version 9(a) tables have 256 reserved bytes in the file header,
 %%% all initialized to zero.
@@ -246,32 +249,32 @@
 -define(OHDSZ, 8).          % The size of the object header, in bytes.
 -define(STATUS_POS, 4).     % Position of the status field.
 
--define(OHDSZ_v8, 12).      % The size of the version 8 object header.
-
 %% The size of each object is a multiple of 16.
 %% BUMP is used when repairing files.
 -define(BUMP, 16).
 
-%%% '$hash' is the value of HASH_PARMS in R8, '$hash2' is the value in R9.
+%%% '$hash' is the value of HASH_PARMS in Erlang/OTP R8, '$hash2' is
+%%% the value in Erlang/OTP R9.
 %%%
 %%% The fields of the ?HASH_PARMS records are the same, but having
-%%% different tags makes bchunk_init on R8 nodes reject data from R9
-%%% nodes, and vice versa. This is overkill, and due to an oversight.
-%%% What should have been done in R8 was to check the hash method, not
-%%% only the type of the table and the key position. R8 nodes cannot
-%%% handle the phash2 method.
+%%% different tags makes bchunk_init on Erlang/OTP R8 nodes reject
+%%% data from Erlang/OTP R9 nodes, and vice versa. This is overkill,
+%%% and due to an oversight. What should have been done in Erlang/OTP
+%%% R8 was to check the hash method, not only the type of the table
+%%% and the key position. Erlang/OTP R8 nodes cannot handle the phash2
+%%% method.
 -define(HASH_PARMS, '$hash2').
 
 -define(BCHUNK_FORMAT_VERSION, 1).
 
 -record(?HASH_PARMS, {
-	   file_format_version, 
+	   file_format_version,
 	   bchunk_format_version, 
 	   file, type, keypos, hash_method,
 	   n,m,next,
 	   min,max,
 	   no_objects,no_keys,
-	   no_colls  % [{LogSz,NoColls}], NoColls >= 0
+	   no_colls :: no_colls()
 	  }).
 
 -define(ACTUAL_SEG_SIZE, (?SEGSZ*4)).
@@ -284,9 +287,9 @@
 %% -> ok | throw({NewHead,Error})
 mark_dirty(Head) ->
     Dirty = [{?CLOSED_PROPERLY_POS, <<?NOT_PROPERLY_CLOSED:32>>}],
-    dets_utils:pwrite(Head, Dirty),
-    dets_utils:sync(Head),
-    dets_utils:position(Head, Head#head.freelists_p),
+    {_H, ok} = dets_utils:pwrite(Head, Dirty),
+    ok = dets_utils:sync(Head),
+    {ok, _Pos} = dets_utils:position(Head, Head#head.freelists_p),
     dets_utils:truncate(Head, cur).
 
 %% -> {ok, head()} | throw(Error) | throw(badarg)
@@ -361,10 +364,8 @@ init_file(Fd, Tab, Fname, Type, Kp, MinSlots, MaxSlots, Ram, CacheSz,
       filename = Fname, 
       name = Tab,
       cache = dets_utils:new_cache(CacheSz),
-      version = ?FILE_FORMAT_VERSION,
       bump = ?BUMP,
-      base = ?BASE, % to be overwritten
-      mod = ?MODULE
+      base = ?BASE % to be overwritten
      },
 
     FreeListsPointer = 0,
@@ -454,7 +455,7 @@ alloc_seg(Head, SegZero, SegNo, Part) ->
     {NewHead, InitSegment, [SegPointer]}.
 
 %% Read free lists (using a Buddy System) from file. 
-init_freelist(Head, true) ->
+init_freelist(Head) ->
     Pos = Head#head.freelists_p,
     free_lists_from_file(Head, Pos).
 
@@ -507,12 +508,10 @@ read_file_header(Fd, FileName) ->
                      md5 = erlang:md5(MD5DigestedPart),
 		     trailer = FileSize + FlBase,
 		     eof = EOF,
-		     n = N,
-		     mod = ?MODULE},
+		     n = N},
     {ok, Fd, FH}.
 
-%% -> {ok, head(), ExtraInfo} | {error, Reason} (Reason lacking file name)
-%% ExtraInfo = true
+%% -> {ok, head()} | {error, Reason} (Reason lacking file name)
 check_file_header(FH, Fd) ->
     HashBif = code_to_hash_method(FH#fileheader.hash_method),
     Test = 
@@ -531,14 +530,14 @@ check_file_header(FH, Fd) ->
 	    HashBif =:= undefined ->
 		{error, bad_hash_bif};
 	    FH#fileheader.closed_properly =:= ?CLOSED_PROPERLY ->
-		{ok, true};
+		ok;
 	    FH#fileheader.closed_properly =:= ?NOT_PROPERLY_CLOSED ->
 		{error, not_closed};
 	    true ->
 		{error, not_a_dets_file}
 	end,
     case Test of
-	{ok, ExtraInfo} ->
+	ok ->
             MaxObjSize = max_objsize(FH#fileheader.no_colls),
 	    H = #head{
 	      m = FH#fileheader.m,
@@ -560,11 +559,9 @@ check_file_header(FH, Fd) ->
 	      min_no_slots = FH#fileheader.min_no_slots,
 	      max_no_slots = FH#fileheader.max_no_slots,
 	      no_collections = FH#fileheader.no_colls,
-	      version = ?FILE_FORMAT_VERSION,
-	      mod = ?MODULE,
 	      bump = ?BUMP,
 	      base = FH#fileheader.fl_base},
-	    {ok, H, ExtraInfo};
+	    {ok, H};
 	Error ->
 	    Error
     end.
@@ -618,7 +615,7 @@ no_segs(NoSlots) ->
 %%%
 
 %%% bulk_input/3. Initialization, the general case (any stream of objects).
-%%% output_objs/4. Initialization (general case) and repair.
+%%% output_objs/3. Initialization (general case) and repair.
 %%% bchunk_init/2. Initialization using bchunk.
 
 bulk_input(Head, InitFun, _Cntrs) ->
@@ -675,7 +672,7 @@ bulk_objects([], _Head, Kp, Seq, L) when is_integer(Kp), is_integer(Seq) ->
 -define(OBJ_COUNTER, 2).
 -define(KEY_COUNTER, 3).
 
-output_objs(OldV, Head, SlotNums, Cntrs) when OldV =< 9 ->
+output_objs(Head, SlotNums, Cntrs) ->
     fun(close) ->
             %% Make sure that the segments are initialized in case
             %% init_table has been called.
@@ -683,31 +680,31 @@ output_objs(OldV, Head, SlotNums, Cntrs) when OldV =< 9 ->
             Acc = [], % This is the only way Acc can be empty.
             true = ets:insert(Cntrs, {?FSCK_SEGMENT,0,[],0}),
 	    true = ets:insert(Cntrs, {?COUNTERS, 0, 0}),
-            Fun = output_objs2(foo, Acc, OldV, Head, Cache, Cntrs,
+            Fun = output_objs2(foo, Acc, Head, Cache, Cntrs,
 			       SlotNums, bar),
             Fun(close);
        ([]) ->
-	    output_objs(OldV, Head, SlotNums, Cntrs);
+	    output_objs(Head, SlotNums, Cntrs);
        (L) ->
 	    %% Information about number of objects per size is not
 	    %% relevant for version 9. It is the number of collections
 	    %% that matters.
             true = ets:delete_all_objects(Cntrs),
 	    true = ets:insert(Cntrs, {?COUNTERS, 0, 0}),
-	    Es = bin2term(L, OldV, Head#head.keypos),
+	    Es = bin2term(L, Head#head.keypos),
 	    %% The cache is a tuple indexed by the (log) size. An element
 	    %% is [BinaryObject].
 	    Cache = ?VEMPTY,
 	    {NE, NAcc, NCache} = output_slots(Es, Head, Cache, Cntrs, 0, 0),
-	    output_objs2(NE, NAcc, OldV, Head, NCache, Cntrs, SlotNums, 1)
+	    output_objs2(NE, NAcc, Head, NCache, Cntrs, SlotNums, 1)
     end.
 
-output_objs2(E, Acc, OldV, Head, Cache, SizeT, SlotNums, 0) ->
+output_objs2(E, Acc, Head, Cache, SizeT, SlotNums, 0) ->
     NCache = write_all_sizes(Cache, SizeT, Head, more),
     %% Number of handled file_sorter chunks before writing:
     Max = erlang:max(1, erlang:min(tuple_size(NCache), 10)),
-    output_objs2(E, Acc, OldV, Head, NCache, SizeT, SlotNums, Max);
-output_objs2(E, Acc, OldV, Head, Cache, SizeT, SlotNums, ChunkI) ->
+    output_objs2(E, Acc, Head, NCache, SizeT, SlotNums, Max);
+output_objs2(E, Acc, Head, Cache, SizeT, SlotNums, ChunkI) ->
     fun(close) ->
             {_, [], Cache1} = 
                  if
@@ -744,11 +741,10 @@ output_objs2(E, Acc, OldV, Head, Cache, SizeT, SlotNums, ChunkI) ->
 		    end
 	    end;
        (L) ->
-	    Es = bin2term(L, OldV, Head#head.keypos),
+	    Es = bin2term(L, Head#head.keypos),
 	    {NE, NAcc, NCache} = 
 		output_slots(E, Es, Acc, Head, Cache, SizeT, 0, 0),
-	    output_objs2(NE, NAcc, OldV, Head, NCache, SizeT, SlotNums,
-			 ChunkI-1)
+	    output_objs2(NE, NAcc, Head, NCache, SizeT, SlotNums, ChunkI-1)
     end.
 
 %%% Compaction. 
@@ -1242,23 +1238,14 @@ allocate_all(Head, [{LSize,_,Data,NoCollections} | DTL], L) ->
     E = {LSize,Addr,Data,NoCollections},
     allocate_all(NewHead, DTL, [E | L]).
 
-bin2term(Bin, 9, Kp) ->
-    bin2term1(Bin, Kp, []);
-bin2term(Bin, 8, Kp) ->
-    bin2term_v8(Bin, Kp, []).
+bin2term(Bin, Kp) ->
+    bin2term1(Bin, Kp, []).
 
 bin2term1([<<Slot:32, Seq:32, BinTerm/binary>> | BTs], Kp, L) ->
     Term = binary_to_term(BinTerm),
     Key = element(Kp, Term),
     bin2term1(BTs, Kp, [{Slot, Key, Seq, Term, BinTerm} | L]);
 bin2term1([], _Kp, L) ->
-    lists:reverse(L).
-
-bin2term_v8([<<Slot:32, BinTerm/binary>> | BTs], Kp, L) ->
-    Term = binary_to_term(BinTerm),
-    Key = element(Kp, Term),
-    bin2term_v8(BTs, Kp, [{Slot, Key, foo, Term, BinTerm} | L]);
-bin2term_v8([], _Kp, L) ->
     lists:reverse(L).
 
 write_all_sizes({}=Cache, _SizeT, _Head, _More) ->
@@ -1385,13 +1372,13 @@ segment_file(SizeT, Head, FileData, SegEnd) ->
 	case Data of
 	    {InFile,In0} ->
 		{OutFile, Out} = temp_file(Head, SizeT, I),
-		file:close(In0),
+		_ = file:close(In0),
 		{ok, In} = dets_utils:open(InFile, [raw,binary,read]),
 		{ok, 0} = dets_utils:position(In, InFile, bof),
 		seg_file(SegAddr, SegAddr, In, InFile, Out, OutFile, SizeT, 
 			 SegEnd),
-		file:close(In),
-		file:delete(InFile),
+		_ = file:close(In),
+		_ = file:delete(InFile),
 		{OutFile,Out};
 	    Objects ->
 		{LastAddr, B} = seg_file(Objects, SegAddr, SegAddr, SizeT, []),
@@ -1458,7 +1445,7 @@ temp_file(Head, SizeT, N) ->
 %% Does not close Fd.
 fsck_input(Head, Fd, Cntrs, FileHeader) ->
     MaxSz0 = case FileHeader#fileheader.has_md5 of
-                 true when is_integer(FileHeader#fileheader.no_colls) -> 
+                 true when is_list(FileHeader#fileheader.no_colls) ->
                      ?POW(max_objsize(FileHeader#fileheader.no_colls));
                  _ ->
                      %% The file is not compressed, so the bucket size
@@ -1482,10 +1469,10 @@ fsck_input(Head, State, Fd, MaxSz, Cntrs) ->
 		done ->
 		    end_of_input;
 		{done, L, _Seq} ->
-		    R = count_input(Head, Cntrs, L),
+		    R = count_input(L),
 		    {R, fsck_input(Head, done, Fd, MaxSz, Cntrs)};
 		{cont, L, Bin, Pos, Seq} ->
-		    R = count_input(Head, Cntrs, L),
+		    R = count_input(L),
                     FR = fsck_objs(Bin, Head#head.keypos, Head, [], Seq),
                     NewState = fsck_read(FR, Pos, Fd, MaxSz, Head),
 		    {R, fsck_input(Head, NewState, Fd, MaxSz, Cntrs)}
@@ -1493,19 +1480,8 @@ fsck_input(Head, State, Fd, MaxSz, Cntrs) ->
     end.
 
 %% The ets table Cntrs is used for counting objects per size.
-count_input(Head, Cntrs, L) when Head#head.version =:= 8 ->
-    count_input1(Cntrs, L, []);
-count_input(_Head, _Cntrs, L) ->
+count_input(L) ->
     lists:reverse(L).
-
-count_input1(Cntrs, [[LogSz | B] | Ts], L) ->
-    case catch ets:update_counter(Cntrs, LogSz, 1) of
-	N when is_integer(N) -> ok;
-	_Badarg -> true = ets:insert(Cntrs, {LogSz, 1})
-    end,
-    count_input1(Cntrs, Ts, [B | L]);
-count_input1(_Cntrs, [], L) ->
-    L.
 
 fsck_read(Pos, F, L, Seq) ->
     case file:position(F, Pos) of
@@ -1561,11 +1537,6 @@ fsck_objs(Bin = <<Sz:32, Status:32, Tail/binary>>, Kp, Head, L, Seq) ->
 fsck_objs(Bin, _Kp, _Head, L, Seq) ->
     {more, Bin, 0, L, Seq}.
     
-make_objects([{K,BT}|Os], Seq, Kp, Head, L) when Head#head.version =:= 8 ->
-    LogSz = dets_v8:sz2pos(byte_size(BT)+?OHDSZ_v8),
-    Slot = dets_v8:db_hash(K, Head),
-    Obj = [LogSz | <<Slot:32, LogSz:8, BT/binary>>],
-    make_objects(Os, Seq, Kp, Head, [Obj | L]);
 make_objects([{K,BT} | Os], Seq, Kp, Head, L) ->
     Obj = make_object(Head, K, Seq, BT),
     make_objects(Os, Seq+1, Kp, Head, [Obj | L]);
@@ -1604,7 +1575,7 @@ do_perform_save(H) ->
     FileHeader = file_header(H1, FreeListsPointer, ?CLOSED_PROPERLY),
     case dets_utils:debug_mode() of
         true -> 
-            TmpHead0 = init_freelist(H1#head{fixed = false}, true),
+            TmpHead0 = init_freelist(H1#head{fixed = false}),
             TmpHead = TmpHead0#head{base = H1#head.base},
             case 
                 catch dets_utils:all_allocated_as_list(TmpHead)
@@ -1702,7 +1673,7 @@ free_list_to_file(Ftab, H, Pos, Sz, Ws, WsSz) ->
     free_list_to_file(Ftab, H, Pos+1, Sz, NWs, NWsSz).
 
 free_lists_from_file(H, Pos) ->
-    dets_utils:position(H#head.fptr, H#head.filename, Pos),
+    {ok, Pos} = dets_utils:position(H#head.fptr, H#head.filename, Pos),
     FL = dets_utils:empty_free_lists(),
     case catch bin_to_tree([], H, start, FL, -1, []) of
 	{'EXIT', _} ->
@@ -1791,7 +1762,7 @@ table_parameters(Head) ->
 				      (E, A) -> [E | A]
 				   end, [], CL),
 	    NoColls = lists:reverse(NoColls0),
-	    #?HASH_PARMS{file_format_version = Head#head.version, 
+	    #?HASH_PARMS{file_format_version = ?FILE_FORMAT_VERSION,
 			 bchunk_format_version = ?BCHUNK_FORMAT_VERSION,
 			 file = filename:basename(Head#head.filename),
 			 type = Head#head.type,
@@ -2662,7 +2633,7 @@ v_segment(H, SegNo, SegPos, SegSlot) ->
 	{'EXIT', Reason} -> 
 	    dets_utils:vformat("** dets: Corrupt or truncated dets file~n", 
 			       []), 
-	    io:format("~nERROR ~p~n", [Reason]);
+	    io:format("~nERROR ~tp~n", [Reason]);
 	[] ->  %% don't print empty buckets
 	    true;
 	{Size, CollP, Objects} ->

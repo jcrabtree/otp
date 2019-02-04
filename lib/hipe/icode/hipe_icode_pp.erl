@@ -1,21 +1,16 @@
 %% -*- erlang-indent-level: 2 -*-
 %%
-%% %CopyrightBegin%
-%% 
-%% Copyright Ericsson AB 2003-2011. All Rights Reserved.
-%% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
-%% 
-%% %CopyrightEnd%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Copyright (c) 2003 by Erik Stenman.  
@@ -25,10 +20,6 @@
 %%  Purpose  :  Pretty-printer for Icode.
 %%  Notes    : 
 %%  History  :	* 2003-04-16 (stenman@epfl.ch): Created.
-%%  CVS      :
-%%              $Author$
-%%              $Date$
-%%              $Revision$
 %% ====================================================================
 %% 
 %% @doc
@@ -239,7 +230,10 @@ pp_arg(Dev, Arg) ->
 	  case hipe_icode:is_reg(Arg) of
 	    true ->
 	      N = hipe_icode:reg_name(Arg),
-	      io:format(Dev, "r~p", [N]);
+	      case hipe_icode:reg_is_gcsafe(Arg) of
+		true  -> io:format(Dev, "rs~p", [N]);
+		false -> io:format(Dev, "r~p", [N])
+	      end;
 	    false ->
 	      N = hipe_icode:fvar_name(Arg),
 	      io:format(Dev, "fv~p", [N])

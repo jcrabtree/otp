@@ -2,18 +2,19 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 1998-2011. All Rights Reserved.
+ * Copyright Ericsson AB 1998-2016. All Rights Reserved.
  *
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  * %CopyrightEnd%
  */
@@ -23,6 +24,7 @@
 #endif
 #include "epmd.h"     /* Renamed from 'epmd_r4.h' */
 #include "epmd_int.h"
+#include "erl_printf.h" /* erts_snprintf */
 
 #ifndef INADDR_NONE
 #  define INADDR_NONE 0xffffffff
@@ -69,16 +71,124 @@ static time_t current_time(EpmdVars*);
 
 static Connection *conn_init(EpmdVars*);
 static int conn_open(EpmdVars*,int);
+static int conn_local_peer_check(EpmdVars*, int);
 static int conn_close_fd(EpmdVars*,int);
 
 static void node_init(EpmdVars*);
-static Node *node_reg2(EpmdVars*,char*, int, int, unsigned char, unsigned char, int, int, int, char*);
+static Node *node_reg2(EpmdVars*, int, char*, int, int, unsigned char, unsigned char, int, int, int, char*);
 static int node_unreg(EpmdVars*,char*);
 static int node_unreg_sock(EpmdVars*,int);
 
 static int reply(EpmdVars*,int,char *,int);
 static void dbg_print_buf(EpmdVars*,char *,int);
 static void print_names(EpmdVars*);
+
+static int is_same_str(char *x, char *y)
+{
+    int i = 0;
+    /*
+     * Using strcmp() == 0 is probably ok, but just to be sure,
+     * since we got UTF-8 strings, we do it ourselves.
+     *
+     * We assume null-terminated correctly encoded UTF-8.
+     */
+    while (x[i] == y[i]) {
+	if (x[i] == '\0')
+	    return 1;
+	i++;
+    }
+    return 0;
+}
+
+static int copy_str(char *x, char *y)
+{
+    int i = 0;
+    /*
+     * Using strcpy() is probably ok, but just to be sure,
+     * since we got UTF-8 strings, we do it ourselves.
+     *
+     * We assume null-terminated correctly encoded UTF-8.
+     */
+    while (1) {
+	x[i] = y[i];
+	if (y[i] == '\0')
+	    return i;
+	i++;
+    }
+}
+
+static int length_str(char *x)
+{
+    int i = 0;
+    /*
+     * Using strlen is probably ok, but just to be sure,
+     * since we got UTF-8 strings, we do it ourselves.
+     *
+     * We assume null-terminated correctly encoded UTF-8.
+     */
+    while (x[i])
+	i++;
+    return i;
+}
+
+static int verify_utf8(const char *src, int sz, int null_term)
+{
+    unsigned char *source = (unsigned char *) src;
+    int size = sz;
+    int num_chars = 0;
+    while (size) {
+	if (null_term && (*source) == 0)
+	    return num_chars;
+	if (((*source) & ((unsigned char) 0x80)) == 0) {
+	    source++;
+	    --size;
+	} else if (((*source) & ((unsigned char) 0xE0)) == 0xC0) {
+	    if (size < 2)
+		return -1;
+	    if (((source[1] & ((unsigned char) 0xC0)) != 0x80) ||
+		((*source) < 0xC2) /* overlong */) {
+		return -1;
+	    }
+	    source += 2;
+	    size -= 2;
+	} else if (((*source) & ((unsigned char) 0xF0)) == 0xE0) {
+	    if (size < 3)
+		return -1;
+	    if (((source[1] & ((unsigned char) 0xC0)) != 0x80) ||
+		((source[2] & ((unsigned char) 0xC0)) != 0x80) ||
+		(((*source) == 0xE0) && (source[1] < 0xA0)) /* overlong */ ) {
+		return -1;
+	    }
+	    if ((((*source) & ((unsigned char) 0xF)) == 0xD) && 
+		((source[1] & 0x20) != 0)) {
+		return -1;
+	    }
+	    source += 3;
+	    size -= 3;
+	} else if (((*source) & ((unsigned char) 0xF8)) == 0xF0) {
+	    if (size < 4)
+		return -1;
+	    if (((source[1] & ((unsigned char) 0xC0)) != 0x80) ||
+		((source[2] & ((unsigned char) 0xC0)) != 0x80) ||
+		((source[3] & ((unsigned char) 0xC0)) != 0x80) ||
+		(((*source) == 0xF0) && (source[1] < 0x90)) /* overlong */) {
+		return -1;
+	    }
+	    if ((((*source) & ((unsigned char)0x7)) > 0x4U) ||
+		((((*source) & ((unsigned char)0x7)) == 0x4U) && 
+		 ((source[1] & ((unsigned char)0x3F)) > 0xFU))) {
+		return -1;
+	    }
+	    source += 4;
+	    size -= 4; 
+	} else {
+	    return -1;
+	}
+	++num_chars;
+    }
+    return num_chars;
+}
+
 
 static EPMD_INLINE void select_fd_set(EpmdVars* g, int fd)
 {
@@ -92,78 +202,133 @@ void run(EpmdVars *g)
 {
   struct EPMD_SOCKADDR_IN iserv_addr[MAX_LISTEN_SOCKETS];
   int listensock[MAX_LISTEN_SOCKETS];
-  int num_sockets;
+  int num_sockets = 0;
   int i;
   int opt;
   unsigned short sport = g->port;
+  int bound = 0;
 
   node_init(g);
   g->conn = conn_init(g);
+
+#ifdef HAVE_SYSTEMD_DAEMON
+  if (g->is_systemd)
+    {
+      int n;
+      
+      dbg_printf(g,2,"try to obtain sockets from systemd");
+
+      n = sd_listen_fds(0);
+      if (n < 0)
+        {
+          dbg_perror(g,"cannot obtain sockets from systemd");
+          epmd_cleanup_exit(g,1);
+        }
+      else if (n == 0)
+        {
+          dbg_tty_printf(g,0,"systemd provides no sockets");
+          epmd_cleanup_exit(g,1);
+      }
+      else if (n > MAX_LISTEN_SOCKETS)
+      {
+          dbg_tty_printf(g,0,"cannot listen on more than %d IP addresses", MAX_LISTEN_SOCKETS);
+          epmd_cleanup_exit(g,1);
+      } 
+      num_sockets = n;
+      for (i = 0; i < num_sockets; i++)
+        {
+          g->listenfd[i] = listensock[i] = SD_LISTEN_FDS_START + i;
+        }
+    }
+  else
+    {
+#endif /* HAVE_SYSTEMD_DAEMON */
 
   dbg_printf(g,2,"try to initiate listening port %d", g->port);
 
   if (g->addresses != NULL && /* String contains non-separator characters if: */
       g->addresses[strspn(g->addresses," ,")] != '\000')
     {
-      char *tmp;
-      char *token;
-      int loopback_ok = 0;
+      char *tmp = NULL;
+      char *token = NULL;
 
-      if ((tmp = (char *)malloc(strlen(g->addresses) + 1)) == NULL)
+      /* Always listen on the loopback. */
+      SET_ADDR(iserv_addr[num_sockets],htonl(INADDR_LOOPBACK),sport);
+      num_sockets++;
+#if defined(EPMD6)
+      SET_ADDR6(iserv_addr[num_sockets],in6addr_loopback,sport);
+      num_sockets++;
+#endif
+
+	  if ((tmp = strdup(g->addresses)) == NULL)
 	{
 	  dbg_perror(g,"cannot allocate memory");
 	  epmd_cleanup_exit(g,1);
 	}
-      strcpy(tmp,g->addresses);
 
-      for(token = strtok(tmp,", "), num_sockets = 0;
+      for(token = strtok(tmp,", ");
 	  token != NULL;
-	  token = strtok(NULL,", "), num_sockets++)
+	  token = strtok(NULL,", "))
 	{
-	  struct EPMD_IN_ADDR addr;
-#ifdef HAVE_INET_PTON
-	  int ret;
+	  struct in_addr addr;
+#if defined(EPMD6)
+	  struct in6_addr addr6;
+	  struct sockaddr_storage *sa = &iserv_addr[num_sockets];
 
-	  if ((ret = inet_pton(FAMILY,token,&addr)) == -1)
+	  if (inet_pton(AF_INET6,token,&addr6) == 1)
 	    {
-	      dbg_perror(g,"cannot convert IP address to network format");
-	      epmd_cleanup_exit(g,1);
+	      SET_ADDR6(iserv_addr[num_sockets],addr6,sport);
 	    }
-	  else if (ret == 0)
-#elif !defined(EPMD6)
-	  if ((addr.EPMD_S_ADDR = inet_addr(token)) == INADDR_NONE)
+	  else if (inet_pton(AF_INET,token,&addr) == 1)
+	    {
+	      SET_ADDR(iserv_addr[num_sockets],addr.s_addr,sport);
+	    }
+	  else
+#else
+	  if ((addr.s_addr = inet_addr(token)) != INADDR_NONE)
+	    {
+	      SET_ADDR(iserv_addr[num_sockets],addr.s_addr,sport);
+	    }
+	  else
 #endif
 	    {
 	      dbg_tty_printf(g,0,"cannot parse IP address \"%s\"",token);
 	      epmd_cleanup_exit(g,1);
 	    }
 
-	  if (IS_ADDR_LOOPBACK(addr))
-	    loopback_ok = 1;
+#if defined(EPMD6)
+	  if (sa->ss_family == AF_INET6 && IN6_IS_ADDR_LOOPBACK(&addr6))
+	      continue;
 
-	  if (num_sockets - loopback_ok == MAX_LISTEN_SOCKETS - 1)
+	  if (sa->ss_family == AF_INET)
+#endif
+	  if (IS_ADDR_LOOPBACK(addr))
+	    continue;
+
+	  num_sockets++;
+
+	  if (num_sockets >= MAX_LISTEN_SOCKETS)
 	    {
 	      dbg_tty_printf(g,0,"cannot listen on more than %d IP addresses",
 			     MAX_LISTEN_SOCKETS);
 	      epmd_cleanup_exit(g,1);
 	    }
-
-	  SET_ADDR(iserv_addr[num_sockets],addr.EPMD_S_ADDR,sport);
 	}
 
       free(tmp);
-
-      if (!loopback_ok)
-	{
-	  SET_ADDR(iserv_addr[num_sockets],EPMD_ADDR_LOOPBACK,sport);
-	  num_sockets++;
-	}
     }
   else
     {
-      SET_ADDR(iserv_addr[0],EPMD_ADDR_ANY,sport);
-      num_sockets = 1;
+      SET_ADDR(iserv_addr[num_sockets],htonl(INADDR_ANY),sport);
+      num_sockets++;
+#if defined(EPMD6)
+      SET_ADDR6(iserv_addr[num_sockets],in6addr_any,sport);
+      num_sockets++;
+#endif
     }
+#ifdef HAVE_SYSTEMD_DAEMON
+    }
+#endif /* HAVE_SYSTEMD_DAEMON */
 
 #if !defined(__WIN32__)
   /* We ignore the SIGPIPE signal that is raised when we call write
@@ -181,15 +346,48 @@ void run(EpmdVars *g)
   FD_ZERO(&g->orig_read_mask);
   g->select_fd_top = 0;
 
+#ifdef HAVE_SYSTEMD_DAEMON
+  if (g->is_systemd)
+      for (i = 0; i < num_sockets; i++)
+          select_fd_set(g, listensock[i]);
+  else
+    {
+#endif /* HAVE_SYSTEMD_DAEMON */
   for (i = 0; i < num_sockets; i++)
     {
-      if ((listensock[i] = socket(FAMILY,SOCK_STREAM,0)) < 0)
+      struct sockaddr *sa = (struct sockaddr *)&iserv_addr[i];
+#if defined(EPMD6)
+      size_t salen = (sa->sa_family == AF_INET6 ?
+              sizeof(struct sockaddr_in6) :
+              sizeof(struct sockaddr_in));
+#else
+      size_t salen = sizeof(struct sockaddr_in);
+#endif
+
+      if ((listensock[i] = socket(sa->sa_family,SOCK_STREAM,0)) < 0)
 	{
-	  dbg_perror(g,"error opening stream socket");
+	  switch (errno) {
+	      case EAFNOSUPPORT:
+	      case EPROTONOSUPPORT:
+	          continue;
+	      default:
+	          dbg_perror(g,"error opening stream socket");
+	          epmd_cleanup_exit(g,1);
+	  }
+	}
+      g->listenfd[bound++] = listensock[i];
+
+#if HAVE_DECL_IPV6_V6ONLY
+      opt = 1;
+      if (sa->sa_family == AF_INET6 &&
+          setsockopt(listensock[i],IPPROTO_IPV6,IPV6_V6ONLY,&opt,
+              sizeof(opt)) <0)
+	{
+	  dbg_perror(g,"can't set IPv6 only socket option");
 	  epmd_cleanup_exit(g,1);
 	}
-      g->listenfd[i] = listensock[i];
-  
+#endif
+
       /*
        * Note that we must not enable the SO_REUSEADDR on Windows,
        * because addresses will be reused even if they are still in use.
@@ -221,8 +419,7 @@ void run(EpmdVars *g)
 	dbg_perror(g,"failed to set non-blocking mode of listening socket %d",
 		   listensock[i]);
 
-      if (bind(listensock[i], (struct sockaddr*) &iserv_addr[i],
-	  sizeof(iserv_addr[i])) < 0)
+      if (bind(listensock[i], (struct sockaddr*) &iserv_addr[i], salen) < 0)
 	{
 	  if (errno == EADDRINUSE)
 	    {
@@ -243,6 +440,19 @@ void run(EpmdVars *g)
       }
       select_fd_set(g, listensock[i]);
     }
+  if (bound == 0) {
+      dbg_perror(g,"unable to bind any address");
+      epmd_cleanup_exit(g,1);
+  }
+  num_sockets = bound;
+#ifdef HAVE_SYSTEMD_DAEMON
+    }
+    if (g->is_systemd) {
+      sd_notifyf(0, "READY=1\n"
+                    "STATUS=Processing port mapping requests...\n"
+                    "MAINPID=%lu", (unsigned long) getpid());
+    }
+#endif /* HAVE_SYSTEMD_DAEMON */
 
   dbg_tty_printf(g,2,"entering the main select() loop");
 
@@ -281,8 +491,8 @@ void run(EpmdVars *g)
 	}
 
 	for (i = 0; i < num_sockets; i++)
-	  if (FD_ISSET(listensock[i],&read_mask)) {
-	    if (do_accept(g, listensock[i]) && g->active_conn < g->max_conn) {
+	  if (FD_ISSET(g->listenfd[i],&read_mask)) {
+	    if (do_accept(g, g->listenfd[i]) && g->active_conn < g->max_conn) {
 	      /*
 	       * The accept() succeeded, and we have at least one file
 	       * descriptor still free, which means that another accept()
@@ -524,10 +734,11 @@ static void do_request(g, fd, s, buf, bsize)
 	    }
 	name = &buf[11];
 	name[namelen]='\000';
+
 	extra = &buf[11+namelen+2];
 	extra[extralen]='\000';
 	wbuf[0] = EPMD_ALIVE2_RESP;
-	if ((node = node_reg2(g, name, fd, eport, nodetype, protocol,
+	if ((node = node_reg2(g, namelen, name, fd, eport, nodetype, protocol,
 			      highvsn, lowvsn, extralen, extra)) == NULL) {
 	    wbuf[1] = 1; /* error */
 	    put_int16(99, wbuf+2);
@@ -536,11 +747,9 @@ static void do_request(g, fd, s, buf, bsize)
 	    put_int16(node->creation, wbuf+2);
 	}
   
-	if (g->delay_write)		/* Test of busy server */
-	  sleep(g->delay_write);
-
 	if (reply(g, fd, wbuf, 4) != 4)
 	  {
+            node_unreg(g, name);
 	    dbg_tty_printf(g,1,"** failed to send ALIVE2_RESP for \"%s\"",
 			   name);
 	    return;
@@ -572,22 +781,28 @@ static void do_request(g, fd, s, buf, bsize)
 
       {
 	char *name = &buf[1]; /* Points to node name */
+	int nsz;
 	Node *node;
-	
+
+	nsz = verify_utf8(name, bsize, 0);
+	if (nsz < 1 || 255 < nsz) {
+	    dbg_printf(g,0,"invalid node name in PORT2_REQ");
+	    return;
+	}
+
 	wbuf[0] = EPMD_PORT2_RESP;
 	for (node = g->nodes.reg; node; node = node->next) {
 	    int offset;
-	    if (strcmp(node->symname, name) == 0) {
+	    if (is_same_str(node->symname, name)) {
 		wbuf[1] = 0; /* ok */
 		put_int16(node->port,wbuf+2);
 		wbuf[4] = node->nodetype;
 		wbuf[5] = node->protocol;
 		put_int16(node->highvsn,wbuf+6);
 		put_int16(node->lowvsn,wbuf+8);
-		put_int16(strlen(node->symname),wbuf+10);
+		put_int16(length_str(node->symname),wbuf+10);
 		offset = 12;
-		strcpy(wbuf + offset,node->symname);
-		offset += strlen(node->symname);
+		offset += copy_str(wbuf + offset,node->symname);
 		put_int16(node->extralen,wbuf + offset);
 		offset += 2;
 		memcpy(wbuf + offset,node->extra,node->extralen);
@@ -628,15 +843,22 @@ static void do_request(g, fd, s, buf, bsize)
 
 	for (node = g->nodes.reg; node; node = node->next)
 	  {
-	    int len;
+	    int len = 0;
+	    int r;
 
 	    /* CAREFUL!!! These are parsed by "erl_epmd.erl" so a slight
 	       change in syntax will break < OTP R3A */
 
-	    sprintf(wbuf,"name %s at port %d\n",node->symname, node->port);
-	    len = strlen(wbuf);
+	    len += copy_str(&wbuf[len], "name ");
+	    len += copy_str(&wbuf[len], node->symname);
+	    r = erts_snprintf(&wbuf[len], sizeof(wbuf)-len,
+			      " at port %d\n", node->port);
+	    if (r < 0)
+		goto failed_names_resp;
+	    len += r;
 	    if (reply(g, fd, wbuf, len) != len)
 	      {
+	      failed_names_resp:
 		dbg_tty_printf(g,1,"failed to send NAMES_RESP");
 		return;
 	      }
@@ -664,16 +886,22 @@ static void do_request(g, fd, s, buf, bsize)
 
 	for (node = g->nodes.reg; node; node = node->next)
 	  {
-	    int len;
+	      int len = 0, r;
 
 	    /* CAREFUL!!! These are parsed by "erl_epmd.erl" so a slight
 	       change in syntax will break < OTP R3A */
 
-	    sprintf(wbuf,"active name     <%s> at port %d, fd = %d\n",
-		    node->symname, node->port, node->fd);
-	    len = strlen(wbuf) + 1;
-	    if (reply(g, fd,wbuf,len) != len)
+	      len += copy_str(&wbuf[len], "active name     <");
+	      len += copy_str(&wbuf[len], node->symname);
+	      r = erts_snprintf(&wbuf[len], sizeof(wbuf)-len,
+				"> at port %d, fd = %d\n",
+				node->port, node->fd);
+	      if (r < 0)
+		  goto failed_dump_resp;
+	      len += r + 1;
+	      if (reply(g, fd,wbuf,len) != len)
 	      {
+	      failed_dump_resp:
 		dbg_tty_printf(g,1,"failed to send DUMP_RESP");
 		return;
 	      }
@@ -681,16 +909,22 @@ static void do_request(g, fd, s, buf, bsize)
 
 	for (node = g->nodes.unreg; node; node = node->next)
 	  {
-	    int len;
+	      int len = 0, r;
 
 	    /* CAREFUL!!! These are parsed by "erl_epmd.erl" so a slight
 	       change in syntax will break < OTP R3A */
 
-	    sprintf(wbuf,"old/unused name <%s>, port = %d, fd = %d \n",
-		    node->symname,node->port, node->fd);
-	    len = strlen(wbuf) + 1;
-	    if (reply(g, fd,wbuf,len) != len)
+	      len += copy_str(&wbuf[len], "old/unused name <");
+	      len += copy_str(&wbuf[len], node->symname);
+	      r = erts_snprintf(&wbuf[len], sizeof(wbuf)-len,
+				">, port = %d, fd = %d \n",
+				node->port, node->fd);
+	      if (r < 0)
+		  goto failed_dump_resp2;
+	      len += r + 1;
+	      if (reply(g, fd,wbuf,len) != len)
 	      {
+	      failed_dump_resp2:
 		dbg_tty_printf(g,1,"failed to send DUMP_RESP");
 		return;
 	      }
@@ -818,15 +1052,6 @@ static int conn_open(EpmdVars *g,int fd)
 
   for (i = 0; i < g->max_conn; i++) {
     if (g->conn[i].open == EPMD_FALSE) {
-      struct sockaddr_in si;
-      struct sockaddr_in di;
-#ifdef HAVE_SOCKLEN_T
-      socklen_t st;
-#else
-      int st;
-#endif
-      st = sizeof(si);
-
       g->active_conn++;
       s = &g->conn[i];
      
@@ -837,20 +1062,7 @@ static int conn_open(EpmdVars *g,int fd)
       s->open = EPMD_TRUE;
       s->keep = EPMD_FALSE;
 
-      /* Determine if connection is from localhost */
-      if (getpeername(s->fd,(struct sockaddr*) &si,&st) ||
-	  st < sizeof(si)) {
-	  /* Failure to get peername is regarded as non local host */
-	  s->local_peer = EPMD_FALSE;
-      } else {
-	  /* Only 127.x.x.x and connections from the host's IP address
-	     allowed, no false positives */
-	  s->local_peer =
-	      (((((unsigned) ntohl(si.sin_addr.s_addr)) & 0xFF000000U) ==
-	       0x7F000000U) ||
-	       (getsockname(s->fd,(struct sockaddr*) &di,&st) ?
-	       EPMD_FALSE : si.sin_addr.s_addr == di.sin_addr.s_addr));
-      }
+      s->local_peer = conn_local_peer_check(g, s->fd);
       dbg_tty_printf(g,2,(s->local_peer) ? "Local peer connected" :
 		     "Non-local peer connected");
 
@@ -858,7 +1070,7 @@ static int conn_open(EpmdVars *g,int fd)
       s->got  = 0;
       s->mod_time = current_time(g); /* Note activity */
 
-      s->buf = (char *)malloc(INBUF_SIZE);
+      s->buf = malloc(INBUF_SIZE);
 
       if (s->buf == NULL) {
 	dbg_printf(g,0,"epmd: Insufficient memory");
@@ -874,6 +1086,60 @@ static int conn_open(EpmdVars *g,int fd)
   dbg_tty_printf(g,0,"failed opening connection on file descriptor %d",fd);
   close(fd);
   return EPMD_FALSE;
+}
+
+static int conn_local_peer_check(EpmdVars *g, int fd)
+{
+  struct EPMD_SOCKADDR_IN si;
+  struct EPMD_SOCKADDR_IN di;
+
+  struct sockaddr_in *si4 = (struct sockaddr_in *)&si;
+  struct sockaddr_in *di4 = (struct sockaddr_in *)&di;
+
+#if defined(EPMD6)
+  struct sockaddr_in6 *si6 = (struct sockaddr_in6 *)&si;
+  struct sockaddr_in6 *di6 = (struct sockaddr_in6 *)&di;
+#endif
+
+#ifdef HAVE_SOCKLEN_T
+  socklen_t st;
+#else
+  int st;
+#endif
+
+  st = sizeof(si);
+
+  /* Determine if connection is from localhost */
+  if (getpeername(fd,(struct sockaddr*) &si,&st) ||
+	  st > sizeof(si)) {
+	  /* Failure to get peername is regarded as non local host */
+	  return EPMD_FALSE;
+  }
+
+  /* Only 127.x.x.x and connections from the host's IP address
+	 allowed, no false positives */
+#if defined(EPMD6)
+  if (si.ss_family == AF_INET6 && IN6_IS_ADDR_LOOPBACK(&(si6->sin6_addr)))
+	  return EPMD_TRUE;
+
+  if (si.ss_family == AF_INET)
+#endif
+  if ((((unsigned) ntohl(si4->sin_addr.s_addr)) & 0xFF000000U) ==
+	  0x7F000000U)
+	  return EPMD_TRUE;
+
+  if (getsockname(fd,(struct sockaddr*) &di,&st))
+	  return EPMD_FALSE;
+
+#if defined(EPMD6)
+  if (si.ss_family == AF_INET6)
+      return IN6_ARE_ADDR_EQUAL( &(si6->sin6_addr), &(di6->sin6_addr));
+  if (si.ss_family == AF_INET)
+#endif
+  return si4->sin_addr.s_addr == di4->sin_addr.s_addr;
+#if defined(EPMD6)
+  return EPMD_FALSE;
+#endif
 }
 
 static int conn_close_fd(EpmdVars *g,int fd)
@@ -932,7 +1198,7 @@ static int node_unreg(EpmdVars *g,char *name)
   Node *node  = g->nodes.reg;	/* Point to first node */
 
   for (; node; prev = &node->next, node = node->next)
-    if (strcmp(node->symname, name) == 0)
+    if (is_same_str(node->symname, name))
       {
 	dbg_tty_printf(g,1,"unregistering '%s:%d', port %d",
 		       node->symname, node->creation, node->port);
@@ -1012,6 +1278,7 @@ static int node_unreg_sock(EpmdVars *g,int fd)
  */
 
 static Node *node_reg2(EpmdVars *g,
+		       int namelen,
 		       char* name,
 		       int fd,
 		       int port,
@@ -1024,6 +1291,7 @@ static Node *node_reg2(EpmdVars *g,
 {
   Node *prev;			/* Point to previous node or NULL */
   Node *node;			/* Point to first node */
+  int sz;
 
   /* Can be NULL; means old style */
   if (extra == NULL)
@@ -1031,21 +1299,47 @@ static Node *node_reg2(EpmdVars *g,
 
   /* Fail if node name is too long */
 
-  if (strlen(name) > MAXSYMLEN)
+
+  if (namelen > MAXSYMLEN)
     {
-      dbg_printf(g,0,"node name is too long (%d) %s", strlen(name), name);
+    too_long_name:
+      dbg_printf(g,0,"node name is too long (%d) %s", namelen, name);
       return NULL;
     }
+
+  sz = verify_utf8(name, namelen, 0);
+  if (sz > 255)
+      goto too_long_name;
+
+  if (sz < 0) {
+      dbg_printf(g,0,"invalid node name encoding");
+      return NULL;
+  }
+
   if (extralen > MAXSYMLEN)
     {
-      dbg_printf(g,0,"extra data is too long (%d) %s", strlen(name), name);
+#if 0
+    too_long_extra:
+#endif
+      dbg_printf(g,0,"extra data is too long (%d) %s", extralen, extra);
       return NULL;
     }
+
+#if 0 /* Should we require valid utf8 here? */
+  sz = verify_utf8(extra, extralen, 0);
+  if (sz > 255)
+      goto too_long_extra;
+
+  if (sz < 0) {
+      dbg_printf(g,0,"invalid extra data encoding");
+      return NULL;
+  }
+#endif
 
   /* Fail if it is already registered */
 
   for (node = g->nodes.reg; node; node = node->next)
-    if (strcmp(node->symname, name) == 0)
+    if (is_same_str(node->symname, name))
       {
 	dbg_printf(g,0,"node name already occupied %s", name);
 	return NULL;
@@ -1057,7 +1351,7 @@ static Node *node_reg2(EpmdVars *g,
   prev = NULL;
 
   for (node = g->nodes.unreg; node; prev = node, node = node->next)
-    if (strcmp(node->symname, name) == 0)
+    if (is_same_str(node->symname, name))
       {
 	dbg_tty_printf(g,1,"reusing slot with same name '%s'", node->symname);
 
@@ -1125,7 +1419,7 @@ static Node *node_reg2(EpmdVars *g,
   node->lowvsn   = lowvsn;
   node->extralen = extralen;
   memcpy(node->extra,extra,extralen);
-  strcpy(node->symname,name);
+  copy_str(node->symname,name);
   select_fd_set(g, fd);
 
   if (highvsn == 0) {

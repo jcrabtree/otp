@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2004-2010. All Rights Reserved.
+%% Copyright Ericsson AB 2004-2016. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -80,8 +81,7 @@ end_per_testcase(Case, Config) ->
 
 all() -> 
     [pretty_text, flex_pretty_text, compact_text,
-     flex_compact_text, erl_dist, erl_dist_mc, ber_bin,
-     ber_bin_drv, ber_bin_native, ber_bin_drv_native].
+     flex_compact_text, erl_dist, erl_dist_mc].
 
 groups() -> 
     [].
@@ -168,39 +168,6 @@ erl_dist_mc(Config) when is_list(Config) ->
     Version = 1, 
     EncodingConfig = [megaco_compressed],
     req_and_rep(Config, Codec, Version, EncodingConfig).
-
-
-ber_bin(suite) ->
-    [];
-ber_bin(doc) ->
-    [];
-ber_bin(Config) when is_list(Config) ->
-    ?SKIP(currently_not_supported_by_asn1).
-
-
-ber_bin_drv(suite) ->
-    [];
-ber_bin_drv(doc) ->
-    [];
-ber_bin_drv(Config) when is_list(Config) ->
-    ?SKIP(currently_not_supported_by_asn1).
-
-
-ber_bin_native(suite) ->
-    [];
-ber_bin_native(doc) ->
-    [];
-ber_bin_native(Config) when is_list(Config) ->
-    ?SKIP(currently_not_supported_by_asn1).
-
-
-ber_bin_drv_native(suite) ->
-    [];
-ber_bin_drv_native(doc) ->
-    [];
-ber_bin_drv_native(Config) when is_list(Config) ->
-    ?SKIP(currently_not_supported_by_asn1).
-
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

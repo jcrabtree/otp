@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1998-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1998-2017. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -33,13 +34,13 @@ erlsrv(EVer) ->
     filename:join([Root, "erts-" ++ EVer, "bin", "erlsrv.exe"]).
 
 current_version() ->
-    hd(string:tokens(erlang:system_info(version),"_ ")).
+    hd(string:lexemes(erlang:system_info(version),"_ ")).
 
 %%% Returns {ok, Output} | failed | {error, Reason}
 run_erlsrv(Command) ->
     run_erlsrv(current_version(),Command).
 run_erlsrv(EVer, Command) ->
-    case catch(open_port({spawn, erlsrv(EVer) ++ " " ++ Command}, 
+    case catch(open_port({spawn, "\"" ++ erlsrv(EVer) ++ "\" " ++ Command},
 			 [{line,1000}, in, eof])) of
 	{'EXIT',{Reason,_}} ->
 	    {port_error, Reason};
@@ -53,7 +54,7 @@ run_erlsrv(EVer, Command) ->
     end.
 
 run_erlsrv_interactive(EVer, Commands) ->
-    case catch(open_port({spawn, erlsrv(EVer) ++ " readargs"}, 
+    case catch(open_port({spawn, "\""++ erlsrv(EVer) ++ "\" readargs"},
 			 [{line,1000}, eof])) of
 	{'EXIT',{Reason,_}} ->
 	    {port_error, Reason};
@@ -71,11 +72,14 @@ write_all_data(Port,[]) ->
     Port ! {self(), {command, io_lib:nl()}},
     ok;
 write_all_data(Port,[H|T]) ->
-    Port ! {self(), {command, H ++ io_lib:nl()}},
+    Port ! {self(), {command, unicode:characters_to_binary([H,io_lib:nl()])}},
     write_all_data(Port,T).
 
 read_all_data(Port) ->
-	lists:reverse(read_all_data(Port,[],[])).
+    Data0 = lists:reverse(read_all_data(Port,[],[])),
+    %% Convert from utf8 to a list of chars
+    [unicode:characters_to_list(list_to_binary(Data)) || Data <- Data0].
+
 read_all_data(Port,Line,Lines) ->
     receive
 	{Port, {data, {noeol,Data}}} ->
@@ -103,7 +107,7 @@ get_all_services() ->
 	    [];
 	{ok, [_H|T]} ->
 	    F = fun(X) ->
-			hd(string:tokens(X,"\t "))
+			hd(string:lexemes(X,"\t "))
 		end,
 	    lists:map(F,T);
 	_ ->
@@ -178,7 +182,7 @@ get_service(EVer, ServiceName) ->
 				[]
 			end
 		end,
-	    %%% First split by Env:
+            %%% First split by Env:
 	    {Before, After} = split_by_env(Data),
 	    FirstPass = lists:flatten(lists:map(F,Before)),
 	    %%% If the arguments are there, split them to
@@ -187,8 +191,8 @@ get_service(EVer, ServiceName) ->
 	    %%% have in the environment list...
 	    EnvParts = lists:map(
 			 fun(S) ->
-				 X = string:strip(S,left,$\t),
-				 case hd(string:tokens(X,"=")) of
+				 X = string:trim(S, leading, "$\t"),
+				 case hd(string:lexemes(X,"=")) of
 				     X ->
 					 %% Can this happen?
 					 {X,""};
@@ -367,7 +371,7 @@ split_arglist([H|T]) ->
 parse_arglist(Str) ->
     lists:reverse(parse_arglist(Str,[])).
 parse_arglist(Str,Accum) ->
-    Stripped = string:strip(Str,left),
+    Stripped = string:trim(Str, leading),
     case length(Stripped) of
 	0 ->
 	    Accum;
@@ -428,14 +432,9 @@ split_by_env(Data) ->
 			
 
 splitline(Line) ->
-    case string:chr(Line,$:) of
-	0 ->
+    case string:split(Line, ":") of
+        [_] ->
 	    {Line, ""};
-	N ->
-	    case length(string:substr(Line,N)) of
-		1 ->
-		    {string:substr(Line,1,N-1),""};
-		_ ->
-		    {string:substr(Line,1,N-1),string:substr(Line,N+2)}
-	    end
+        [N, V] ->
+            {N, string:slice(V, 1)}
     end.

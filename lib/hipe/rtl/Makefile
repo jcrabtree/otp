@@ -1,18 +1,19 @@
 #
 # %CopyrightBegin%
 #
-# Copyright Ericsson AB 2001-2012. All Rights Reserved.
+# Copyright Ericsson AB 2001-2017. All Rights Reserved.
 #
-# The contents of this file are subject to the Erlang Public License,
-# Version 1.1, (the "License"); you may not use this file except in
-# compliance with the License. You should have received a copy of the
-# Erlang Public License along with this software. If not, it can be
-# retrieved online at http://www.erlang.org/.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-# Software distributed under the License is distributed on an "AS IS"
-# basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-# the License for the specific language governing rights and limitations
-# under the License.
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 #
 # %CopyrightEnd%
 #
@@ -49,7 +50,7 @@ HIPE_MODULES = hipe_rtl hipe_rtl_cfg \
 	  hipe_rtl_ssa hipe_rtl_ssa_const_prop \
 	  hipe_rtl_cleanup_const hipe_rtl_symbolic hipe_rtl_lcm \
 	  hipe_rtl_ssapre hipe_rtl_binary hipe_rtl_ssa_avail_expr \
-	  hipe_rtl_arch hipe_tagscheme
+	  hipe_rtl_arch hipe_tagscheme hipe_rtl_verify_gcsafe
 else
 HIPE_MODULES =
 endif
@@ -74,7 +75,7 @@ TARGET_FILES= $(MODULES:%=$(EBIN)/%.$(EMULATOR))
 
 include ../native.mk
 
-ERL_COMPILE_FLAGS += +inline
+ERL_COMPILE_FLAGS += -Werror +inline +warn_unused_import +warn_export_vars
 
 # ----------------------------------------------------
 # Targets
@@ -117,10 +118,12 @@ else
 TYPE_STR=
 endif
 
-ifeq ($(FLAVOR),smp)
-FLAVOR_STR=.smp
-else
+FLAVOR=$(DEFAULT_FLAVOR)
+
+ifeq ($(FLAVOR),plain)
 FLAVOR_STR=
+else
+FLAVOR_STR=.smp
 endif
 
 ifeq ($(XCOMP),yes)
@@ -134,13 +137,13 @@ HIPE_MKLITERALS=$(ERL_TOP)/bin/$(TARGET)/hipe_mkliterals$(TYPE_STR)$(FLAVOR_STR)
 
 
 hipe_literals.hrl: $(HIPE_MKLITERALS)
-	$(HIPE_MKLITERALS) $(MKLIT_FLAGS) -e > hipe_literals.hrl
+	$(gen_verbose)$(HIPE_MKLITERALS) $(MKLIT_FLAGS) -e > hipe_literals.hrl
 
 # Need to generate hipe.hrl from one and only one target in one and only
 # one makefile; otherwise, clearmake will force rebuilds of hipe over and
 # over again.
 ../main/hipe.hrl: ../vsn.mk ../main/hipe.hrl.src
-	(cd ../main && $(MAKE) hipe.hrl)
+	$(V_at)(cd ../main && $(MAKE) hipe.hrl)
 
 # 2012-02-24. Please keep these dependencies up to date. They tend to rot.
 # grep ^-include *.erl says a lot, but you need to dig further, e.g:

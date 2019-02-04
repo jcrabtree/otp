@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1998-2010. All Rights Reserved.
+%% Copyright Ericsson AB 1998-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -20,7 +21,79 @@
 %%
 -module(mnesia_schema_recovery_test).
 -author('hakan@erix.ericsson.se').
--compile([export_all]).
+
+-export([init_per_testcase/2, end_per_testcase/2,
+         init_per_group/2, end_per_group/2,
+         all/0, groups/0]).
+
+-export([interrupted_before_create_ram/1,
+         interrupted_before_create_disc/1,
+         interrupted_before_create_do/1,
+         interrupted_before_create_nostore/1,
+         interrupted_before_delete_ram/1,
+         interrupted_before_delete_disc/1,
+         interrupted_before_delete_do/1,
+         interrupted_before_add_ram/1,
+         interrupted_before_add_disc/1,
+         interrupted_before_add_do/1,
+         interrupted_before_add_kill_copier/1,
+         interrupted_before_move_ram/1,
+         interrupted_before_move_disc/1,
+         interrupted_before_move_do/1,
+         interrupted_before_move_kill_copier/1,
+         interrupted_before_delcopy_ram/1,
+         interrupted_before_delcopy_disc/1,
+         interrupted_before_delcopy_do/1,
+         interrupted_before_delcopy_kill_copier/1,
+         interrupted_before_addindex_ram/1,
+         interrupted_before_addindex_disc/1,
+         interrupted_before_addindex_do/1,
+         interrupted_before_delindex_ram/1,
+         interrupted_before_delindex_disc/1,
+         interrupted_before_delindex_do/1,
+         interrupted_before_change_type_ram2disc/1,
+         interrupted_before_change_type_ram2do/1,
+         interrupted_before_change_type_disc2ram/1,
+         interrupted_before_change_type_disc2do/1,
+         interrupted_before_change_type_do2ram/1,
+         interrupted_before_change_type_do2disc/1,
+         interrupted_before_change_type_other_node/1,
+         interrupted_before_change_schema_type/1,
+         interrupted_after_create_ram/1,
+         interrupted_after_create_disc/1,
+         interrupted_after_create_do/1,
+         interrupted_after_create_nostore/1,
+         interrupted_after_delete_ram/1,
+         interrupted_after_delete_disc/1,
+         interrupted_after_delete_do/1,
+         interrupted_after_add_ram/1,
+         interrupted_after_add_disc/1,
+         interrupted_after_add_do/1,
+         interrupted_after_add_kill_copier/1,
+         interrupted_after_move_ram/1,
+         interrupted_after_move_disc/1,
+         interrupted_after_move_do/1,
+         interrupted_after_move_kill_copier/1,
+         interrupted_after_delcopy_ram/1,
+         interrupted_after_delcopy_disc/1,
+         interrupted_after_delcopy_do/1,
+         interrupted_after_delcopy_kill_copier/1,
+         interrupted_after_addindex_ram/1,
+         interrupted_after_addindex_disc/1,
+         interrupted_after_addindex_do/1,
+         interrupted_after_delindex_ram/1,
+         interrupted_after_delindex_disc/1,
+         interrupted_after_delindex_do/1,
+         interrupted_after_change_type_ram2disc/1,
+         interrupted_after_change_type_ram2do/1,
+         interrupted_after_change_type_disc2ram/1,
+         interrupted_after_change_type_disc2do/1,
+         interrupted_after_change_type_do2ram/1,
+         interrupted_after_change_type_do2disc/1,
+         interrupted_after_change_type_other_node/1,
+         interrupted_after_change_schema_type/1]).
+
+
 -include("mnesia_test_lib.hrl").
 
 init_per_testcase(Func, Conf) ->
@@ -49,66 +122,69 @@ groups() ->
     [{interrupted_before_log_dump, [],
       [interrupted_before_create_ram,
        interrupted_before_create_disc,
-       interrupted_before_create_disc_only,
+       interrupted_before_create_do,
        interrupted_before_create_nostore,
        interrupted_before_delete_ram,
        interrupted_before_delete_disc,
-       interrupted_before_delete_disc_only,
-       interrupted_before_add_ram, interrupted_before_add_disc,
-       interrupted_before_add_disc_only,
+       interrupted_before_delete_do,
+       interrupted_before_add_ram,
+       interrupted_before_add_disc,
+       interrupted_before_add_do,
        interrupted_before_add_kill_copier,
        interrupted_before_move_ram,
        interrupted_before_move_disc,
-       interrupted_before_move_disc_only,
+       interrupted_before_move_do,
        interrupted_before_move_kill_copier,
        interrupted_before_delcopy_ram,
        interrupted_before_delcopy_disc,
-       interrupted_before_delcopy_disc_only,
+       interrupted_before_delcopy_do,
        interrupted_before_delcopy_kill_copier,
        interrupted_before_addindex_ram,
        interrupted_before_addindex_disc,
-       interrupted_before_addindex_disc_only,
+       interrupted_before_addindex_do,
        interrupted_before_delindex_ram,
        interrupted_before_delindex_disc,
-       interrupted_before_delindex_disc_only,
+       interrupted_before_delindex_do,
        interrupted_before_change_type_ram2disc,
-       interrupted_before_change_type_ram2disc_only,
+       interrupted_before_change_type_ram2do,
        interrupted_before_change_type_disc2ram,
-       interrupted_before_change_type_disc2disc_only,
-       interrupted_before_change_type_disc_only2ram,
-       interrupted_before_change_type_disc_only2disc,
+       interrupted_before_change_type_disc2do,
+       interrupted_before_change_type_do2ram,
+       interrupted_before_change_type_do2disc,
        interrupted_before_change_type_other_node,
        interrupted_before_change_schema_type]},
      {interrupted_after_log_dump, [],
       [interrupted_after_create_ram,
        interrupted_after_create_disc,
-       interrupted_after_create_disc_only,
+       interrupted_after_create_do,
        interrupted_after_create_nostore,
        interrupted_after_delete_ram,
        interrupted_after_delete_disc,
-       interrupted_after_delete_disc_only,
-       interrupted_after_add_ram, interrupted_after_add_disc,
-       interrupted_after_add_disc_only,
+       interrupted_after_delete_do,
+       interrupted_after_add_ram,
+       interrupted_after_add_disc,
+       interrupted_after_add_do,
        interrupted_after_add_kill_copier,
-       interrupted_after_move_ram, interrupted_after_move_disc,
-       interrupted_after_move_disc_only,
+       interrupted_after_move_ram,
+       interrupted_after_move_disc,
+       interrupted_after_move_do,
        interrupted_after_move_kill_copier,
        interrupted_after_delcopy_ram,
        interrupted_after_delcopy_disc,
-       interrupted_after_delcopy_disc_only,
+       interrupted_after_delcopy_do,
        interrupted_after_delcopy_kill_copier,
        interrupted_after_addindex_ram,
        interrupted_after_addindex_disc,
-       interrupted_after_addindex_disc_only,
+       interrupted_after_addindex_do,
        interrupted_after_delindex_ram,
        interrupted_after_delindex_disc,
-       interrupted_after_delindex_disc_only,
+       interrupted_after_delindex_do,
        interrupted_after_change_type_ram2disc,
-       interrupted_after_change_type_ram2disc_only,
+       interrupted_after_change_type_ram2do,
        interrupted_after_change_type_disc2ram,
-       interrupted_after_change_type_disc2disc_only,
-       interrupted_after_change_type_disc_only2ram,
-       interrupted_after_change_type_disc_only2disc,
+       interrupted_after_change_type_disc2do,
+       interrupted_after_change_type_do2ram,
+       interrupted_after_change_type_do2disc,
        interrupted_after_change_type_other_node,
        interrupted_after_change_schema_type]}].
 
@@ -128,8 +204,8 @@ interrupted_before_create_disc(Config) when is_list(Config) ->
     KillAt = {mnesia_dumper, dump_schema_op},
     interrupted_create(Config, disc_copies, all, KillAt).
 
-interrupted_before_create_disc_only(suite) -> [];
-interrupted_before_create_disc_only(Config) when is_list(Config) ->
+interrupted_before_create_do(suite) -> [];
+interrupted_before_create_do(Config) when is_list(Config) ->
     KillAt = {mnesia_dumper, dump_schema_op},
     interrupted_create(Config, disc_only_copies, all, KillAt).
 
@@ -148,8 +224,8 @@ interrupted_after_create_disc(Config) when is_list(Config) ->
     KillAt = {mnesia_dumper, post_dump},
     interrupted_create(Config, disc_copies, all, KillAt).
 
-interrupted_after_create_disc_only(suite) -> [];
-interrupted_after_create_disc_only(Config) when is_list(Config) ->
+interrupted_after_create_do(suite) -> [];
+interrupted_after_create_do(Config) when is_list(Config) ->
     KillAt = {mnesia_dumper, post_dump},
     interrupted_create(Config, disc_only_copies, all, KillAt).
 
@@ -204,8 +280,8 @@ interrupted_before_delete_disc(suite) -> [];
 interrupted_before_delete_disc(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, dump_schema_op},    
     interrupted_delete(Config, disc_copies, Debug_Point).
-interrupted_before_delete_disc_only(suite) -> [];
-interrupted_before_delete_disc_only(Config) when is_list(Config) ->
+interrupted_before_delete_do(suite) -> [];
+interrupted_before_delete_do(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, dump_schema_op},    
     interrupted_delete(Config, disc_only_copies, Debug_Point).
 
@@ -217,8 +293,8 @@ interrupted_after_delete_disc(suite) -> [];
 interrupted_after_delete_disc(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, post_dump},    
     interrupted_delete(Config, disc_copies, Debug_Point).
-interrupted_after_delete_disc_only(suite) -> [];
-interrupted_after_delete_disc_only(Config) when is_list(Config) ->
+interrupted_after_delete_do(suite) -> [];
+interrupted_after_delete_do(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, post_dump},    
     interrupted_delete(Config, disc_only_copies, Debug_Point).
 
@@ -249,8 +325,8 @@ interrupted_before_add_disc(suite) -> [];
 interrupted_before_add_disc(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, dump_schema_op},    
     interrupted_add(Config, disc_copies, kill_reciever, Debug_Point).
-interrupted_before_add_disc_only(suite) -> [];
-interrupted_before_add_disc_only(Config) when is_list(Config) ->
+interrupted_before_add_do(suite) -> [];
+interrupted_before_add_do(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, dump_schema_op},    
     interrupted_add(Config, disc_only_copies, kill_reciever, Debug_Point).
 interrupted_before_add_kill_copier(suite) -> [];
@@ -266,8 +342,8 @@ interrupted_after_add_disc(suite) -> [];
 interrupted_after_add_disc(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, post_dump},    
     interrupted_add(Config, disc_copies, kill_reciever, Debug_Point).
-interrupted_after_add_disc_only(suite) -> [];
-interrupted_after_add_disc_only(Config) when is_list(Config) ->
+interrupted_after_add_do(suite) -> [];
+interrupted_after_add_do(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, post_dump},    
     interrupted_add(Config, disc_only_copies, kill_reciever, Debug_Point).
 interrupted_after_add_kill_copier(suite) -> [];
@@ -327,8 +403,8 @@ interrupted_before_move_disc(suite) -> [];
 interrupted_before_move_disc(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, dump_schema_op},    
     interrupted_move(Config, disc_copies, kill_reciever, Debug_Point).
-interrupted_before_move_disc_only(suite) -> [];
-interrupted_before_move_disc_only(Config) when is_list(Config) ->
+interrupted_before_move_do(suite) -> [];
+interrupted_before_move_do(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, dump_schema_op},    
     interrupted_move(Config, disc_only_copies, kill_reciever, Debug_Point).
 interrupted_before_move_kill_copier(suite) -> [];
@@ -344,8 +420,8 @@ interrupted_after_move_disc(suite) -> [];
 interrupted_after_move_disc(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, post_dump},    
     interrupted_move(Config, disc_copies, kill_reciever, Debug_Point).
-interrupted_after_move_disc_only(suite) -> [];
-interrupted_after_move_disc_only(Config) when is_list(Config) ->
+interrupted_after_move_do(suite) -> [];
+interrupted_after_move_do(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, post_dump},    
     interrupted_move(Config, disc_only_copies, kill_reciever, Debug_Point).
 interrupted_after_move_kill_copier(suite) -> [];
@@ -408,8 +484,8 @@ interrupted_before_delcopy_disc(suite) -> [];
 interrupted_before_delcopy_disc(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, dump_schema_op},    
     interrupted_delcopy(Config, disc_copies, kill_reciever, Debug_Point).
-interrupted_before_delcopy_disc_only(suite) -> [];
-interrupted_before_delcopy_disc_only(Config) when is_list(Config) ->
+interrupted_before_delcopy_do(suite) -> [];
+interrupted_before_delcopy_do(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, dump_schema_op},    
     interrupted_delcopy(Config, disc_only_copies, kill_reciever, Debug_Point).
 interrupted_before_delcopy_kill_copier(suite) -> [];
@@ -425,8 +501,8 @@ interrupted_after_delcopy_disc(suite) -> [];
 interrupted_after_delcopy_disc(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, post_dump},    
     interrupted_delcopy(Config, disc_copies, kill_reciever, Debug_Point).
-interrupted_after_delcopy_disc_only(suite) -> [];
-interrupted_after_delcopy_disc_only(Config) when is_list(Config) ->
+interrupted_after_delcopy_do(suite) -> [];
+interrupted_after_delcopy_do(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, post_dump},    
     interrupted_delcopy(Config, disc_only_copies, kill_reciever, Debug_Point).
 interrupted_after_delcopy_kill_copier(suite) -> [];
@@ -487,8 +563,8 @@ interrupted_before_addindex_disc(suite) -> [];
 interrupted_before_addindex_disc(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, dump_schema_op},    
     interrupted_addindex(Config, disc_copies, Debug_Point).
-interrupted_before_addindex_disc_only(suite) -> [];
-interrupted_before_addindex_disc_only(Config) when is_list(Config) ->
+interrupted_before_addindex_do(suite) -> [];
+interrupted_before_addindex_do(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, dump_schema_op},    
     interrupted_addindex(Config, disc_only_copies, Debug_Point).
 
@@ -500,8 +576,8 @@ interrupted_after_addindex_disc(suite) -> [];
 interrupted_after_addindex_disc(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, post_dump},    
     interrupted_addindex(Config, disc_copies, Debug_Point).
-interrupted_after_addindex_disc_only(suite) -> [];
-interrupted_after_addindex_disc_only(Config) when is_list(Config) ->
+interrupted_after_addindex_do(suite) -> [];
+interrupted_after_addindex_do(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, post_dump},    
     interrupted_addindex(Config, disc_only_copies, Debug_Point).
 
@@ -555,8 +631,8 @@ interrupted_before_delindex_disc(suite) -> [];
 interrupted_before_delindex_disc(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, dump_schema_op},    
     interrupted_delindex(Config, disc_copies, Debug_Point).
-interrupted_before_delindex_disc_only(suite) -> [];
-interrupted_before_delindex_disc_only(Config) when is_list(Config) ->
+interrupted_before_delindex_do(suite) -> [];
+interrupted_before_delindex_do(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, dump_schema_op},    
     interrupted_delindex(Config, disc_only_copies, Debug_Point).
 
@@ -568,8 +644,8 @@ interrupted_after_delindex_disc(suite) -> [];
 interrupted_after_delindex_disc(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, post_dump},    
     interrupted_delindex(Config, disc_copies, Debug_Point).
-interrupted_after_delindex_disc_only(suite) -> [];
-interrupted_after_delindex_disc_only(Config) when is_list(Config) ->
+interrupted_after_delindex_do(suite) -> [];
+interrupted_after_delindex_do(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, post_dump},    
     interrupted_delindex(Config, disc_only_copies, Debug_Point).
 
@@ -613,24 +689,24 @@ interrupted_before_change_type_ram2disc(suite) -> [];
 interrupted_before_change_type_ram2disc(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, dump_schema_op},    
     interrupted_change_type(Config, ram_copies, disc_copies, changer, Debug_Point).
-interrupted_before_change_type_ram2disc_only(suite) -> [];
-interrupted_before_change_type_ram2disc_only(Config) when is_list(Config) ->
+interrupted_before_change_type_ram2do(suite) -> [];
+interrupted_before_change_type_ram2do(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, dump_schema_op},    
     interrupted_change_type(Config, ram_copies, disc_only_copies, changer, Debug_Point).    
 interrupted_before_change_type_disc2ram(suite) -> [];
 interrupted_before_change_type_disc2ram(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, dump_schema_op},    
     interrupted_change_type(Config, disc_copies, ram_copies, changer, Debug_Point).
-interrupted_before_change_type_disc2disc_only(suite) -> [];
-interrupted_before_change_type_disc2disc_only(Config) when is_list(Config) ->
+interrupted_before_change_type_disc2do(suite) -> [];
+interrupted_before_change_type_disc2do(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, dump_schema_op},    
     interrupted_change_type(Config, disc_copies, disc_only_copies, changer, Debug_Point).
-interrupted_before_change_type_disc_only2ram(suite) -> [];
-interrupted_before_change_type_disc_only2ram(Config) when is_list(Config) ->
+interrupted_before_change_type_do2ram(suite) -> [];
+interrupted_before_change_type_do2ram(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, dump_schema_op},    
     interrupted_change_type(Config, disc_only_copies, ram_copies, changer, Debug_Point).
-interrupted_before_change_type_disc_only2disc(suite) -> [];
-interrupted_before_change_type_disc_only2disc(Config) when is_list(Config) ->
+interrupted_before_change_type_do2disc(suite) -> [];
+interrupted_before_change_type_do2disc(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, dump_schema_op},    
     interrupted_change_type(Config, disc_only_copies, disc_copies, changer, Debug_Point).
 interrupted_before_change_type_other_node(suite) -> [];
@@ -642,24 +718,24 @@ interrupted_after_change_type_ram2disc(suite) -> [];
 interrupted_after_change_type_ram2disc(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, post_dump},    
     interrupted_change_type(Config, ram_copies, disc_copies, changer, Debug_Point).
-interrupted_after_change_type_ram2disc_only(suite) -> [];
-interrupted_after_change_type_ram2disc_only(Config) when is_list(Config) ->
+interrupted_after_change_type_ram2do(suite) -> [];
+interrupted_after_change_type_ram2do(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, post_dump},    
     interrupted_change_type(Config, ram_copies, disc_only_copies, changer, Debug_Point).    
 interrupted_after_change_type_disc2ram(suite) -> [];
 interrupted_after_change_type_disc2ram(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, post_dump},    
     interrupted_change_type(Config, disc_copies, ram_copies, changer, Debug_Point).
-interrupted_after_change_type_disc2disc_only(suite) -> [];
-interrupted_after_change_type_disc2disc_only(Config) when is_list(Config) ->
+interrupted_after_change_type_disc2do(suite) -> [];
+interrupted_after_change_type_disc2do(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, post_dump},    
     interrupted_change_type(Config, disc_copies, disc_only_copies, changer, Debug_Point).
-interrupted_after_change_type_disc_only2ram(suite) -> [];
-interrupted_after_change_type_disc_only2ram(Config) when is_list(Config) ->
+interrupted_after_change_type_do2ram(suite) -> [];
+interrupted_after_change_type_do2ram(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, post_dump},    
     interrupted_change_type(Config, disc_only_copies, ram_copies, changer, Debug_Point).
-interrupted_after_change_type_disc_only2disc(suite) -> [];
-interrupted_after_change_type_disc_only2disc(Config) when is_list(Config) ->
+interrupted_after_change_type_do2disc(suite) -> [];
+interrupted_after_change_type_do2disc(Config) when is_list(Config) ->
     Debug_Point = {mnesia_dumper, post_dump},    
     interrupted_change_type(Config, disc_only_copies, disc_copies, changer, Debug_Point).
 interrupted_after_change_type_other_node(suite) -> [];

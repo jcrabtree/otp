@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 1998-2010. All Rights Reserved.
+ * Copyright Ericsson AB 1998-2016. All Rights Reserved.
  *
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  * %CopyrightEnd%
  */
@@ -34,12 +35,13 @@
 #include <winsock2.h>
 #include <windows.h>
 #include <winbase.h>
+typedef LONG_PTR ssize_t; /* Sigh... */
 #endif
 
 #include <stdio.h>		/* Need type FILE */
 #include <errno.h>		/* Need EHOSTUNREACH, ENOMEM, ... */
 
-#if !defined(__WIN32__) && !defined(VXWORKS) || (defined(VXWORKS) && defined(HAVE_SENS))
+#if !(defined(__WIN32__) || defined(_WIN32)) && !defined(VXWORKS) || (defined(VXWORKS) && defined(HAVE_SENS))
 # include <netdb.h>
 #endif
 
@@ -115,10 +117,16 @@
 #define ERL_FLOAT_EXT         'c'
 #define NEW_FLOAT_EXT         'F'
 #define ERL_ATOM_EXT          'd'
+#define ERL_SMALL_ATOM_EXT    's'
+#define ERL_ATOM_UTF8_EXT     'v'
+#define ERL_SMALL_ATOM_UTF8_EXT 'w'
 #define ERL_REFERENCE_EXT     'e'
 #define ERL_NEW_REFERENCE_EXT 'r'
+#define ERL_NEWER_REFERENCE_EXT 'Z'
 #define ERL_PORT_EXT          'f'
+#define ERL_NEW_PORT_EXT      'Y'
 #define ERL_PID_EXT           'g'
+#define ERL_NEW_PID_EXT       'X'
 #define ERL_SMALL_TUPLE_EXT   'h'
 #define ERL_LARGE_TUPLE_EXT   'i'
 #define ERL_NIL_EXT           'j'
@@ -128,6 +136,7 @@
 #define ERL_SMALL_BIG_EXT     'n'
 #define ERL_LARGE_BIG_EXT     'o'
 #define ERL_NEW_FUN_EXT	      'p'
+#define ERL_MAP_EXT           't'
 #define ERL_FUN_EXT	      'u'
  
 #define ERL_NEW_CACHE         'N' /* c nodes don't know these two */
@@ -183,12 +192,19 @@ extern volatile int __erl_errno;
 #define EI_MAXHOSTNAMELEN 64
 #define EI_MAXALIVELEN 63
 #define EI_MAX_COOKIE_SIZE 512
-#define MAXATOMLEN 255
+#define MAXATOMLEN (255 + 1)
+#define MAXATOMLEN_UTF8 (255*4 + 1)
 #define MAXNODELEN EI_MAXALIVELEN+1+EI_MAXHOSTNAMELEN
+
+typedef enum { 
+    ERLANG_ASCII = 1,
+    ERLANG_LATIN1 = 2,
+    ERLANG_UTF8 = 4
+}erlang_char_encoding;
 
 /* a pid */
 typedef struct {
-  char node[MAXATOMLEN+1];
+  char node[MAXATOMLEN_UTF8];
   unsigned int num;
   unsigned int serial;
   unsigned int creation;
@@ -196,14 +212,14 @@ typedef struct {
 
 /* a port */
 typedef struct {
-  char node[MAXATOMLEN+1];
+  char node[MAXATOMLEN_UTF8];
   unsigned int id;
   unsigned int creation;
 } erlang_port;
 
 /* a ref */
 typedef struct {
-  char node[MAXATOMLEN+1];
+  char node[MAXATOMLEN_UTF8];
   int len;
   unsigned int n[3];
   unsigned int creation;
@@ -223,15 +239,16 @@ typedef struct {
   long msgtype;
   erlang_pid from;
   erlang_pid to;
-  char toname[MAXATOMLEN+1];
-  char cookie[MAXATOMLEN+1];
+  char toname[MAXATOMLEN_UTF8];
+  char cookie[MAXATOMLEN_UTF8];
   erlang_trace token;
 } erlang_msg;
 
 /* a fun */
 typedef struct {
     long arity;
-    char module[MAXATOMLEN+1];
+    char module[MAXATOMLEN_UTF8];
+    erlang_char_encoding module_org_enc;
     char md5[16];
     long index;
     long old_index;
@@ -256,7 +273,7 @@ typedef struct {
     union {
 	long i_val;
 	double d_val;
-	char atom_name[MAXATOMLEN+1];
+	char atom_name[MAXATOMLEN_UTF8];
 	erlang_pid pid;
 	erlang_port port;
 	erlang_ref ref;
@@ -270,6 +287,31 @@ typedef struct {
   char nodename[MAXNODELEN+1];
 } ErlConnect;
 
+#define EI_SCLBK_INF_TMO (~((unsigned) 0))
+
+#define EI_SCLBK_FLG_FULL_IMPL (1 << 0)
+
+typedef struct {
+    int flags;
+
+    int (*socket)(void **ctx, void *setup_ctx);
+    int	(*close)(void *ctx);
+    int (*listen)(void *ctx, void *addr, int *len, int backlog);
+    int (*accept)(void **ctx, void *addr, int *len, unsigned tmo);
+    int (*connect)(void *ctx, void *addr, int len, unsigned tmo);
+    int (*writev)(void *ctx, const void *iov, int iovcnt, ssize_t *len, unsigned tmo);
+    int (*write)(void *ctx, const char *buf, ssize_t *len, unsigned tmo);
+    int (*read)(void *ctx, char *buf, ssize_t *len, unsigned tmo);
+
+    int (*handshake_packet_header_size)(void *ctx, int *sz);
+    int (*connect_handshake_complete)(void *ctx);
+    int (*accept_handshake_complete)(void *ctx);
+    int (*get_fd)(void *ctx, int *fd);
+
+    /* end of version 1 */
+    
+} ei_socket_callbacks;
+
 typedef struct ei_cnode_s {
     char thishostname[EI_MAXHOSTNAMELEN+1];
     char thisnodename[MAXNODELEN+1];
@@ -279,6 +321,8 @@ typedef struct ei_cnode_s {
     char ei_connect_cookie[EI_MAX_COOKIE_SIZE+1];
     short creation;
     erlang_pid self;
+    ei_socket_callbacks *cbs;
+    void *setup_context;
 } ei_cnode;
 
 typedef struct in_addr *Erl_IpAddr; 
@@ -292,7 +336,6 @@ typedef struct ei_x_buff_TAG {
     int index;
 } ei_x_buff;
 
-
 /* -------------------------------------------------------------------- */
 /*    Function definitions (listed in same order as documentation)      */
 /* -------------------------------------------------------------------- */
@@ -305,6 +348,16 @@ int ei_connect_xinit (ei_cnode* ec, const char *thishostname,
 		      const char *thisalivename, const char *thisnodename,
 		      Erl_IpAddr thisipaddr, const char *cookie,
 		      const short creation);
+
+int ei_connect_init_ussi(ei_cnode* ec, const char* this_node_name,
+                         const char *cookie, short creation,
+                         ei_socket_callbacks *cbs, int cbs_sz,
+                         void *setup_context);
+int ei_connect_xinit_ussi(ei_cnode* ec, const char *thishostname,
+                          const char *thisalivename, const char *thisnodename,
+                          Erl_IpAddr thisipaddr, const char *cookie,
+                          const short creation, ei_socket_callbacks *cbs,
+                          int cbs_sz, void *setup_context);
 
 int ei_connect(ei_cnode* ec, char *nodename);
 int ei_connect_tmo(ei_cnode* ec, char *nodename, unsigned ms);
@@ -332,10 +385,14 @@ int ei_rpc_from(ei_cnode* ec, int fd, int timeout, erlang_msg* msg,
 
 int ei_publish(ei_cnode* ec, int port);
 int ei_publish_tmo(ei_cnode* ec, int port, unsigned ms);
+int ei_listen(ei_cnode *ec, int *port, int backlog);
+int ei_xlisten(ei_cnode *ec, Erl_IpAddr adr, int *port, int backlog);    
 int ei_accept(ei_cnode* ec, int lfd, ErlConnect *conp);
 int ei_accept_tmo(ei_cnode* ec, int lfd, ErlConnect *conp, unsigned ms);
 int ei_unpublish(ei_cnode* ec);
 int ei_unpublish_tmo(const char *alive, unsigned ms);
+
+int ei_close_connection(int fd);
 
 const char *ei_thisnodename(const ei_cnode* ec);
 const char *ei_thishostname(const ei_cnode* ec);
@@ -425,9 +482,17 @@ int ei_encode_string_len(char *buf, int *index, const char *p, int len);
 int ei_x_encode_string(ei_x_buff* x, const char* s);
 int ei_x_encode_string_len(ei_x_buff* x, const char* s, int len);
 int ei_encode_atom(char *buf, int *index, const char *p);
+int ei_encode_atom_as(char *buf, int *index, const char *p,
+		    erlang_char_encoding from, erlang_char_encoding to);
 int ei_encode_atom_len(char *buf, int *index, const char *p, int len);
+int ei_encode_atom_len_as(char *buf, int *index, const char *p, int len,
+			erlang_char_encoding from, erlang_char_encoding to);
 int ei_x_encode_atom(ei_x_buff* x, const char* s);
+int ei_x_encode_atom_as(ei_x_buff* x, const char* s,
+		      erlang_char_encoding from, erlang_char_encoding to);
 int ei_x_encode_atom_len(ei_x_buff* x, const char* s, int len);
+int ei_x_encode_atom_len_as(ei_x_buff* x, const char* s, int len,
+			  erlang_char_encoding from, erlang_char_encoding to);
 int ei_encode_binary(char *buf, int *index, const void *p, long len);
 int ei_x_encode_binary(ei_x_buff* x, const void* s, int len);
 int ei_encode_pid(char *buf, int *index, const erlang_pid *p);
@@ -448,6 +513,8 @@ int ei_encode_list_header(char *buf, int *index, int arity);
 int ei_x_encode_list_header(ei_x_buff* x, long n);
 #define ei_encode_empty_list(buf,i) ei_encode_list_header(buf,i,0)
 int ei_x_encode_empty_list(ei_x_buff* x);
+int ei_encode_map_header(char *buf, int *index, int arity);
+int ei_x_encode_map_header(ei_x_buff* x, long n);
 
 /* 
  * ei_get_type() returns the type and "size" of the item at
@@ -477,6 +544,7 @@ int ei_decode_boolean(const char *buf, int *index, int *p);
 int ei_decode_char(const char *buf, int *index, char *p);
 int ei_decode_string(const char *buf, int *index, char *p);
 int ei_decode_atom(const char *buf, int *index, char *p);
+int ei_decode_atom_as(const char *buf, int *index, char *p, int destlen, erlang_char_encoding want, erlang_char_encoding* was, erlang_char_encoding* result);
 int ei_decode_binary(const char *buf, int *index, void *p, long *len);
 int ei_decode_fun(const char* buf, int* index, erlang_fun* p);
 void free_fun(erlang_fun* f);
@@ -487,6 +555,7 @@ int ei_decode_term(const char *buf, int *index, void *t); /* ETERM** actually */
 int ei_decode_trace(const char *buf, int *index, erlang_trace *p);
 int ei_decode_tuple_header(const char *buf, int *index, int *arity);
 int ei_decode_list_header(const char *buf, int *index, int *arity);
+int ei_decode_map_header(const char *buf, int *index, int *arity);
 
 /* 
  * ei_decode_ei_term() returns 1 if term is decoded, 0 if term is OK,

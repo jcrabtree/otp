@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2010-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2010-2017. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -32,8 +33,8 @@
 %% testcases
 -export([add/1,
          add_new/1,
-         del/1,
-         repl/1,
+         remove/1,
+         down/1,
          terms/1,
          pids/1]).
 
@@ -43,7 +44,7 @@
 %% ===========================================================================
 
 suite() ->
-    [{timetrap, {seconds, 10}}].
+    [{timetrap, {seconds, 60}}].
 
 all() ->
     [{group, all},
@@ -55,8 +56,8 @@ groups() ->
 tc() ->
     [add,
      add_new,
-     del,
-     repl,
+     remove,
+     down,
      terms,
      pids].
 
@@ -81,22 +82,20 @@ add_new(_) ->
     true = ?reg:add_new(Ref),
     false = ?reg:add_new(Ref).
 
-del(_) ->
+remove(_) ->
     Ref = make_ref(),
     true = ?reg:add_new(Ref),
     true = ?reg:add_new({Ref}),
-    true = ?reg:del({Ref}),
+    true = ?reg:remove({Ref}),
     [{Ref, Pid}] = ?reg:match(Ref),
     Pid = self().
 
-repl(_) ->
+down(_) ->
     Ref = make_ref(),
-    true = ?reg:add_new({Ref}),
-    true = ?reg:repl({Ref}, Ref),
-    false = ?reg:add_new(Ref),
-    false = ?reg:repl({Ref}, Ref),
-    [{Ref, Pid}] = ?reg:match(Ref),
-    Pid = self().
+    {_, MRef} = spawn_monitor(fun() -> ?reg:add_new(Ref), timer:sleep(1000) end),
+    receive {'DOWN', MRef, process, _, _} -> ok end,
+    timer:sleep(1000),
+    [] = ?reg:match(Ref).
 
 terms(_) ->
     Ref = make_ref(),

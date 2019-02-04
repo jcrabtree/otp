@@ -1,24 +1,19 @@
 %% -*- erlang-indent-level: 2 -*-
 %%
-%% %CopyrightBegin%
-%% 
-%% Copyright Ericsson AB 2005-2009. All Rights Reserved.
-%% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
-%% 
-%% %CopyrightEnd%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
 -module(hipe_rtl_to_sparc).
+
 -export([translate/1]).
 
 -include("../rtl/hipe_rtl.hrl").
@@ -61,7 +56,6 @@ conv_insn(I, Map, Data) ->
   case I of
     #alu{} -> conv_alu(I, Map, Data);
     #alub{} -> conv_alub(I, Map, Data);
-    #branch{} -> conv_branch(I, Map, Data);
     #call{} -> conv_call(I, Map, Data);
     #comment{} -> conv_comment(I, Map, Data);
     #enter{} -> conv_enter(I, Map, Data);
@@ -84,17 +78,17 @@ conv_insn(I, Map, Data) ->
   end.
 
 conv_fconv(I, Map, Data) ->
-  %% Dst := (double)Src, where Dst is FP reg and Src is int reg
-  {Src, Map1} = conv_src(hipe_rtl:fconv_src(I), Map), % exclude imm src
+  %% Dst := (double)Src, where Dst is FP reg and Src is GP reg or imm
+  {Src, Map1} = conv_src(hipe_rtl:fconv_src(I), Map),
   {Dst, Map2} = conv_fpreg(hipe_rtl:fconv_dst(I), Map1),
   I2 = mk_fconv(Src, Dst),
   {I2, Map2, Data}.
 
 mk_fconv(Src, Dst) ->
   CSP = hipe_sparc:mk_temp(14, 'untagged'), % o6
-  Disp = hipe_sparc:mk_simm13(100),
-  [hipe_sparc:mk_store('stw', Src, CSP, Disp),
-   hipe_sparc:mk_pseudo_fload(CSP, Disp, Dst, true),
+  Offset = 100,
+  mk_store('stw', Src, CSP, Offset) ++
+  [hipe_sparc:mk_pseudo_fload(CSP, hipe_sparc:mk_simm13(Offset), Dst, true),
    hipe_sparc:mk_fp_unary('fitod', Dst, Dst)].
 
 conv_fmove(I, Map, Data) ->
@@ -142,8 +136,7 @@ mk_fload_rr(Base1, Base2, Dst) ->
 mk_fload_ii(Base1, Base2, Dst) ->
   io:format("~w: RTL fload with two immediates\n", [?MODULE]),
   Tmp = new_untagged_temp(),
-  mk_set(Base1, Tmp,
-	 mk_fload_ri(Tmp, Base2, Dst)).
+  mk_set(Base1, Tmp, mk_fload_ri(Tmp, Base2, Dst)).
 
 mk_fload_ri(Base, Disp, Dst) ->
   hipe_sparc:mk_fload(Base, Disp, Dst, 'new').
@@ -239,8 +232,7 @@ mk_alu_ii(XAluOp, Src1, Src2, Dst) ->
   io:format("~w: ALU with two immediates (~w ~w ~w ~w)\n",
 	    [?MODULE, XAluOp, Src1, Src2, Dst]),
   Tmp = new_untagged_temp(),
-  mk_set(Src1, Tmp,
-	 mk_alu_ri(XAluOp, Tmp, Src2, Dst)).
+  mk_set(Src1, Tmp, mk_alu_ri(XAluOp, Tmp, Src2, Dst)).
 
 mk_alu_ir(XAluOp, Src1, Src2, Dst) ->
   case xaluop_commutes(XAluOp) of
@@ -249,8 +241,7 @@ mk_alu_ir(XAluOp, Src1, Src2, Dst) ->
        true};
     _ ->
       Tmp = new_untagged_temp(),
-      {mk_set(Src1, Tmp,
-	      mk_alu_rs(XAluOp, Tmp, Src2, Dst)),
+      {mk_set(Src1, Tmp, mk_alu_rs(XAluOp, Tmp, Src2, Dst)),
        false}
   end.
 
@@ -274,8 +265,7 @@ mk_arith_ri(XAluOp, Src1, Src2, Dst) when is_integer(Src2) ->
       mk_alu_rs(XAluOp, Src1, hipe_sparc:mk_simm13(Src2), Dst);
      true ->
       Tmp = new_untagged_temp(),
-      mk_set(Src2, Tmp,
-	     mk_alu_rs(XAluOp, Src1, Tmp, Dst))
+      mk_set(Src2, Tmp, mk_alu_rs(XAluOp, Src1, Tmp, Dst))
   end.
 
 mk_alu_rs(XAluOp, Src1, Src2, Dst) ->
@@ -283,7 +273,12 @@ mk_alu_rs(XAluOp, Src1, Src2, Dst) ->
 
 conv_alub(I, Map, Data) ->
   %% dst = src1 aluop src2; if COND goto label
-  {Dst, Map0} = conv_dst(hipe_rtl:alub_dst(I), Map),
+  HasDst = hipe_rtl:alub_has_dst(I),
+  {Dst, Map0} =
+    case HasDst of
+      false -> {hipe_sparc:mk_g0(), Map};
+      true -> conv_dst(hipe_rtl:alub_dst(I), Map)
+    end,
   {Src1, Map1} = conv_src(hipe_rtl:alub_src1(I), Map0),
   {Src2, Map2} = conv_src(hipe_rtl:alub_src2(I), Map1),
   Cond = conv_cond(hipe_rtl:alub_cond(I)),
@@ -309,67 +304,33 @@ conv_alub(I, Map, Data) ->
 	I1 ++
 	[hipe_sparc:mk_rdy(TmpHi),
 	 hipe_sparc:mk_alu('sra', Dst, hipe_sparc:mk_uimm5(31), TmpSign) |
-	 conv_alub2(G0, TmpSign, 'sub', NewCond, TmpHi, I)];
+	 conv_alub2(G0, TmpSign, 'cmpcc', NewCond, TmpHi, I)];
       _ ->
-	conv_alub2(Dst, Src1, RtlAlubOp, Cond, Src2, I)
+	XAluOp =
+	  case (not HasDst) andalso RtlAlubOp =:= 'sub' of
+	    true -> 'cmpcc'; % == a subcc that commutes
+	    false -> conv_alubop_cc(RtlAlubOp)
+	  end,
+	conv_alub2(Dst, Src1, XAluOp, Cond, Src2, I)
     end,
   {I2, Map2, Data}.
 
--ifdef(notdef).	% XXX: only for sparc64, alas
-conv_alub2(Dst, Src1, RtlAlubOp, Cond, Src2, I) ->
-  case conv_cond_rcond(Cond) of
-    [] ->
-      conv_alub_bp(Dst, Src1, RtlAlubOp, Cond, Src2, I);
-    RCond ->
-      conv_alub_br(Dst, Src1, RtlAlubOp, RCond, Src2, I)
-  end.
+conv_alub2(Dst, Src1, XAluOp, Cond, Src2, I) ->
+  conv_alub_bp(Dst, Src1, XAluOp, Cond, Src2, I).
 
-conv_alub_br(Dst, Src1, RtlAlubOp, RCond, Src2, I) ->
-  TrueLab = hipe_rtl:alub_true_label(I),
-  FalseLab = hipe_rtl:alub_false_label(I),
-  Pred = hipe_rtl:alub_pred(I),
-  %% "Dst = Src1 AluOp Src2; if COND" becomes
-  %% "Dst = Src1 AluOp Src2; if-COND(Dst)"
-  {I2, _DidCommute} = mk_alu(conv_alubop_nocc(RtlAlubOp), Src1, Src2, Dst),
-  I2 ++ mk_pseudo_br(RCond, Dst, TrueLab, FalseLab, Pred).
-
-conv_cond_rcond(Cond) ->
-  case Cond of
-    'e'  -> 'z';
-    'ne' -> 'nz';
-    'g'  -> 'gz';
-    'ge' -> 'gez';
-    'l'  -> 'lz';
-    'le' -> 'lez';
-    _	 -> []	% vs, vc, gu, geu, lu, leu
-  end.
-
-conv_alubop_nocc(RtlAlubOp) ->
-  case RtlAlubOp of
-    'add' -> 'add';
-    'sub' -> 'sub';
-    %% mul: handled elsewhere
-    'or' -> 'or';
-    'and' -> 'and';
-    'xor' -> 'xor'
-    %% no shift ops
-  end.
-
-mk_pseudo_br(RCond, Dst, TrueLab, FalseLab, Pred) ->
-  [hipe_sparc:mk_pseudo_br(RCond, Dst, TrueLab, FalseLab, Pred)].
--else.
-conv_alub2(Dst, Src1, RtlAlubOp, Cond, Src2, I) ->
-  conv_alub_bp(Dst, Src1, RtlAlubOp, Cond, Src2, I).
--endif.
-
-conv_alub_bp(Dst, Src1, RtlAlubOp, Cond, Src2, I) ->
+conv_alub_bp(Dst, Src1, XAluOp, Cond, Src2, I) ->
   TrueLab = hipe_rtl:alub_true_label(I),
   FalseLab = hipe_rtl:alub_false_label(I),
   Pred = hipe_rtl:alub_pred(I),
   %% "Dst = Src1 AluOp Src2; if COND" becomes
   %% "Dst = Src1 AluOpCC Src22; if-COND(CC)"
-  {I2, _DidCommute} = mk_alu(conv_alubop_cc(RtlAlubOp), Src1, Src2, Dst),
-  I2 ++ mk_pseudo_bp(Cond, TrueLab, FalseLab, Pred).
+  {I2, DidCommute} = mk_alu(XAluOp, Src1, Src2, Dst),
+  NewCond =
+    case DidCommute andalso XAluOp =:= 'cmpcc' of
+      true -> commute_cond(Cond); % subcc does not commute; its conditions do
+      false -> Cond
+    end,
+  I2 ++ mk_pseudo_bp(NewCond, TrueLab, FalseLab, Pred).
 
 conv_alubop_cc(RtlAlubOp) ->
   case RtlAlubOp of
@@ -381,69 +342,6 @@ conv_alubop_cc(RtlAlubOp) ->
     'xor' -> 'xorcc'
     %% no shift ops
   end.
-
-conv_branch(I, Map, Data) ->
-  %% <unused> = src1 - src2; if COND goto label
-  {Src1, Map0} = conv_src(hipe_rtl:branch_src1(I), Map),
-  {Src2, Map1} = conv_src(hipe_rtl:branch_src2(I), Map0),
-  Cond = conv_cond(hipe_rtl:branch_cond(I)),
-  I2 = conv_branch2(Src1, Cond, Src2, I),
-  {I2, Map1, Data}.
-
--ifdef(notdef).	% XXX: only for sparc64, alas
-conv_branch2(Src1, Cond, Src2, I) ->
-  case conv_cond_rcond(Cond) of
-    [] ->
-      conv_branch_bp(Src1, Cond, Src2, I);
-    RCond ->
-      conv_branch_br(Src1, RCond, Src2, I)
-  end.
-
-conv_branch_br(Src1, RCond, Src2, I) ->
-  TrueLab = hipe_rtl:branch_true_label(I),
-  FalseLab = hipe_rtl:branch_false_label(I),
-  Pred = hipe_rtl:branch_pred(I),
-  %% "if src1-COND-src2" becomes
-  %% "sub src1,src2,tmp; if-COND(tmp)"
-  Dst = hipe_sparc:mk_new_temp('untagged'),
-  XAluOp = 'cmp',	% == a sub that commutes
-  {I1, DidCommute} = mk_alu(XAluOp, Src1, Src2, Dst),
-  NewRCond =
-    case DidCommute of
-      true -> commute_rcond(RCond);
-      false -> RCond
-    end,
-  I1 ++ mk_pseudo_br(NewRCond, Dst, TrueLab, FalseLab, Pred).
-
-commute_rcond(RCond) ->	% if x RCond y, then y commute_rcond(RCond) x
-  case RCond of
-    'z'   -> 'z';	% ==, ==
-    'nz'  -> 'nz';	% !=, !=
-    'gz'  -> 'lz';	% >, <
-    'gez' -> 'lez';	% >=, <=
-    'lz'  -> 'gz';	% <, >
-    'lez' -> 'gez'	% <=, >=
-  end.
--else.
-conv_branch2(Src1, Cond, Src2, I) ->
-  conv_branch_bp(Src1, Cond, Src2, I).
--endif.
-
-conv_branch_bp(Src1, Cond, Src2, I) ->
-  TrueLab = hipe_rtl:branch_true_label(I),
-  FalseLab = hipe_rtl:branch_false_label(I),
-  Pred = hipe_rtl:branch_pred(I),
-  %% "if src1-COND-src2" becomes
-  %% "subcc src1,src2,%g0; if-COND(CC)"
-  Dst = hipe_sparc:mk_g0(),
-  XAluOp = 'cmpcc',	% == a subcc that commutes
-  {I1, DidCommute} = mk_alu(XAluOp, Src1, Src2, Dst),
-  NewCond =
-    case DidCommute of
-      true -> commute_cond(Cond);
-      false -> Cond
-    end,
-  I1 ++ mk_pseudo_bp(NewCond, TrueLab, FalseLab, Pred).
 
 conv_call(I, Map, Data) ->
   {Args, Map0} = conv_src_list(hipe_rtl:call_arglist(I), Map),
@@ -623,12 +521,11 @@ mk_move(Src, Dst, Tail) ->
 conv_return(I, Map, Data) ->
   %% TODO: multiple-value returns
   {[Arg], Map0} = conv_src_list(hipe_rtl:return_varlist(I), Map),
-  I2 = mk_move(Arg, hipe_sparc:mk_rv(),
-	       [hipe_sparc:mk_pseudo_ret()]),
+  I2 = mk_move(Arg, hipe_sparc:mk_rv(), [hipe_sparc:mk_pseudo_ret()]),
   {I2, Map0, Data}.
 
 conv_store(I, Map, Data) ->
-  {Base1, Map0} = conv_dst(hipe_rtl:store_base(I), Map), % no immediates allowed
+  {Base1, Map0} = conv_src(hipe_rtl:store_base(I), Map),
   {Src, Map1} = conv_src(hipe_rtl:store_src(I), Map0),
   {Base2, Map2} = conv_src(hipe_rtl:store_offset(I), Map1),
   StOp = conv_stop(hipe_rtl:store_size(I)),
@@ -648,18 +545,31 @@ mk_store(StOp, Src, Base1, Base2) ->
       mk_store2(StOp, Src, Base1, Base2);
     _ ->
       Tmp = new_untagged_temp(),
-      mk_set(Src, Tmp,
-	     mk_store2(StOp, Tmp, Base1, Base2))
+      mk_set(Src, Tmp, mk_store2(StOp, Tmp, Base1, Base2))
   end.
 
 mk_store2(StOp, Src, Base1, Base2) ->
-  case hipe_sparc:is_temp(Base2) of
+  case hipe_sparc:is_temp(Base1) of
     true ->
-      mk_store_rr(StOp, Src, Base1, Base2);
+      case hipe_sparc:is_temp(Base2) of
+	true ->
+	  mk_store_rr(StOp, Src, Base1, Base2);
+	_ ->
+	  mk_store_ri(StOp, Src, Base1, Base2)
+      end;
     _ ->
-      mk_store_ri(StOp, Src, Base1, Base2)
+      case hipe_sparc:is_temp(Base2) of
+	true ->
+	  mk_store_ri(StOp, Src, Base2, Base1);
+	_ ->
+	  mk_store_ii(StOp, Src, Base1, Base2)
+      end
   end.
   
+mk_store_ii(StOp, Src, Base, Disp) ->
+  Tmp = new_untagged_temp(),
+  mk_set(Base, Tmp, mk_store_ri(StOp, Src, Tmp, Disp)).
+
 mk_store_ri(StOp, Src, Base, Disp) ->
   hipe_sparc:mk_store(StOp, Src, Base, Disp, 'new', []).
 
@@ -674,8 +584,7 @@ conv_switch(I, Map, Data) ->
       [] ->
 	hipe_consttab:insert_block(Data, word, LMap);
       SortOrder ->
-	hipe_consttab:insert_sorted_block(
-	  Data, word, LMap, SortOrder)
+	hipe_consttab:insert_sorted_block(Data, word, LMap, SortOrder)
     end,
   %% no immediates allowed here
   {IndexR, Map1} = conv_dst(hipe_rtl:switch_src(I), Map),
@@ -722,7 +631,7 @@ conv_aluop(RtlAluOp) ->
 
 xaluop_commutes(XAluOp) ->
   case XAluOp of
-    'cmp' -> true;
+    %% 'cmp' -> true;
     'cmpcc' -> true;
     'add' -> true;
     'addcc' -> true;
@@ -739,29 +648,41 @@ xaluop_commutes(XAluOp) ->
     'sll' -> false;
     'srl' -> false;
     'sra' -> false;
-    'sllx' -> false;
-    'srlx' -> false;
-    'srax' -> false;
+    %% 'sllx' -> false;
+    %% 'srlx' -> false;
+    %% 'srax' -> false;
     'ldsb' -> true;
     'ldsh' -> true;
-    'ldsw' -> true;
+    %% 'ldsw' -> true;
     'ldub' -> true;
     'lduh' -> true;
-    'lduw' -> true;
-    'ldx' -> true
+    'lduw' -> true
+    %% 'ldx' -> true
   end.
 
 %%% Check if an extended SPARC AluOp is a shift.
 
 xaluop_is_shift(XAluOp) ->
   case XAluOp of
+    'add' -> false;
+    'addcc' -> false;
+    'and' -> false;
+    'andcc' -> false;
+    'cmpcc' -> false;
+    'ldsb' -> false;
+    'ldub' -> false;
+    'lduw' -> false;
+    'or' -> false;
     'sll' -> true;
-    'srl' -> true;
+    %% 'sllx' -> true;
+    'smul' -> false;
     'sra' -> true;
-    'sllx' -> true;
-    'srlx' -> true;
-    'srax' -> true;
-    _ -> false
+    %% 'srax' -> true;
+    'srl' -> true;
+    %% 'srlx' -> true;
+    'sub' -> false;
+    'subcc' -> false;
+    'xor' -> false
   end.
 
 %%% Convert an extended SPARC AluOp back to a plain AluOp.
@@ -769,9 +690,23 @@ xaluop_is_shift(XAluOp) ->
 
 xaluop_normalise(XAluOp) ->
   case XAluOp of
-    'cmp' -> 'sub';
+    'add' -> 'add';
+    'addcc' -> 'addcc';
+    'and' -> 'and';
+    'andcc' -> 'andcc';
+    %% 'cmp' -> 'sub';
     'cmpcc' -> 'subcc';
-    _ -> XAluOp
+    'ldsb' -> 'ldsb';
+    'ldub' -> 'ldub';
+    'lduw' -> 'lduw';
+    'or' -> 'or';
+    'sll' -> 'sll';
+    'smul' -> 'smul';
+    'sra' -> 'sra';
+    'srl' -> 'srl';
+    'sub' -> 'sub';
+    'subcc' -> 'subcc';
+    'xor' -> 'xor'
   end.
 
 %%% Convert an RTL condition code.

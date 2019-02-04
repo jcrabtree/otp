@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1998-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1998-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 
@@ -24,15 +25,18 @@
 	 upcase_mac_1/1, upcase_mac_2/1,
 	 variable_1/1, otp_4870/1, otp_4871/1, otp_5362/1,
          pmod/1, not_circular/1, skip_header/1, otp_6277/1, otp_7702/1,
-         otp_8130/1, overload_mac/1, otp_8388/1, otp_8470/1, otp_8503/1,
-         otp_8562/1, otp_8665/1, otp_8911/1]).
+         otp_8130/1, overload_mac/1, otp_8388/1, otp_8470/1,
+         otp_8562/1, otp_8665/1, otp_8911/1, otp_10302/1, otp_10820/1,
+         otp_11728/1, encoding/1, extends/1,  function_macro/1,
+	 test_error/1, test_warning/1, otp_14285/1,
+	 test_if/1,source_name/1]).
 
 -export([epp_parse_erl_form/2]).
 
 %%
 %% Define to run outside of test server
 %%
-%-define(STANDALONE,1).
+%%-define(STANDALONE,1).
 
 -ifdef(STANDALONE).
 -compile(export_all).
@@ -45,29 +49,28 @@ config(priv_dir, _) ->
 config(data_dir, _) ->
     filename:absname("./epp_SUITE_data").
 -else.
--include_lib("test_server/include/test_server.hrl").
+-include_lib("common_test/include/ct.hrl").
 -export([init_per_testcase/2, end_per_testcase/2]).
 
-% Default timetrap timeout (set in init_per_testcase).
--define(default_timeout, ?t:minutes(1)).
-
 init_per_testcase(_, Config) ->
-    ?line Dog = ?t:timetrap(?default_timeout),
-    [{watchdog, Dog} | Config].
-end_per_testcase(_, Config) ->
-    Dog = ?config(watchdog, Config),
-    test_server:timetrap_cancel(Dog),
+    Config.
+
+end_per_testcase(_, _Config) ->
     ok.
 -endif.
 
-suite() -> [{ct_hooks,[ts_install_cth]}].
+suite() ->
+    [{ct_hooks,[ts_install_cth]},
+     {timetrap,{minutes,1}}].
 
 all() -> 
     [rec_1, {group, upcase_mac}, include_local, predef_mac,
      {group, variable}, otp_4870, otp_4871, otp_5362, pmod,
      not_circular, skip_header, otp_6277, otp_7702, otp_8130,
-     overload_mac, otp_8388, otp_8470, otp_8503, otp_8562,
-     otp_8665, otp_8911].
+     overload_mac, otp_8388, otp_8470, otp_8562,
+     otp_8665, otp_8911, otp_10302, otp_10820, otp_11728,
+     encoding, extends, function_macro, test_error, test_warning,
+     otp_14285, test_if, source_name].
 
 groups() -> 
     [{upcase_mac, [], [upcase_mac_1, upcase_mac_2]},
@@ -85,32 +88,29 @@ init_per_group(_GroupName, Config) ->
 end_per_group(_GroupName, Config) ->
     Config.
 
-rec_1(doc) ->
-    ["Recursive macros hang or crash epp (OTP-1398)."];
-rec_1(suite) ->
-    [];
+%% Recursive macros hang or crash epp (OTP-1398).
 rec_1(Config) when is_list(Config) ->
-    ?line File = filename:join(?config(data_dir, Config), "mac.erl"),
-    ?line {ok, List} = epp_parse_file(File, [], []),
+    File = filename:join(proplists:get_value(data_dir, Config), "mac.erl"),
+    {ok, List} = epp_parse_file(File, [], []),
     %% we should encounter errors
-    ?line {value, _} = lists:keysearch(error, 1, List),
-    ?line check_errors(List),
+    {value, _} = lists:keysearch(error, 1, List),
+    check_errors(List),
     ok.
 
-include_local(doc) ->
-    [];
-include_local(suite) ->
-    [];
 include_local(Config) when is_list(Config) ->
-    ?line DataDir = ?config(data_dir, Config),
-    ?line File = filename:join(DataDir, "include_local.erl"),
+    DataDir = proplists:get_value(data_dir, Config),
+    File = filename:join(DataDir, "include_local.erl"),
+    FooHrl = filename:join([DataDir,"include","foo.hrl"]),
+    BarHrl = filename:join([DataDir,"include","bar.hrl"]),
     %% include_local.erl includes include/foo.hrl which
     %% includes bar.hrl (also in include/) without requiring
     %% any additional include path, and overriding any file
     %% of the same name that the path points to
-    ?line {ok, List} = epp:parse_file(File, [DataDir], []),
-    ?line {value, {attribute,_,a,{true,true}}} =
+    {ok, List} = epp:parse_file(File, [DataDir], []),
+    {value, {attribute,_,a,{true,true}}} =
 	lists:keysearch(a,3,List),
+    [{File,1},{FooHrl,1},{BarHrl,1},{FooHrl,5},{File,5}] =
+        [ FileLine || {attribute,_,file,FileLine} <- List ],
     ok.
 
 %%% Here is a little reimplementation of epp:parse_file, which times out
@@ -118,10 +118,22 @@ include_local(Config) when is_list(Config) ->
 %%% regular epp:parse_file, the test case will time out, and then epp
 %%% server will go on growing until we dump core.
 epp_parse_file(File, Inc, Predef) ->
-    {ok, Epp} = epp:open(File, Inc, Predef),
+    List = do_epp_parse_file(fun() ->
+				     epp:open(File, Inc, Predef)
+			     end),
+    List = do_epp_parse_file(fun() ->
+				     Opts = [{name, File},
+					     {includes, Inc},
+					     {macros, Predef}],
+				     epp:open(Opts)
+			     end),
+    {ok, List}.
+
+do_epp_parse_file(Open) ->
+    {ok, Epp} = Open(),
     List = collect_epp_forms(Epp),
     epp:close(Epp),
-    {ok, List}.
+    List.
 
 collect_epp_forms(Epp) ->
     Result = epp_parse_erl_form(Epp),
@@ -151,112 +163,86 @@ epp_parse_erl_form(Epp, Parent) ->
 check_errors([]) ->
     ok;
 check_errors([{error, Info} | Rest]) ->
-    ?line {Line, Mod, Desc} = Info,
-    ?line case Line of
-              I when is_integer(I) -> ok;
-              {L,C} when is_integer(L), is_integer(C), C >= 1 -> ok
-          end,
-    ?line Str = lists:flatten(Mod:format_error(Desc)),
-    ?line [Str] = io_lib:format("~s", [Str]),
+    {Line, Mod, Desc} = Info,
+    case Line of
+	I when is_integer(I) -> ok;
+	{L,C} when is_integer(L), is_integer(C), C >= 1 -> ok
+    end,
+    Str = lists:flatten(Mod:format_error(Desc)),
+    [Str] = io_lib:format("~s", [Str]),
     check_errors(Rest);
 check_errors([_ | Rest]) ->
     check_errors(Rest).
 
 
-upcase_mac_1(doc) ->
-    [];
-upcase_mac_1(suite) ->
-    [];
 upcase_mac_1(Config) when is_list(Config) ->
-    ?line File = filename:join(?config(data_dir, Config), "mac2.erl"),
-    ?line {ok, List} = epp:parse_file(File, [], []),
-    ?line [_, {attribute, _, plupp, Tuple} | _] = List,
-    ?line Tuple = {1, 1, 3, 3},
+    File = filename:join(proplists:get_value(data_dir, Config), "mac2.erl"),
+    {ok, List} = epp:parse_file(File, [], []),
+    [_, {attribute, _, plupp, Tuple} | _] = List,
+    Tuple = {1, 1, 3, 3},
     ok.
 
-upcase_mac_2(doc) ->
-    [];
-upcase_mac_2(suite) ->
-    [];
 upcase_mac_2(Config) when is_list(Config) ->
-    ?line File = filename:join(?config(data_dir, Config), "mac2.erl"),
-    ?line {ok, List} = epp:parse_file(File, [], [{p, 5}, {'P', 6}]),
-    ?line [_, {attribute, _, plupp, Tuple} | _] = List,
-    ?line Tuple = {5, 5, 6, 6},
+    File = filename:join(proplists:get_value(data_dir, Config), "mac2.erl"),
+    {ok, List} = epp:parse_file(File, [], [{p, 5}, {'P', 6}]),
+    [_, {attribute, _, plupp, Tuple} | _] = List,
+    Tuple = {5, 5, 6, 6},
     ok.
 
-predef_mac(doc) ->
-    [];
-predef_mac(suite) ->
-    [];
 predef_mac(Config) when is_list(Config) ->
-    ?line File = filename:join(?config(data_dir, Config), "mac3.erl"),
-    ?line {ok, List} = epp:parse_file(File, [], []),
-    ?line [_,
-	   {attribute, LineCol1, l, Line1},
-	   {attribute, _, f, File},
-	   {attribute, _, machine1, _},
-	   {attribute, _, module, mac3},
-	   {attribute, _, m, mac3},
-	   {attribute, _, ms, "mac3"},
-	   {attribute, _, machine2, _}
-	   | _] = List,
-    ?line case LineCol1 of
-              Line1 -> ok;
-              {Line1,_} -> ok
-          end,
+    File = filename:join(proplists:get_value(data_dir, Config), "mac3.erl"),
+    {ok, List} = epp:parse_file(File, [], []),
+    [_,
+     {attribute, Anno, l, Line1},
+     {attribute, _, f, File},
+     {attribute, _, machine1, _},
+     {attribute, _, module, mac3},
+     {attribute, _, m, mac3},
+     {attribute, _, ms, "mac3"},
+     {attribute, _, machine2, _}
+     | _] = List,
+    Line1 = erl_anno:line(Anno),
     ok.
 
-
-variable_1(doc) ->
-    [];
-variable_1(suite) ->
-    [];
 variable_1(Config) when is_list(Config) ->
-    ?line DataDir = ?config(data_dir, Config),
-    ?line File = filename:join(DataDir, "variable_1.erl"),
-    ?line true = os:putenv("VAR", DataDir),
+    DataDir = proplists:get_value(data_dir, Config),
+    File = filename:join(DataDir, "variable_1.erl"),
+    true = os:putenv("VAR", DataDir),
     %% variable_1.erl includes variable_1_include.hrl and
     %% variable_1_include_dir.hrl.
-    ?line {ok, List} = epp:parse_file(File, [], []),
-    ?line {value, {attribute,_,a,{value1,value2}}} =
+    {ok, List} = epp:parse_file(File, [], []),
+    {value, {attribute,_,a,{value1,value2}}} =
 	lists:keysearch(a,3,List),
     ok.
 
-otp_4870(doc) ->
-    ["undef without module declaration"];
-otp_4870(suite) ->
-    [];
+%% undef without module declaration.
 otp_4870(Config) when is_list(Config) ->
     Ts = [{otp_4870,
            <<"-undef(foo).
            ">>,
            []}],
-    ?line [] = check(Config, Ts),
+    [] = check(Config, Ts),
     ok.
 
-otp_4871(doc) ->
-    ["crashing erl_scan"];
-otp_4871(suite) ->
-    [];
+%% crashing erl_scan
 otp_4871(Config) when is_list(Config) ->
-    ?line Dir = ?config(priv_dir, Config),
-    ?line File = filename:join(Dir, "otp_4871.erl"),
-    ?line ok = file:write_file(File, "-module(otp_4871)."),
+    Dir = proplists:get_value(priv_dir, Config),
+    File = filename:join(Dir, "otp_4871.erl"),
+    ok = file:write_file(File, "-module(otp_4871)."),
     %% Testing crash in erl_scan. Unfortunately there currently is
     %% no known way to crash erl_scan so it is emulated by killing the
     %% file io server. This assumes lots of things about how
     %% the processes are started and how monitors are set up,
     %% so there are some sanity checks before killing.
-    ?line {ok,Epp} = epp:open(File, []),
+    {ok,Epp} = epp:open(File, []),
     timer:sleep(1),
-    ?line true = current_module(Epp, epp),
-    ?line {monitored_by,[Io]} = process_info(Epp, monitored_by),
-    ?line true = current_module(Io, file_io_server),
-    ?line exit(Io, emulate_crash),
+    true = current_module(Epp, epp),
+    {monitored_by,[Io]} = process_info(Epp, monitored_by),
+    true = current_module(Io, file_io_server),
+    exit(Io, emulate_crash),
     timer:sleep(1),
-    ?line {error,{_Line,epp,cannot_parse}} = otp_4871_parse_file(Epp),
-    ?line epp:close(Epp),
+    {error,{_Line,epp,cannot_parse}} = otp_4871_parse_file(Epp),
+    epp:close(Epp),
     ok.
 
 current_module(Pid, Mod) ->
@@ -273,12 +259,9 @@ otp_4871_parse_file(Epp) ->
 	Other -> Other
     end.
 
-otp_5362(doc) ->
-    ["OTP-5362. The -file attribute is recognized."];
-otp_5362(suite) ->
-    [];
+%% OTP-5362. The -file attribute is recognized.
 otp_5362(Config) when is_list(Config) ->
-    Dir = ?config(priv_dir, Config),
+    Dir = proplists:get_value(priv_dir, Config),
 
     Copts = [return, strong_validation,{i,Dir}],
 
@@ -302,12 +285,12 @@ otp_5362(Config) when is_list(Config) ->
     Incl3 = <<"glurk(Foo) -> % line 1
                   bar.
             ">>,
-    ?line ok = file:write_file(File_Incl, Incl),
-    ?line ok = file:write_file(File_Incl2, Incl2),
-    ?line ok = file:write_file(File_Incl3, Incl3),
+    ok = file:write_file(File_Incl, Incl),
+    ok = file:write_file(File_Incl2, Incl2),
+    ok = file:write_file(File_Incl3, Incl3),
 
-    ?line {ok, incl_5362, InclWarnings} = compile:file(File_Incl, Copts),
-    ?line true = message_compare(
+    {ok, incl_5362, InclWarnings} = compile:file(File_Incl, Copts),
+    true = message_compare(
                    [{File_Incl3,[{{1,1},erl_lint,{unused_function,{glurk,1}}},
                                  {{1,7},erl_lint,{unused_var,'Foo'}}]},
                     {File_Incl,[{{7,15},erl_lint,{unused_function,{hi,1}}},
@@ -325,7 +308,7 @@ otp_5362(Config) when is_list(Config) ->
     File_Back_hrl = filename:join(Dir, "back_5362.hrl"),
     Back = <<"-module(back_5362).
 
-              -compile(export_all).
+              -export([foo/1]).
 
               -file(?FILE, 1).
               -include(\"back_5362.hrl\").
@@ -337,11 +320,11 @@ otp_5362(Config) when is_list(Config) ->
                   -file(\"">>,File_Back,<<"\", 2).
                  ">>],
 
-    ?line ok = file:write_file(File_Back, Back),
-    ?line ok = file:write_file(File_Back_hrl, list_to_binary(Back_hrl)),
+    ok = file:write_file(File_Back, Back),
+    ok = file:write_file(File_Back_hrl, list_to_binary(Back_hrl)),
 
-    ?line {ok, back_5362, BackWarnings} = compile:file(File_Back, Copts),
-    ?line true = message_compare(
+    {ok, back_5362, BackWarnings} = compile:file(File_Back, Copts),
+    true = message_compare(
                    [{File_Back,[{{4,19},erl_lint,{unused_var,'V'}}]}],
                    BackWarnings),
     file:delete(File_Back),
@@ -353,7 +336,7 @@ otp_5362(Config) when is_list(Config) ->
 
                 -file(?FILE, 100).
 
-                -compile(export_all).
+                -export([foo/1,bar/1]).
 
                 -file(\"other.file\", ?LINE). % like an included file...
                 foo(A) -> % line 105
@@ -365,11 +348,11 @@ otp_5362(Config) when is_list(Config) ->
                     foo.
               ">>],
 
-    ?line ok = file:write_file(File_Change, list_to_binary(Change)),
+    ok = file:write_file(File_Change, list_to_binary(Change)),
 
-    ?line {ok, change_5362, ChangeWarnings} =
+    {ok, change_5362, ChangeWarnings} =
         compile:file(File_Change, Copts),
-    ?line true = message_compare(
+    true = message_compare(
                    [{File_Change,[{{1002,21},erl_lint,{unused_var,'B'}}]},
                     {"other.file",[{{105,21},erl_lint,{unused_var,'A'}}]}],
                    lists:usort(ChangeWarnings)),
@@ -381,7 +364,7 @@ otp_5362(Config) when is_list(Config) ->
 
     Blank = <<"-module(blank_5362).
 
-               -compile(export_all).
+               -export([q/1,a/1,b/1,c/1]).
 
                -
                file(?FILE, 18). q(Q) -> foo. % line 18
@@ -397,9 +380,9 @@ otp_5362(Config) when is_list(Config) ->
                -file(?FILE, ?LINE). c(C) -> % line 47
                    3.
             ">>,
-    ?line ok = file:write_file(File_Blank, Blank),
-    ?line {ok, blank_5362, BlankWarnings} = compile:file(File_Blank, Copts),
-    ?line true = message_compare(
+    ok = file:write_file(File_Blank, Blank),
+    {ok, blank_5362, BlankWarnings} = compile:file(File_Blank, Copts),
+    true = message_compare(
              [{File_Blank,[{{18,3},erl_lint,{unused_var,'Q'}},
                            {{20,18},erl_lint,{unused_var,'A'}},
                            {{44,18},erl_lint,{unused_var,'B'}},
@@ -423,16 +406,16 @@ otp_5362(Config) when is_list(Config) ->
     FILE1 = <<"ii() -> ?FILE.
               ">>,
     FILE_Mod = file_5362,
-    ?line ok = file:write_file(FILE_incl, FILE),
-    ?line ok = file:write_file(FILE_incl1, FILE1),
+    ok = file:write_file(FILE_incl, FILE),
+    ok = file:write_file(FILE_incl1, FILE1),
     FILE_Copts = [return, {i,Dir},{outdir,Dir}],
-    ?line {ok, file_5362, []} = compile:file(FILE_incl, FILE_Copts),
+    {ok, file_5362, []} = compile:file(FILE_incl, FILE_Copts),
     AbsFile = filename:rootname(FILE_incl, ".erl"),
-    ?line {module, FILE_Mod} = code:load_abs(AbsFile, FILE_Mod),
-    ?line II = FILE_Mod:ii(),
-    ?line "file_incl_5362.erl" = filename:basename(II),
-    ?line FF = FILE_Mod:ff(),
-    ?line "other_file" = filename:basename(FF),
+    {module, FILE_Mod} = code:load_abs(AbsFile, FILE_Mod),
+    II = FILE_Mod:ii(),
+    "file_incl_5362.erl" = filename:basename(II),
+    FF = FILE_Mod:ff(),
+    "other_file" = filename:basename(FF),
     code:purge(file_5362),
 
     file:delete(FILE_incl),
@@ -441,12 +424,12 @@ otp_5362(Config) when is_list(Config) ->
     ok.
 
 pmod(Config) when is_list(Config) ->
-    ?line DataDir = ?config(data_dir, Config),
-    ?line Pmod = filename:join(DataDir, "pmod.erl"),
-    ?line case epp:parse_file([Pmod], [], []) of
+    DataDir = proplists:get_value(data_dir, Config),
+    Pmod = filename:join(DataDir, "pmod.erl"),
+    case epp:parse_file([Pmod], [], []) of
 	      {ok,Forms} ->
-		  %% ?line io:format("~p\n", [Forms]),
-		  ?line [] = [F || {error,_}=F <- Forms],
+		  %% io:format("~p\n", [Forms]),
+		  [] = [F || {error,_}=F <- Forms],
 		  ok
 	  end,
     ok.
@@ -459,17 +442,14 @@ not_circular(Config) when is_list(Config) ->
            <<"-define(S(S), ??S).\n"
              "t() -> \"string\" = ?S(string), ok.\n">>,
            ok}],
-    ?line [] = run(Config, Ts),
+    [] = run(Config, Ts),
     ok.
 
-skip_header(doc) ->
-    ["Skip some bytes in the beginning of the file."];
-skip_header(suite) ->
-    [];
+%% Skip some bytes in the beginning of the file.
 skip_header(Config) when is_list(Config) ->
-    ?line PrivDir = ?config(priv_dir, Config),
-    ?line File = filename:join([PrivDir, "epp_test_skip_header.erl"]),
-    ?line ok = file:write_file(File,
+    PrivDir = proplists:get_value(priv_dir, Config),
+    File = filename:join([PrivDir, "epp_test_skip_header.erl"]),
+    ok = file:write_file(File,
 			       <<"some bytes
                                   in the beginning of the file
                                   that should be skipped
@@ -479,23 +459,20 @@ skip_header(Config) when is_list(Config) ->
                                   main(_) -> ?MODULE.
 
                                   ">>),
-    ?line {ok, Fd} = file:open(File, [read]),
-    ?line io:get_line(Fd, ''),
-    ?line io:get_line(Fd, ''),
-    ?line io:get_line(Fd, ''),
-    ?line {ok, Epp} = epp:open(list_to_atom(File), Fd, 4, [], []),
+    {ok, Fd} = file:open(File, [read]),
+    io:get_line(Fd, ''),
+    io:get_line(Fd, ''),
+    io:get_line(Fd, ''),
+    {ok, Epp} = epp:open(list_to_atom(File), Fd, 4, [], []),
 
-    ?line Forms = epp:parse_file(Epp),
-    ?line [] = [Reason || {error, Reason} <- Forms],
-    ?line ok = epp:close(Epp),
-    ?line ok = file:close(Fd),
+    Forms = epp:parse_file(Epp),
+    [] = [Reason || {error, Reason} <- Forms],
+    ok = epp:close(Epp),
+    ok = file:close(Fd),
 
     ok.
 
-otp_6277(doc) ->
-    ["?MODULE before module declaration."];
-otp_6277(suite) ->
-    [];
+%% ?MODULE before module declaration.
 otp_6277(Config) when is_list(Config) ->
     Ts = [{otp_6277,
            <<"-undef(ASSERT).
@@ -503,15 +480,12 @@ otp_6277(Config) when is_list(Config) ->
 
               ?ASSERT().">>,
            [{error,{{4,16},epp,{undefined,'MODULE', none}}}]}],
-    ?line [] = check(Config, Ts),
+    [] = check(Config, Ts),
     ok.
 
-otp_7702(doc) ->
-    ["OTP-7702. Wrong line number in stringifying macro expansion."];
-otp_7702(suite) ->
-    [];
+%% OTP-7702. Wrong line number in stringifying macro expansion.
 otp_7702(Config) when is_list(Config) ->
-    Dir = ?config(priv_dir, Config),
+    Dir = proplists:get_value(priv_dir, Config),
     File = filename:join(Dir, "file_7702.erl"),
     Contents = <<"-module(file_7702).
 
@@ -527,21 +501,16 @@ otp_7702(Config) when is_list(Config) ->
                        end).
                    t() ->
                        ?RECEIVE(foo, bar).">>,
-    ?line ok = file:write_file(File, Contents),
-    ?line {ok, file_7702, []} =
+    ok = file:write_file(File, Contents),
+    {ok, file_7702, []} =
         compile:file(File, [debug_info,return,{outdir,Dir}]),
 
     BeamFile = filename:join(Dir, "file_7702.beam"),
     {ok, AC} = beam_lib:chunks(BeamFile, [abstract_code]),
 
     {file_7702,[{abstract_code,{_,Forms}}]} = AC,
-    Fun = fun(Attrs) ->
-                  {line, L} = erl_parse:get_attribute(Attrs, line),
-                  L
-          end,
-    Forms2 = [erl_lint:modify_line(Form, Fun) || Form <- Forms],
-    ?line
-        [{attribute,1,file,_},
+    Forms2 = unopaque_forms(Forms),
+            [{attribute,1,file,_},
          _,
          _,
          {function,_,t,0,
@@ -575,19 +544,17 @@ otp_7702(Config) when is_list(Config) ->
 
     ok.
 
-otp_8130(doc) ->
-    ["OTP-8130. Misc tests."];
-otp_8130(suite) ->
-    [];
+%% OTP-8130. Misc tests.
 otp_8130(Config) when is_list(Config) ->
     true = os:putenv("epp_inc1", "stdlib"),
     Ts = [{otp_8130_1,
-           %% The scanner handles UNICODE in a special way. Hopefully
-           %% temporarily.
            <<"-define(M(A), ??A). "
              "t() ->  "
-             "   \"{ 34 , [ $1 , 2730 ] , \\\"34\\\" , X . a , 2730 }\" = "
-             "        ?M({34,\"1\\x{aaa}\",\"34\",X.a,$\\x{aaa}}), ok. ">>,
+             "   L = \"{ 34 , \\\"1\\\\x{AAA}\\\" , \\\"34\\\" , X . a , $\\\\x{AAA} }\", "
+             "   R = ?M({34,\"1\\x{aaa}\",\"34\",X.a,$\\x{aaa}}),"
+             "   Lt = erl_scan:string(L, 1),"
+             "   Rt = erl_scan:string(R, 1),"
+             "   Lt = Rt, ok. ">>,
           ok},
 
           {otp_8130_2,
@@ -606,6 +573,10 @@ otp_8130(Config) when is_list(Config) ->
              "t() ->\n"
              "   {2,7} =\n"
              "      ?M1(begin 1 = fun() -> 1 end(),\n" % Bug -R13B01
+             "                2 end,\n"
+             "          7),\n"
+             "   {2,7} =\n"
+             "      ?M1(begin 1 = fun _Name () -> 1 end(),\n"
              "                2 end,\n"
              "          7),\n"
              "   {2,7} =\n"
@@ -632,6 +603,9 @@ otp_8130(Config) when is_list(Config) ->
              "   {2,7} =\n"
              "      ?M1(begin yes = try 1 of 1 -> yes after foo end,\n"
              "                2 end,\n"
+             "          7),\n"
+             "   {[42],7} =\n"
+             "      ?M1([42],\n"
              "          7),\n"
              "ok.\n">>,
            ok},
@@ -670,7 +644,7 @@ otp_8130(Config) when is_list(Config) ->
            {1,1}}
 
          ],
-    ?line [] = run(Config, Ts),
+    [] = run(Config, Ts),
 
     Cs = [{otp_8130_c1,
            <<"-define(M1(A), if\n"
@@ -705,7 +679,7 @@ otp_8130(Config) when is_list(Config) ->
           {otp_8130_c6,
            <<"-define(M3(), A).\n"
              "t() -> A = 1, ?3.14159}.\n">>,
-           {errors,[{{2,16},epp,{call,"?3.14159"}}],[]}},
+           {errors,[{{2,16},epp,{call,[$?,"3.14159"]}}],[]}},
 
           {otp_8130_c7,
            <<"\nt() -> ?A.\n">>,
@@ -716,10 +690,15 @@ otp_8130(Config) when is_list(Config) ->
            {errors,[{{2,2},epp,{include,lib,"$apa/foo.hrl"}}],[]}},
 
 
-          {otp_8130_c9,
+          {otp_8130_c9a,
            <<"-define(S, ?S).\n"
              "t() -> ?S.\n">>,
            {errors,[{{2,9},epp,{circular,'S', none}}],[]}},
+
+          {otp_8130_c9b,
+           <<"-define(S(), ?S()).\n"
+             "t() -> ?S().\n">>,
+           {errors,[{{2,9},epp,{circular,'S', 0}}],[]}},
 
           {otp_8130_c10,
            <<"\n-file.">>,
@@ -787,6 +766,10 @@ otp_8130(Config) when is_list(Config) ->
            <<"\n-include(\"no such file.erl\").\n">>,
            {errors,[{{2,2},epp,{include,file,"no such file.erl"}}],[]}},
 
+          {otp_8130_c25,
+           <<"\n-define(A.\n">>,
+           {errors,[{{2,2},epp,{bad,define}}],[]}},
+
           {otp_8130_7,
            <<"-record(b, {b}).\n"
              "-define(A, {{a,#b.b.\n"
@@ -795,7 +778,7 @@ otp_8130(Config) when is_list(Config) ->
                     {{3,19},epp,{undefined,'A',none}}],[]}}
 
           ],
-    ?line [] = compile(Config, Cs),
+    [] = compile(Config, Cs),
 
     Cks = [{otp_check_1,
             <<"\n-include_lib(\"epp_test.erl\").\n">>,
@@ -805,24 +788,26 @@ otp_8130(Config) when is_list(Config) ->
             <<"\n-include(\"epp_test.erl\").\n">>,
             [{error,{{2,2},epp,{depth,"include"}}}]}
            ],
-    ?line [] = check(Config, Cks),
+    [] = check(Config, Cks),
 
-    ?line Dir = ?config(priv_dir, Config),
-    ?line File = filename:join(Dir, "otp_8130.erl"),
-    ?line ok = file:write_file(File,
+    Dir = proplists:get_value(priv_dir, Config),
+    File = filename:join(Dir, "otp_8130.erl"),
+    ok = file:write_file(File,
                                "-module(otp_8130).\n"
                                "-define(a, 3.14).\n"
                                "t() -> ?a.\n"),
-    ?line {ok,Epp} = epp:open(File, []),
-    ?line ['BASE_MODULE','BASE_MODULE_STRING','BEAM','FILE','LINE',
-           'MACHINE','MODULE','MODULE_STRING'] = macs(Epp),
-    ?line {ok,[{'-',_},{atom,_,file}|_]} = epp:scan_erl_form(Epp),
-    ?line {ok,[{'-',_},{atom,_,module}|_]} = epp:scan_erl_form(Epp),
-    ?line {ok,[{atom,_,t}|_]} = epp:scan_erl_form(Epp),
-    ?line {eof,_} = epp:scan_erl_form(Epp),
-    ?line ['BASE_MODULE','BASE_MODULE_STRING','BEAM','FILE','LINE',
-           'MACHINE','MODULE','MODULE_STRING',a] = macs(Epp),
-    ?line epp:close(Epp),
+    {ok,Epp} = epp:open(File, []),
+    PreDefMacs = macs(Epp),
+    ['BASE_MODULE','BASE_MODULE_STRING','BEAM','FILE',
+     'FUNCTION_ARITY','FUNCTION_NAME',
+     'LINE','MACHINE','MODULE','MODULE_STRING',
+     'OTP_RELEASE'] = PreDefMacs,
+    {ok,[{'-',_},{atom,_,file}|_]} = epp:scan_erl_form(Epp),
+    {ok,[{'-',_},{atom,_,module}|_]} = epp:scan_erl_form(Epp),
+    {ok,[{atom,_,t}|_]} = epp:scan_erl_form(Epp),
+    {eof,_} = epp:scan_erl_form(Epp),
+    [a] = macs(Epp) -- PreDefMacs,
+    epp:close(Epp),
 
     %% escript
     ModuleStr = "any_name",
@@ -831,27 +816,27 @@ otp_8130(Config) when is_list(Config) ->
             PreDefMacros = [{'MODULE', Module, redefine},
                             {'MODULE_STRING', ModuleStr, redefine},
                             a, {b,2}],
-            ?line {ok,Epp2} = epp:open(File, [], PreDefMacros),
-            ?line [{atom,_,true}] = macro(Epp2, a),
-            ?line [{integer,_,2}] = macro(Epp2, b),
-            ?line false = macro(Epp2, c),
-            ?line epp:close(Epp2)
+            {ok,Epp2} = epp:open(File, [], PreDefMacros),
+            [{atom,_,true}] = macro(Epp2, a),
+            [{integer,_,2}] = macro(Epp2, b),
+            false = macro(Epp2, c),
+            epp:close(Epp2)
     end(),
     fun() ->
             PreDefMacros = [{a,b,c}],
-            ?line {error,{bad,{a,b,c}}} = epp:open(File, [], PreDefMacros)
+            {error,{bad,{a,b,c}}} = epp:open(File, [], PreDefMacros)
     end(),
     fun() ->
             PreDefMacros = [a, {a,1}],
-            ?line {error,{redefine,a}} = epp:open(File, [], PreDefMacros)
+            {error,{redefine,a}} = epp:open(File, [], PreDefMacros)
     end(),
     fun() ->
             PreDefMacros = [{a,1},a],
-            ?line {error,{redefine,a}} = epp:open(File, [], PreDefMacros)
+            {error,{redefine,a}} = epp:open(File, [], PreDefMacros)
     end(),
 
-    ?line {error,enoent} = epp:open("no such file", []),
-    ?line {error,enoent} = epp:parse_file("no such file", [], []),
+    {error,enoent} = epp:open("no such file", []),
+    {error,enoent} = epp:parse_file("no such file", [], []),
 
     _ = ifdef(Config),
 
@@ -969,29 +954,9 @@ ifdef(Config) ->
 
           {define_c5,
            <<"-\ndefine a.\n">>,
-           {errors,[{{2,1},epp,{bad,define}}],[]}},
-
-          {define_c6,
-           <<"\n-if.\n"
-             "-endif.\n">>,
-           {errors,[{{2,2},epp,{'NYI','if'}}],[]}},
-
-          {define_c7,
-           <<"-ifndef(a).\n"
-             "-elif.\n"
-             "-endif.\n">>,
-           {errors,[{{2,2},epp,{'NYI',elif}}],[]}},
-
-          {define_c7,
-           <<"-ifndef(a).\n"
-             "-if.\n"
-             "-elif.\n"
-             "-endif.\n"
-             "-endif.\n"
-             "t() -> a.\n">>,
-           {errors,[{{2,2},epp,{'NYI','if'}}],[]}}
+           {errors,[{{2,1},epp,{bad,define}}],[]}}
           ],
-    ?line [] = compile(Config, Cs),
+    [] = compile(Config, Cs),
 
     Ts =  [{ifdef_1,
             <<"-ifdef(a).\n"
@@ -1072,14 +1037,210 @@ ifdef(Config) ->
             ok}
 
            ],
-    ?line [] = run(Config, Ts).
+    [] = run(Config, Ts).
 
+%% OTP-12847: Test the -error directive.
+test_error(Config) ->
+    Cs = [{error_c1,
+           <<"-error(\"string and macro: \" ?MODULE_STRING).\n"
+	     "-ifdef(NOT_DEFINED).\n"
+	     " -error(\"this one will be skipped\").\n"
+	     "-endif.\n">>,
+           {errors,[{1,epp,{error,"string and macro: epp_test"}}],[]}},
 
+	  {error_c2,
+	   <<"-ifdef(CONFIG_A).\n"
+	     " t() -> a.\n"
+	     "-else.\n"
+	     "-ifdef(CONFIG_B).\n"
+	     " t() -> b.\n"
+	     "-else.\n"
+	     "-error(\"Neither CONFIG_A nor CONFIG_B are available\").\n"
+	     "-endif.\n"
+	     "-endif.\n">>,
+	   {errors,[{7,epp,{error,"Neither CONFIG_A nor CONFIG_B are available"}}],[]}},
 
-overload_mac(doc) ->
-    ["Advanced test on overloading macros."];
-overload_mac(suite) ->
-    [];
+	  {error_c3,
+	   <<"-error(a b c).\n">>,
+	   {errors,[{1,epp,{bad,error}}],[]}}
+
+	 ],
+
+    [] = compile(Config, Cs),
+    ok.
+
+%% OTP-12847: Test the -warning directive.
+test_warning(Config) ->
+    Cs = [{warn_c1,
+           <<"-warning({a,term,?MODULE}).\n"
+	     "-ifdef(NOT_DEFINED).\n"
+	     "-warning(\"this one will be skipped\").\n"
+	     "-endif.\n">>,
+           {warnings,[{1,epp,{warning,{a,term,epp_test}}}]}},
+
+	  {warn_c2,
+	   <<"-ifdef(CONFIG_A).\n"
+	     " t() -> a.\n"
+	     "-else.\n"
+	     "-ifdef(CONFIG_B).\n"
+	     " t() -> b.\n"
+	     "-else.\n"
+	     " t() -> c.\n"
+	     "-warning(\"Using fallback\").\n"
+	     "-endif.\n"
+	     "-endif.\n">>,
+	   {warnings,[{8,epp,{warning,"Using fallback"}}]}},
+
+	  {warn_c3,
+	   <<"-warning(a b c).\n">>,
+	   {errors,[{1,epp,{bad,warning}}],[]}}
+	 ],
+
+    [] = compile(Config, Cs),
+    ok.
+
+%% OTP-12847: Test the -if and -elif directives and the built-in
+%% function defined(Symbol).
+test_if(Config) ->
+    Cs = [{if_1c,
+	   <<"-if.\n"
+	     "-endif.\n"
+	     "-if no_parentheses.\n"
+	     "-endif.\n"
+	     "-if(syntax error.\n"
+	     "-endif.\n"
+	     "-if(true).\n"
+	     "-if(a+3).\n"
+	     "syntax error not triggered here.\n"
+	     "-endif.\n">>,
+           {errors,[{1,epp,{bad,'if'}},
+		    {3,epp,{bad,'if'}},
+		    {5,erl_parse,["syntax error before: ","error"]},
+		    {11,epp,{illegal,"unterminated",'if'}}],
+	    []}},
+
+	  {if_2c,			       	%Bad guard expressions.
+	   <<"-if(is_list(integer_to_list(42))).\n" %Not guard BIF.
+	     "-endif.\n"
+	     "-if(begin true end).\n"
+	     "-endif.\n">>,
+	   {errors,[{1,epp,{bad,'if'}},
+		    {3,epp,{bad,'if'}}],
+	    []}},
+
+	  {if_3c,			       	%Invalid use of defined/1.
+	   <<"-if defined(42).\n"
+	     "-endif.\n">>,
+	   {errors,[{1,epp,{bad,'if'}}],[]}},
+
+	  {if_4c,
+	   <<"-elif OTP_RELEASE > 18.\n">>,
+	   {errors,[{1,epp,{illegal,"unbalanced",'elif'}}],[]}},
+
+	  {if_5c,
+	   <<"-ifdef(not_defined_today).\n"
+	     "-else.\n"
+	     "-elif OTP_RELEASE > 18.\n"
+	     "-endif.\n">>,
+	   {errors,[{3,epp,{illegal,"unbalanced",'elif'}}],[]}},
+
+	  {if_6c,
+	   <<"-if(defined(OTP_RELEASE)).\n"
+	     "-else.\n"
+	     "-elif(true).\n"
+	     "-endif.\n">>,
+	   {errors,[{3,epp,elif_after_else}],[]}},
+
+	  {if_7c,
+	   <<"-if(begin true end).\n"		%Not a guard expression.
+	     "-endif.\n">>,
+	   {errors,[{1,epp,{bad,'if'}}],[]}}
+
+	 ],
+    [] = compile(Config, Cs),
+
+    Ts = [{if_1,
+	   <<"-if(?OTP_RELEASE > 18).\n"
+	     "t() -> ok.\n"
+	     "-else.\n"
+	     "a bug.\n"
+	     "-endif.\n">>,
+           ok},
+
+	  {if_2,
+	   <<"-if(false).\n"
+	     "a bug.\n"
+	     "-elif(?OTP_RELEASE > 18).\n"
+	     "t() -> ok.\n"
+	     "-else.\n"
+	     "a bug.\n"
+	     "-endif.\n">>,
+           ok},
+
+	  {if_3,
+	   <<"-if(true).\n"
+	     "t() -> ok.\n"
+	     "-elif(?OTP_RELEASE > 18).\n"
+	     "a bug.\n"
+	     "-else.\n"
+	     "a bug.\n"
+	     "-endif.\n">>,
+           ok},
+
+	  {if_4,
+	   <<"-define(a, 1).\n"
+	     "-if(defined(a) andalso defined(OTP_RELEASE)).\n"
+	     "t() -> ok.\n"
+	     "-else.\n"
+	     "a bug.\n"
+	     "-endif.\n">>,
+           ok},
+
+	  {if_5,
+	   <<"-if(defined(a)).\n"
+	     "a bug.\n"
+	     "-else.\n"
+	     "t() -> ok.\n"
+	     "-endif.\n">>,
+           ok},
+
+	  {if_6,
+	   <<"-if(defined(not_defined_today)).\n"
+	     " -if(true).\n"
+	     "  bug1.\n"
+	     " -elif(true).\n"
+	     "  bug2.\n"
+	     " -elif(true).\n"
+	     "  bug3.\n"
+	     " -else.\n"
+	     "  bug4.\n"
+	     " -endif.\n"
+	     "-else.\n"
+	     "t() -> ok.\n"
+	     "-endif.\n">>,
+           ok},
+
+	  {if_7,
+	   <<"-if(not_builtin()).\n"
+	     "a bug.\n"
+	     "-else.\n"
+	     "t() -> ok.\n"
+	     "-endif.\n">>,
+           ok},
+
+	  {if_8,
+	   <<"-if(42).\n"			%Not boolean.
+	     "a bug.\n"
+	     "-else.\n"
+	     "t() -> ok.\n"
+	     "-endif.\n">>,
+	   ok}
+	 ],
+    [] = run(Config, Ts),
+
+    ok.
+
+%% Advanced test on overloading macros.
 overload_mac(Config) when is_list(Config) ->
     Cs = [
           %% '-undef' removes all definitions of a macro
@@ -1110,7 +1271,7 @@ overload_mac(Config) when is_list(Config) ->
             "t() -> ?A(1).">>,
            {errors,[{{4,9},epp,{mismatch,'A'}}],[]}}
          ],
-    ?line [] = compile(Config, Cs),
+    [] = compile(Config, Cs),
 
     Ts = [
           {overload_mac_r1,
@@ -1134,27 +1295,24 @@ overload_mac(Config) when is_list(Config) ->
             "t() -> ?A(1).">>,
            1}
           ],
-    ?line [] = run(Config, Ts).
+    [] = run(Config, Ts).
 
 
-otp_8388(doc) ->
-    ["OTP-8388. More tests on overloaded macros."];
-otp_8388(suite) ->
-    [];
+%% OTP-8388. More tests on overloaded macros.
 otp_8388(Config) when is_list(Config) ->
-    Dir = ?config(priv_dir, Config),
-    ?line File = filename:join(Dir, "otp_8388.erl"),
-    ?line ok = file:write_file(File, <<"-module(otp_8388)."
+    Dir = proplists:get_value(priv_dir, Config),
+    File = filename:join(Dir, "otp_8388.erl"),
+    ok = file:write_file(File, <<"-module(otp_8388)."
                                        "-define(LINE, a).">>),
     fun() ->
             PreDefMacros = [{'LINE', a}],
-            ?line {error,{redefine_predef,'LINE'}} =
+            {error,{redefine_predef,'LINE'}} =
                 epp:open(File, [], PreDefMacros)
     end(),
 
     fun() ->
             PreDefMacros = ['LINE'],
-            ?line {error,{redefine_predef,'LINE'}} =
+            {error,{redefine_predef,'LINE'}} =
                 epp:open(File, [], PreDefMacros)
     end(),
 
@@ -1184,43 +1342,22 @@ otp_8388(Config) when is_list(Config) ->
              "test() -> ?BAR(1).\n">>,
            {errors,[{{4,12},epp,{undefined,'FOO',1}}],[]}}
          ],
-    ?line [] = compile(Config, Ts),
+    [] = compile(Config, Ts),
     ok.
 
-otp_8470(doc) ->
-    ["OTP-8470. Bugfix (one request - two replies)."];
-otp_8470(suite) ->
-    [];
+%% OTP-8470. Bugfix (one request - two replies).
 otp_8470(Config) when is_list(Config) ->
-    Dir = ?config(priv_dir, Config),
+    Dir = proplists:get_value(priv_dir, Config),
     C = <<"-file(\"erl_parse.yrl\", 486).\n"
           "-file(\"erl_parse.yrl\", 488).\n">>,
-    ?line File = filename:join(Dir, "otp_8470.erl"),
-    ?line ok = file:write_file(File, C),
-    ?line {ok, _List} = epp:parse_file(File, [], []),
+    File = filename:join(Dir, "otp_8470.erl"),
+    ok = file:write_file(File, C),
+    {ok, _List} = epp:parse_file(File, [], []),
     file:delete(File),
-    ?line receive _ -> fail() after 0 -> ok end,
+    receive _ -> fail() after 0 -> ok end,
     ok.
 
-otp_8503(doc) ->
-    ["OTP-8503. Record with no fields is considered typed."];
-otp_8503(suite) ->
-    [];
-otp_8503(Config) when is_list(Config) ->
-    Dir = ?config(priv_dir, Config),
-    C = <<"-record(r, {}).">>,
-    ?line File = filename:join(Dir, "otp_8503.erl"),
-    ?line ok = file:write_file(File, C),
-    ?line {ok, List} = epp:parse_file(File, [], []),
-    ?line [_] = [F || {attribute,_,type,{{record,r},[],[]}}=F <- List],
-    file:delete(File),
-    ?line receive _ -> fail() after 0 -> ok end,
-    ok.
-
-otp_8562(doc) ->
-    ["OTP-8503. Record with no fields is considered typed."];
-otp_8562(suite) ->
-    [];
+%% OTP-8562. Record with no fields is considered typed.
 otp_8562(Config) when is_list(Config) ->
     Cs = [{otp_8562,
            <<"-define(P(), {a,b}.\n"
@@ -1228,54 +1365,355 @@ otp_8562(Config) when is_list(Config) ->
            {errors,[{{1,60},epp,missing_parenthesis},
                     {{2,13},epp,missing_parenthesis}], []}}
          ],
-    ?line [] = compile(Config, Cs),
+    [] = compile(Config, Cs),
     ok.
 
-otp_8911(doc) ->
-    ["OTP-8911. -file and file inclusion bug"];
-otp_8911(suite) ->
-    [];
+%% OTP-8911. -file and file inclusion bug.
 otp_8911(Config) when is_list(Config) ->
-    ?line {ok, CWD} = file:get_cwd(),
-    ?line ok = file:set_cwd(?config(priv_dir, Config)),
+    case test_server:is_cover() of
+	true ->
+	    {skip, "Testing cover, so can not run when cover is already running"};
+	false ->
+	    do_otp_8911(Config)
+    end.
+do_otp_8911(Config) ->
+    {ok, CWD} = file:get_cwd(),
+    ok = file:set_cwd(proplists:get_value(priv_dir, Config)),
 
     File = "i.erl",
     Cont = <<"-module(i).
-              -compile(export_all).
+              -export([t/0]).
               -file(\"fil1\", 100).
               -include(\"i1.erl\").
               t() ->
                   a.
            ">>,
-    ?line ok = file:write_file(File, Cont),
+    ok = file:write_file(File, Cont),
     Incl = <<"-file(\"fil2\", 35).
               t1() ->
                   b.
            ">>,
     File1 = "i1.erl",
-    ?line ok = file:write_file(File1, Incl),
+    ok = file:write_file(File1, Incl),
 
-    ?line {ok, i} = cover:compile(File),
-    ?line a = i:t(),
-    ?line {ok,[{{i,6},1}]} = cover:analyse(i, calls, line),
-    ?line cover:stop(),
+    {ok, i} = cover:compile(File),
+    a = i:t(),
+    {ok,[{{i,6},1}]} = cover:analyse(i, calls, line),
+    cover:stop(),
 
     file:delete(File),
     file:delete(File1),
-    ?line file:set_cwd(CWD),
+    file:set_cwd(CWD),
     ok.
 
-otp_8665(doc) ->
-    ["OTP-8665. Bugfix premature end."];
-otp_8665(suite) ->
-    [];
+%% OTP-8665. Bugfix premature end.
 otp_8665(Config) when is_list(Config) ->
     Cs = [{otp_8562,
            <<"-define(A, a)\n">>,
            {errors,[{{1,54},epp,premature_end}],[]}}
          ],
-    ?line [] = compile(Config, Cs),
+    [] = compile(Config, Cs),
     ok.
+
+%% OTP-10302. Unicode characters scanner/parser.
+otp_10302(Config) when is_list(Config) ->
+    %% Two messages (one too many). Keeps otp_4871 happy.
+    Cs = [{otp_8562,
+           <<"%% coding: utf-8\n \n \x{E4}">>,
+           {errors,[{3,epp,cannot_parse},
+                    {3,file_io_server,invalid_unicode}],[]}}
+         ],
+    [] = compile(Config, Cs),
+    Dir = proplists:get_value(priv_dir, Config),
+    File = filename:join(Dir, "otp_10302.erl"),
+    utf8 = encoding("coding: utf-8", File),
+    utf8 = encoding("coding: UTF-8", File),
+    latin1 = encoding("coding: Latin-1", File),
+    latin1 = encoding("coding: latin-1", File),
+    none = encoding_com("coding: utf-8", File),
+    none = encoding_com("\n\n%% coding: utf-8", File),
+    none = encoding_nocom("\n\n coding: utf-8", File),
+    utf8 = encoding_com("\n%% coding: utf-8", File),
+    utf8 = encoding_nocom("\n coding: utf-8", File),
+    none = encoding("coding: \nutf-8", File),
+    latin1 = encoding("Encoding :  latin-1", File),
+    utf8 = encoding("ccoding: UTF-8", File),
+    utf8 = encoding("coding= utf-8", File),
+    utf8 = encoding_com(" %% coding= utf-8", File),
+    utf8 = encoding("coding  =  utf-8", File),
+    none = encoding("coding: utf-16 coding: utf-8", File), %first is bad
+    none = encoding("Coding: utf-8", File),    %capital c
+    utf8 = encoding("-*- coding: utf-8 -*-", File),
+    utf8 = encoding("-*-coding= utf-8-*-", File),
+    utf8 = encoding("codingcoding= utf-8", File),
+    ok = prefix("coding: utf-8", File, utf8),
+
+    "coding: latin-1" = epp:encoding_to_string(latin1),
+    "coding: utf-8" = epp:encoding_to_string(utf8),
+    true = lists:member(epp:default_encoding(), [latin1, utf8]),
+
+    ok.
+
+prefix(S, File, Enc) ->
+    prefix(0, S, File, Enc).
+
+prefix(100, _S, _File, _) ->
+    ok;
+prefix(N, S, File, Enc) ->
+    Enc = encoding(lists:duplicate(N, $\s) ++ S, File),
+    prefix(N+1, S, File, Enc).
+
+encoding(Enc, File) ->
+    E = encoding_com("%% " ++ Enc, File),
+    none = encoding_com(Enc, File),
+    E = encoding_nocom(Enc, File).
+
+encoding_com(Enc, File) ->
+    B = list_to_binary(Enc),
+    E = epp:read_encoding_from_binary(B),
+    ok = file:write_file(File, Enc),
+    {ok, Fd} = file:open(File, [read]),
+    E = epp:set_encoding(Fd),
+    ok = file:close(Fd),
+    E = epp:read_encoding(File).
+
+encoding_nocom(Enc, File) ->
+    Options = [{in_comment_only, false}],
+    B = list_to_binary(Enc),
+    E = epp:read_encoding_from_binary(B, Options),
+    ok = file:write_file(File, Enc),
+    {ok, Fd} = file:open(File, [read]),
+    ok = file:close(Fd),
+    E = epp:read_encoding(File, Options).
+
+%% OTP-10820. Unicode filenames.
+otp_10820(Config) when is_list(Config) ->
+    L = [915,953,959,973,957,953,954,959,957,964],
+    Dir = proplists:get_value(priv_dir, Config),
+    File = filename:join(Dir, L++".erl"),
+    C1 = <<"%% coding: utf-8\n -module(any).">>,
+    ok = do_otp_10820(File, C1, "+pc latin1"),
+    ok = do_otp_10820(File, C1, "+pc unicode"),
+    C2 = <<"\n-module(any).">>,
+    ok = do_otp_10820(File, C2, "+pc latin1"),
+    ok = do_otp_10820(File, C2, "+pc unicode").
+
+do_otp_10820(File, C, PC) ->
+    {ok,Node} = start_node(erl_pp_helper, "+fnu " ++ PC),
+    ok = rpc:call(Node, file, write_file, [File, C]),
+    {ok, Forms} = rpc:call(Node, epp, parse_file, [File, [],[]]),
+    [{attribute,1,file,{File,1}},
+     {attribute,2,module,any},
+     {eof,2}] = unopaque_forms(Forms),
+    true = test_server:stop_node(Node),
+    ok.
+
+%% OTP_14285: Unicode atoms.
+otp_14285(Config) when is_list(Config) ->
+    %% This is just a sample of errors.
+    Cs = [{otp_8562,
+           <<"-export([f/0]).
+              -define('a\x{400}b', 'a\x{400}d').
+              f() ->
+                  ?'a\x{400}b'.
+              g() ->
+                  ?\"a\x{400}b\".
+              h() ->
+                  ?'a\x{400}no'().
+              "/utf8>>,
+           {errors,[{6,epp,{call,[63,[91,["97",44,"1024",44,"98"],93]]}},
+                    {8,epp,{undefined,'a\x{400}no',0}}],
+            []}}
+         ],
+    [] = compile(Config, Cs),
+    ok.
+
+%% OTP-11728. Bugfix circular macro.
+otp_11728(Config) when is_list(Config) ->
+    Dir = proplists:get_value(priv_dir, Config),
+    H = <<"-define(MACRO,[[]++?MACRO]).">>,
+    HrlFile = filename:join(Dir, "otp_11728.hrl"),
+    ok = file:write_file(HrlFile, H),
+    C = <<"-module(otp_11728).
+           -export([function_name/0]).
+
+           -include(\"otp_11728.hrl\").
+
+           function_name()->
+               A=?MACRO, % line 7
+               ok">>,
+    ErlFile = filename:join(Dir, "otp_11728.erl"),
+    ok = file:write_file(ErlFile, C),
+    {ok, L} = epp:parse_file(ErlFile, [Dir], []),
+    true = lists:member({error,{7,epp,{circular,'MACRO',none}}}, L),
+    _ = file:delete(HrlFile),
+    _ = file:delete(ErlFile),
+    ok.
+
+%% Check the new API for setting the default encoding.
+encoding(Config) when is_list(Config) ->
+    Dir = proplists:get_value(priv_dir, Config),
+    ErlFile = filename:join(Dir, "encoding.erl"),
+
+    %% Try a latin-1 file with no encoding given.
+    C1 = <<"-module(encoding).
+           %% ",246,"
+	  ">>,
+    ok = file:write_file(ErlFile, C1),
+    {ok,[{attribute,1,file,_},
+	 {attribute,1,module,encoding},
+	 {error,_},
+	 {error,{2,epp,cannot_parse}},
+	 {eof,2}]} = epp_parse_file(ErlFile, []),
+    {ok,[{attribute,1,file,_},
+	 {attribute,1,module,encoding},
+	 {eof,3}]} =
+	epp_parse_file(ErlFile, [{default_encoding,latin1}]),
+    {ok,[{attribute,1,file,_},
+	 {attribute,1,module,encoding},
+	 {eof,3}],[{encoding,none}]} =
+	epp_parse_file(ErlFile, [{default_encoding,latin1},extra]),
+
+    %% Try a latin-1 file with encoding given in a comment.
+    C2 = <<"-module(encoding).
+           %% encoding: latin-1
+           %% ",246,"
+	  ">>,
+    ok = file:write_file(ErlFile, C2),
+    {ok,[{attribute,1,file,_},
+	 {attribute,1,module,encoding},
+	 {eof,4}]} =
+	epp_parse_file(ErlFile, []),
+    {ok,[{attribute,1,file,_},
+	 {attribute,1,module,encoding},
+	 {eof,4}]} =
+	epp_parse_file(ErlFile, [{default_encoding,latin1}]),
+    {ok,[{attribute,1,file,_},
+	 {attribute,1,module,encoding},
+	 {eof,4}]} =
+	epp_parse_file(ErlFile, [{default_encoding,utf8}]),
+    {ok,[{attribute,1,file,_},
+	 {attribute,1,module,encoding},
+	 {eof,4}],[{encoding,latin1}]} =
+	epp_parse_file(ErlFile, [extra]),
+    {ok,[{attribute,1,file,_},
+	 {attribute,1,module,encoding},
+	 {eof,4}],[{encoding,latin1}]} =
+	epp_parse_file(ErlFile, [{default_encoding,latin1},extra]),
+    {ok,[{attribute,1,file,_},
+	 {attribute,1,module,encoding},
+	 {eof,4}],[{encoding,latin1}]} =
+	epp_parse_file(ErlFile, [{default_encoding,utf8},extra]),
+    ok.
+
+extends(Config) ->
+    Cs = [{extends_c1,
+	   <<"-extends(some.other.module).\n">>,
+	   {errors,[{1,erl_parse,["syntax error before: ","'.'"]}],[]}}],
+    [] = compile(Config, Cs),
+
+    Ts = [{extends_1,
+	   <<"-extends(some_other_module).\n"
+	     "t() -> {?BASE_MODULE,?BASE_MODULE_STRING}.\n">>,
+	   {some_other_module,"some_other_module"}}],
+
+    [] = run(Config, Ts),
+    ok.
+
+function_macro(Config) ->
+    Cs = [{f_c1,
+	   <<"-define(FUNCTION_NAME, a).\n"
+	     "-define(FUNCTION_ARITY, a).\n"
+	     "-define(FS,\n"
+	     " atom_to_list(?FUNCTION_NAME) ++ \"/\" ++\n"
+	     " integer_to_list(?FUNCTION_ARITY)).\n"
+	     "-attr({f,?FUNCTION_NAME}).\n"
+	     "-attr2(?FS).\n"
+	     "-file(?FUNCTION_ARITY, 1).\n"
+	     "f1() ?FUNCTION_NAME/?FUNCTION_ARITY.\n"
+	     "f2(?FUNCTION_NAME.\n">>,
+	   {errors,[{1,epp,{redefine_predef,'FUNCTION_NAME'}},
+		    {2,epp,{redefine_predef,'FUNCTION_ARITY'}},
+		    {6,epp,{illegal_function,'FUNCTION_NAME'}},
+		    {7,epp,{illegal_function,'FUNCTION_NAME'}},
+		    {8,epp,{illegal_function,'FUNCTION_ARITY'}},
+		    {9,erl_parse,["syntax error before: ","f1"]},
+		    {10,erl_parse,["syntax error before: ","'.'"]}],
+	    []}},
+
+	  {f_c2,
+	   <<"a({a) -> ?FUNCTION_NAME.\n"
+	     "b(}{) -> ?FUNCTION_ARITY.\n"
+	     "c(?FUNCTION_NAME, ?not_defined) -> ok.\n">>,
+	   {errors,[{1,erl_parse,["syntax error before: ","')'"]},
+		    {2,erl_parse,["syntax error before: ","'}'"]},
+		    {3,epp,{undefined,not_defined,none}}],
+	    []}},
+
+	  {f_c3,
+	   <<"?FUNCTION_NAME() -> ok.\n"
+	     "?FUNCTION_ARITY() -> ok.\n">>,
+	   {errors,[{1,epp,{illegal_function_usage,'FUNCTION_NAME'}},
+		    {2,epp,{illegal_function_usage,'FUNCTION_ARITY'}}],
+	    []}}
+	 ],
+
+    [] = compile(Config, Cs),
+
+    Ts = [{f_1,
+	   <<"t() -> {a,0} = a(), {b,1} = b(1), {c,2} = c(1, 2),\n"
+	     "  {d,1} = d({d,1}), {foo,1} = foo(foo), ok.\n"
+	     "a() -> {?FUNCTION_NAME,?FUNCTION_ARITY}.\n"
+	     "b(_) -> {?FUNCTION_NAME,?FUNCTION_ARITY}.\n"
+	     "c(_, (_)) -> {?FUNCTION_NAME,?FUNCTION_ARITY}.\n"
+	     "d({?FUNCTION_NAME,?FUNCTION_ARITY}=F) -> F.\n"
+	     "-define(FOO, foo).\n"
+	     "?FOO(?FOO) -> {?FUNCTION_NAME,?FUNCTION_ARITY}.\n">>,
+	   ok},
+
+	  {f_2,
+	   <<"t() ->\n"
+             "  A = {a,[<<0:24>>,#{a=>1,b=>2}]},\n"
+	     "  1 = a(A),\n"
+	     "  ok.\n"
+	     "a({a,[<<_,_,_>>,#{a:=1,b:=2}]}) -> ?FUNCTION_ARITY.\n">>,
+	   ok},
+
+	  {f_3,
+	   <<"-define(FS,\n"
+	     " atom_to_list(?FUNCTION_NAME) ++ \"/\" ++\n"
+	     " integer_to_list(?FUNCTION_ARITY)).\n"
+	     "t() ->\n"
+	     "  {t,0} = {?FUNCTION_NAME,?FUNCTION_ARITY},\n"
+	     "  \"t/0\" = ?FS,\n"
+	     "  ok.\n">>,
+	   ok},
+
+	  {f_4,
+	   <<"-define(__, _, _).\n"
+	     "-define(FF, ?FUNCTION_NAME, ?FUNCTION_ARITY).\n"
+	     "a(?__) -> 2 = ?FUNCTION_ARITY.\n"
+	     "b(?FUNCTION_ARITY, ?__) -> ok.\n"
+	     "c(?FF) -> ok.\n"
+	     "t() -> a(1, 2), b(3, 1, 2), c(c, 2), ok.\n">>,
+	   ok}
+	 ],
+    [] = run(Config, Ts),
+
+    ok.
+
+source_name(Config) when is_list(Config) ->
+    DataDir = proplists:get_value(data_dir, Config),
+    File = filename:join(DataDir, "source_name.erl"),
+
+    source_name_1(File, "/test/gurka.erl"),
+    source_name_1(File, "gaffel.erl"),
+
+    ok.
+
+source_name_1(File, Expected) ->
+    Res = epp:parse_file(File, [{source_name, Expected}]),
+    {ok, [{attribute,_,file,{Expected,_}} | _Forms]} = Res.
 
 check(Config, Tests) ->
     eval_tests(Config, fun check_test/2, Tests).
@@ -1294,7 +1732,7 @@ eval_tests(Config, Fun, Tests) ->
                     true ->
                         BadL;
                     false ->
-                        ?t:format("~nTest ~p failed. Expected~n  ~p~n"
+                        io:format("~nTest ~p failed. Expected~n  ~p~n"
                                   "but got~n  ~p~n", [N, E, Return]),
 			fail()
                 end
@@ -1304,23 +1742,25 @@ eval_tests(Config, Fun, Tests) ->
 
 check_test(Config, Test) ->
     Filename = "epp_test.erl",
-    ?line PrivDir = ?config(priv_dir, Config),
-    ?line File = filename:join(PrivDir, Filename),
-    ?line ok = file:write_file(File, Test),
-    ?line case epp:parse_file(File, [PrivDir], []) of
-              {ok,Forms} ->
-                  [E || E={error,_} <- Forms];
-              {error,Error} ->
-                  Error
-          end.
+    PrivDir = proplists:get_value(priv_dir, Config),
+    File = filename:join(PrivDir, Filename),
+    ok = file:write_file(File, Test),
+    case epp:parse_file(File, [PrivDir], []) of
+	{ok,Forms} ->
+	    Errors = [E || E={error,_} <- Forms],
+	    call_format_error([E || {error,E} <- Errors]),
+	    Errors;
+	{error,Error} ->
+	    Error
+    end.
 
 compile_test(Config, Test0) ->
-    Test = [<<"-module(epp_test). -compile(export_all). ">>, Test0],
+    Test = [<<"-module(epp_test). ">>, Test0],
     Filename = "epp_test.erl",
-    ?line PrivDir = ?config(priv_dir, Config),
-    ?line File = filename:join(PrivDir, Filename),
-    ?line ok = file:write_file(File, Test),
-    Opts = [export_all,return,nowarn_unused_record,{outdir,PrivDir}],
+    PrivDir = proplists:get_value(priv_dir, Config),
+    File = filename:join(PrivDir, Filename),
+    ok = file:write_file(File, Test),
+    Opts = [export_all,nowarn_export_all,return,nowarn_unused_record,{outdir,PrivDir}],
     case compile_file(File, Opts) of
         {ok, Ws} -> warnings(File, Ws);
         Else -> Else
@@ -1328,8 +1768,11 @@ compile_test(Config, Test0) ->
 
 warnings(File, Ws) ->
     case lists:append([W || {F, W} <- Ws, F =:= File]) of
-        [] -> [];
-        L -> {warnings, L}
+        [] ->
+	    [];
+        L ->
+	    call_format_error(L),
+	    {warnings, L}
     end.
 
 compile_file(File, Opts) ->
@@ -1340,29 +1783,47 @@ compile_file(File, Opts) ->
     end.
 
 errs([{File,Es}|L], File) ->
+    call_format_error(Es),
     Es ++ errs(L, File);
 errs([_|L], File) ->
     errs(L, File);
 errs([], _File) ->
     [].
 
+%% Smoke test and coverage of format_error/1.
+call_format_error([{_,M,E}|T]) ->
+    _ = M:format_error(E),
+    call_format_error(T);
+call_format_error([]) ->
+    ok.
+
+epp_parse_file(File, Opts) ->
+    case epp:parse_file(File, Opts) of
+        {ok, Forms} ->
+            {ok, unopaque_forms(Forms)};
+        {ok, Forms, Other} ->
+            {ok, unopaque_forms(Forms), Other}
+    end.
+
+unopaque_forms(Forms) ->
+    [erl_parse:anno_to_term(Form) || Form <- Forms].
+
 run_test(Config, Test0) ->
-    Test = [<<"-module(epp_test). -compile(export_all). ">>, Test0],
+    Test = [<<"-module(epp_test). -export([t/0]). ">>, Test0],
     Filename = "epp_test.erl",
-    ?line PrivDir = ?config(priv_dir, Config),
-    ?line File = filename:join(PrivDir, Filename),
-    ?line ok = file:write_file(File, Test),
+    PrivDir = proplists:get_value(priv_dir, Config),
+    File = filename:join(PrivDir, Filename),
+    ok = file:write_file(File, Test),
     Opts = [return, {i,PrivDir},{outdir,PrivDir}],
-    ?line {ok, epp_test, []} = compile:file(File, Opts),
+    {ok, epp_test, []} = compile:file(File, Opts),
     AbsFile = filename:rootname(File, ".erl"),
-    ?line {module, epp_test} = code:load_abs(AbsFile, epp_test),
-    ?line Reply = epp_test:t(),
+    {module, epp_test} = code:load_abs(AbsFile, epp_test),
+    Reply = epp_test:t(),
     code:purge(epp_test),
     Reply.
 
 fail() ->
-    io:format("failed~n"),
-    test_server:fail().
+    ct:fail(failed).
 
 message_compare(T, T) ->
     true;
@@ -1393,3 +1854,8 @@ ln2({error,M}) ->
     {error,ln2(M)};
 ln2(M) ->
     M.
+
+%% +fnu means a peer node has to be started; slave will not do
+start_node(Name, Xargs) ->
+    PA = filename:dirname(code:which(?MODULE)),
+    test_server:start_node(Name, peer, [{args, "-pa " ++ PA ++ " " ++ Xargs}]).

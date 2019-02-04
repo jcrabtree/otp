@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2010-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2010-2015. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -22,14 +23,13 @@
 %%
 
 -module(diameter_stats).
--compile({no_auto_import, [monitor/2]}).
-
 -behaviour(gen_server).
 
--export([reg/1, reg/2,
-         incr/1, incr/2, incr/3,
+-export([reg/2, reg/1,
+         incr/3, incr/1,
          read/1,
-         flush/0, flush/1]).
+         sum/1,
+         flush/1]).
 
 %% supervisor callback
 -export([start_link/0]).
@@ -48,123 +48,162 @@
 
 -include("diameter_internal.hrl").
 
-%% ets table containing stats. reg(Pid, Ref) inserts a {Pid, Ref},
-%% incr(Counter, X, N) updates the counter keyed at {Counter, X}, and
-%% Pid death causes counters keyed on {Counter, Pid} to be deleted and
-%% added to those keyed on {Counter, Ref}.
+%% ets table containing 2-tuple stats. reg(Pid, Ref) inserts a {Pid,
+%% Ref}, incr(Counter, X, N) updates the counter keyed at {Counter,
+%% X}, and Pid death causes counters keyed on {Counter, Pid} to be
+%% deleted and added to those keyed on {Counter, Ref}.
 -define(TABLE, ?MODULE).
 
 %% Name of registered server.
 -define(SERVER, ?MODULE).
 
-%% Entries in the table.
--define(REC(Key, Value), {Key, Value}).
-
 %% Server state.
--record(state, {id = now()}).
+-record(state, {id = diameter_lib:now()}).
 
 -type counter() :: any().
--type contrib() :: any().
+-type ref() :: any().
 
-%%% ---------------------------------------------------------------------------
-%%% # reg(Pid, Contrib)
-%%%
-%%% Description: Register a process as a contributor of statistics
-%%%              associated with a specified term. Statistics can be
-%%%              contributed by specifying either Pid or Contrib as
-%%%              the second argument to incr/3. Statistics contributed
-%%%              by Pid are folded into the corresponding entry for
-%%%              Contrib when the process dies.
-%%%
-%%%              Contrib can be any term but should not be a pid
-%%%              passed as the first argument to reg/2. Subsequent
-%%%              registrations for the same Pid overwrite the association
-%%% ---------------------------------------------------------------------------
+%% ---------------------------------------------------------------------------
+%% # reg(Pid, Ref)
+%%
+%% Register a process as a contributor of statistics associated with a
+%% specified term. Statistics can be contributed by specifying either
+%% Pid or Ref as the second argument to incr/3. Statistics contributed
+%% by Pid are folded into the corresponding entry for Ref when the
+%% process dies.
+%% ---------------------------------------------------------------------------
 
--spec reg(pid(), contrib())
-   -> true.
+-spec reg(pid(), ref())
+   -> boolean().
 
-reg(Pid, Contrib)
+reg(Pid, Ref)
   when is_pid(Pid) ->
-    call({reg, Pid, Contrib}).
+    try
+        call({reg, Pid, Ref})
+    catch
+        exit: _ -> false
+    end.
 
--spec reg(contrib())
-   -> true.
+-spec reg(ref())
+   -> boolean().
 
 reg(Ref) ->
     reg(self(), Ref).
 
-%%% ---------------------------------------------------------------------------
-%%% # incr(Counter, Contrib, N)
-%%%
-%%% Description: Increment a counter for the specified contributor.
-%%%
-%%%              Contrib will typically be an argument passed to reg/2
-%%%              but there's nothing that requires this. In particular,
-%%%              if Contrib is a pid that hasn't been registered then
-%%%              counters are unaffected by the death of the process.
-%%% ---------------------------------------------------------------------------
+%% ---------------------------------------------------------------------------
+%% # incr(Counter, Ref, N)
+%%
+%% Increment a counter for the specified contributor.
+%%
+%% Ref will typically be an argument passed to reg/2 but there's
+%% nothing that requires this. Only registered pids can contribute
+%% counters however, otherwise incr/3 is a no-op.
+%% ---------------------------------------------------------------------------
 
--spec incr(counter(), contrib(), integer())
-   -> integer().
+-spec incr(counter(), ref(), integer())
+   -> integer() | false.
 
-incr(Ctr, Contrib, N) ->
-    update_counter({Ctr, Contrib}, N).
-
-incr(Ctr, N)
+incr(Ctr, Ref, N)
   when is_integer(N) ->
-    incr(Ctr, self(), N);
-
-incr(Ctr, Contrib) ->
-    incr(Ctr, Contrib, 1).
+    update_counter({Ctr, Ref}, N).
 
 incr(Ctr) ->
     incr(Ctr, self(), 1).
 
-%%% ---------------------------------------------------------------------------
-%%% # read(Contribs)
-%%%
-%%% Description: Retrieve counters for the specified contributors.
-%%% ---------------------------------------------------------------------------
+%% ---------------------------------------------------------------------------
+%% # read(Refs)
+%%
+%% Retrieve counters for the specified contributors.
+%% ---------------------------------------------------------------------------
 
--spec read([contrib()])
-   -> [{contrib(), [{counter(), integer()}]}].
+%% Read in the server process to ensure that counters for a dying
+%% contributor aren't folded concurrently with select.
 
-read(Contribs) ->
-    lists:foldl(fun(?REC({T,C}, N), D) -> orddict:append(C, {T,N}, D) end,
-                orddict:new(),
-                ets:select(?TABLE, [{?REC({'_', '$1'}, '_'),
-                                     [?ORCOND([{'=:=', '$1', {const, C}}
-                                               || C <- Contribs])],
-                                     ['$_']}])).
+-spec read([ref()])
+   -> [{ref(), [{counter(), integer()}]}].
 
-%%% ---------------------------------------------------------------------------
-%%% # flush(Contrib)
-%%%
-%%% Description: Retrieve and delete statistics for the specified
-%%%              contributor.
-%%%
-%%%              If Contrib is a pid registered with reg/2 then statistics
-%%%              for both and its associated contributor are retrieved.
-%%% ---------------------------------------------------------------------------
-
--spec flush(contrib())
-   -> [{counter(), integer()}].
-                   
-flush(Contrib) ->
-    try
-        call({flush, Contrib})
+read(Refs)
+  when is_list(Refs) ->
+    try call({read, Refs, false}) of
+        L -> to_refdict(L)
     catch
-        exit: _ ->
-            []
+        exit: _ -> []
     end.
 
-flush() ->
-    flush(self()).
+read(Refs, B) ->
+    MatchSpec = [{{{'_', '$1'}, '_'},
+                  [?ORCOND([{'=:=', '$1', {const, R}}
+                            || R <- Refs])],
+                  ['$_']}],
+    L = ets:select(?TABLE, MatchSpec),
+    B andalso delete(L),
+    L.
 
-%%% ---------------------------------------------------------
-%%% EXPORTED INTERNAL FUNCTIONS
-%%% ---------------------------------------------------------
+to_refdict(L) ->
+    lists:foldl(fun append/2, orddict:new(), L).
+
+%% Order both references and counters in the returned list.
+append({{Ctr, Ref}, N}, Dict) ->
+    orddict:update(Ref,
+                   fun(D) -> orddict:store(Ctr, N, D) end,
+                   [{Ctr, N}],
+                   Dict).
+
+%% ---------------------------------------------------------------------------
+%% # sum(Refs)
+%%
+%% Retrieve counters summed over all contributors for each term.
+%% ---------------------------------------------------------------------------
+
+-spec sum([ref()])
+   -> [{ref(), [{counter(), integer()}]}].
+
+sum(Refs)
+  when is_list(Refs) ->
+    try call({read, Refs}) of
+        L -> [{R, to_ctrdict(Cs)} || {R, [_|_] = Cs} <- L]
+    catch
+        exit: _ -> []
+    end.
+
+read_refs(Refs) ->
+    [{R, readr(R)} || R <- Refs].
+
+readr(Ref) ->
+    MatchSpec = [{{{'_', '$1'}, '_'},
+                  [?ORCOND([{'=:=', '$1', {const, R}}
+                            || R <- [Ref | pids(Ref)]])],
+                  ['$_']}],
+    ets:select(?TABLE, MatchSpec).
+
+pids(Ref) ->
+    MatchSpec = [{{'$1', '$2'},
+                  [{'=:=', '$2', {const, Ref}}],
+                  ['$1']}],
+    ets:select(?TABLE, MatchSpec).
+
+to_ctrdict(L) ->
+    lists:foldl(fun({{C,_}, N}, D) -> orddict:update_counter(C, N, D) end,
+                orddict:new(),
+                L).
+
+%% ---------------------------------------------------------------------------
+%% # flush(Refs)
+%%
+%% Retrieve and delete statistics for the specified contributors.
+%% ---------------------------------------------------------------------------
+
+-spec flush([ref()])
+   -> [{ref(), {counter(), integer()}}].
+
+flush(Refs) ->
+    try call({read, Refs, true}) of
+        L -> to_refdict(L)
+    catch
+        exit: _ -> []
+    end.
+
+%% ===========================================================================
 
 start_link() ->
     ServerName = {local, ?SERVER},
@@ -179,18 +218,16 @@ state() ->
 uptime() ->
     call(uptime).
 
-%%% ----------------------------------------------------------
-%%% # init(_)
-%%%
-%%% Output: {ok, State}
-%%% ----------------------------------------------------------
+%% ----------------------------------------------------------
+%% # init/1
+%% ----------------------------------------------------------
 
 init([]) ->
-    ets:new(?TABLE, [named_table, ordered_set, public]),
+    ets:new(?TABLE, [named_table, set, public, {write_concurrency, true}]),
     {ok, #state{}}.
 
 %% ----------------------------------------------------------
-%% handle_call(Request, From, State)
+%% # handle_call/3
 %% ----------------------------------------------------------
 
 handle_call(state, _, State) ->
@@ -199,31 +236,34 @@ handle_call(state, _, State) ->
 handle_call(uptime, _, #state{id = Time} = State) ->
     {reply, diameter_lib:now_diff(Time), State};
 
-handle_call({reg, Pid, Contrib}, _From, State) ->
-    monitor(not ets:member(?TABLE, Pid), Pid),
-    {reply, insert(?REC(Pid, Contrib)), State};
+handle_call({incr, T}, _, State) ->
+    {reply, update_counter(T), State};
 
-handle_call({flush, Contrib}, _From, State) ->
-    {reply, fetch(Contrib), State};
+handle_call({reg, Pid, Ref}, _From, State) ->
+    B = ets:insert_new(?TABLE, {Pid, Ref}),
+    B andalso erlang:monitor(process, Pid),
+    {reply, B, State};
+
+handle_call({read, Refs, Del}, _From, State) ->
+    {reply, read(Refs, Del), State};
+
+handle_call({read, Refs}, _, State) ->
+    {reply, read_refs(Refs), State};
 
 handle_call(Req, From, State) ->
     ?UNEXPECTED([Req, From]),
     {reply, nok, State}.
 
 %% ----------------------------------------------------------
-%% handle_cast(Request, State)
+%% # handle_cast/2
 %% ----------------------------------------------------------
-
-handle_cast({incr, Rec}, State) ->
-    update_counter(Rec),
-    {noreply, State};
 
 handle_cast(Msg, State) ->
     ?UNEXPECTED([Msg]),
     {noreply, State}.
 
 %% ----------------------------------------------------------
-%% handle_info(Request, State)
+%% # handle_info/2
 %% ----------------------------------------------------------
 
 handle_info({'DOWN', _MRef, process, Pid, _}, State) ->
@@ -235,91 +275,62 @@ handle_info(Info, State) ->
     {noreply, State}.
 
 %% ----------------------------------------------------------
-%% terminate(Reason, State)
+%% # terminate/2
 %% ----------------------------------------------------------
 
 terminate(_Reason, _State) ->
     ok.
 
 %% ----------------------------------------------------------
-%% code_change(OldVsn, State, Extra)
+%% # code_change/3
 %% ----------------------------------------------------------
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%% ---------------------------------------------------------
-%%% INTERNAL FUNCTIONS
-%%% ---------------------------------------------------------
-
-%% monitor/2
-
-monitor(true, Pid) ->
-    erlang:monitor(process, Pid);
-monitor(false = No, _) ->
-    No.
+%% ===========================================================================
 
 %% down/1
 
 down(Pid) ->
-    L = ets:match_object(?TABLE, ?REC({'_', Pid}, '_')),
-    [?REC(_, Ref) = T] = lookup(Pid),
+    down(lookup(Pid), ets:match_object(?TABLE, {{'_', Pid}, '_'})).
+
+down([{_, Ref} = T], L) ->
     fold(Ref, L),
-    delete_object(T),
+    delete([T|L]);
+down([], L) -> %% flushed
     delete(L).
 
-%% Fold Pid-based entries into Ref-based ones.
+%% Fold pid-based entries into ref-based ones.
 fold(Ref, L) ->
-    lists:foreach(fun(?REC({K, _}, V)) -> update_counter({{K, Ref}, V}) end,
-                  L).
-
-delete(Objs) ->
-    lists:foreach(fun delete_object/1, Objs).
-
-%% fetch/1
-
-fetch(X) ->
-    MatchSpec = [{?REC({'_', '$1'}, '_'),
-                  [?ORCOND([{'==', '$1', {const, T}} || T <- [X | ref(X)]])],
-                  ['$_']}],
-    L = ets:select(?TABLE, MatchSpec),
-    delete(L),
-    D = lists:foldl(fun sum/2, dict:new(), L),
-    dict:to_list(D).
-
-sum({{Ctr, _}, N}, Dict) ->
-    dict:update(Ctr, fun(V) -> V+N end, N, Dict).
-
-ref(Pid)
-  when is_pid(Pid) ->
-    ets:select(?TABLE, [{?REC(Pid, '$1'), [], ['$1']}]);
-ref(_) ->
-    [].
+    lists:foreach(fun({{K, _}, V}) -> update_counter({{K, Ref}, V}) end, L).
 
 %% update_counter/2
 %%
-%% From an arbitrary request process. Cast to the server process to
-%% insert a new element if the counter doesn't exists so that two
-%% processes don't do so simultaneously.
+%% From an arbitrary process. Call to the server process to insert a
+%% new element if the counter doesn't exists so that two processes
+%% don't insert simultaneously.
 
 update_counter(Key, N) ->
     try
         ets:update_counter(?TABLE, Key, N)
     catch
         error: badarg ->
-            cast({incr, ?REC(Key, N)})
+            call({incr, {Key, N}})
     end.
 
 %% update_counter/1
 %%
-%% From the server process.
+%% From the server process, when update_counter/2 failed due to a
+%% non-existent entry.
 
-update_counter(?REC(Key, N) = T) ->
+update_counter({{_Ctr, Ref} = Key, N} = T) ->
     try
         ets:update_counter(?TABLE, Key, N)
     catch
         error: badarg ->
-            insert(T)
+            (not is_pid(Ref) orelse ets:member(?TABLE, Ref))
+                andalso begin insert(T), N end
     end.
 
 insert(T) ->
@@ -328,13 +339,8 @@ insert(T) ->
 lookup(Key) ->
     ets:lookup(?TABLE, Key).
 
-delete_object(T) ->
-    ets:delete_object(?TABLE, T).
-
-%% cast/1
-
-cast(Msg) ->
-    gen_server:cast(?SERVER, Msg).
+delete(Objs) ->
+    lists:foreach(fun({K,_}) -> ets:delete(?TABLE, K) end, Objs).
 
 %% call/1
 

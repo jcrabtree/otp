@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1999-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1999-2016. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -24,6 +25,8 @@
 -behaviour(gen_server).
 
 -include("odbc_internal.hrl").
+
+-define(ODBC_PORT_TIMEOUT, 5000).
 
 %% API --------------------------------------------------------------------
 
@@ -522,10 +525,10 @@ handle_msg({connect, ODBCCmd, AutoCommitMode, SrollableCursors},
     NewState = State#state{auto_commit_mode = AutoCommitMode,
 			   scrollable_cursors = SrollableCursors},
     
-    case gen_tcp:accept(ListenSocketSup, 5000) of
+    case gen_tcp:accept(ListenSocketSup, port_timeout()) of
 	{ok, SupSocket} ->
 	    gen_tcp:close(ListenSocketSup),
-	    case gen_tcp:accept(ListenSocketOdbc, 5000) of
+	    case gen_tcp:accept(ListenSocketOdbc, port_timeout()) of
 		{ok, OdbcSocket} ->
 		    gen_tcp:close(ListenSocketOdbc),
 		    odbc_send(OdbcSocket, ODBCCmd), 
@@ -755,7 +758,10 @@ handle_info({'DOWN', _Ref, _Type, _Process, shutdown}, State) ->
 handle_info({'DOWN', _Ref, _Type, Process, Reason}, State) ->
     {stop, {stopped, {'EXIT', Process, Reason}}, 
      State#state{reply_to = undefined}};
-    
+
+handle_info({tcp_closed, Socket}, State = #state{odbc_socket=Socket,
+						 state = disconnecting}) ->
+    {stop, normal, State};
 %---------------------------------------------------------------------------
 %% Catch all - throws away unknown messages (This could happen by "accident"
 %% so we do not want to crash, but we make a log entry as it is an
@@ -807,10 +813,11 @@ connect(ConnectionReferense, ConnectionStr, Options) ->
     {C_TupleRow, _} = 
 	connection_config(tuple_row, Options),
     {BinaryStrings, _} = connection_config(binary_strings, Options),
+    {ExtendedErrors, _} = connection_config(extended_errors, Options),
 
     ODBCCmd = 
 	[?OPEN_CONNECTION, C_AutoCommitMode, C_TraceDriver, 
-	 C_SrollableCursors, C_TupleRow, BinaryStrings, ConnectionStr],
+	 C_SrollableCursors, C_TupleRow, BinaryStrings, ExtendedErrors, ConnectionStr],
     
     %% Send request, to open a database connection, to the control process.
     case call(ConnectionReferense, 
@@ -826,7 +833,7 @@ connect(ConnectionReferense, ConnectionStr, Options) ->
 odbc_send(Socket, Msg) -> %% Note currently all allowed messages are lists
     NewMsg = Msg ++ [?STR_TERMINATOR],
     ok = gen_tcp:send(Socket, NewMsg),
-    inet:setopts(Socket, [{active, once}]).
+    ok = inet:setopts(Socket, [{active, once}]).
 
 %%--------------------------------------------------------------------------
 connection_config(Key, Options) ->
@@ -857,6 +864,8 @@ connection_default(trace_driver) ->
 connection_default(scrollable_cursors) ->
     {?ON, on};
 connection_default(binary_strings) ->
+    {?OFF, off};
+connection_default(extended_errors) ->
     {?OFF, off}.
 
 %%-------------------------------------------------------------------------
@@ -896,7 +905,9 @@ param_values(Params) ->
 	[{_, Values} | _] -> 
 	    Values;
 	[{_, _, Values} | _] -> 
-	    Values
+	    Values;
+	[] -> 
+	    []
     end.
 
 %%-------------------------------------------------------------------------
@@ -942,9 +953,11 @@ fix_params({sql_bit, InOut, Values}) ->
 fix_params({'sql_timestamp', InOut, Values}) ->
     NewValues =
  	case (catch 
-		  lists:map(fun({{Year,Month,Day},{Hour,Minute,Second}}) -> 
-                                {Year,Month,Day,Hour,Minute,Second}
-                        end, Values)) of
+		  lists:map(
+		    fun({{Year,Month,Day},{Hour,Minute,Second}}) ->
+			    {Year,Month,Day,Hour,Minute,Second};
+		       (null) -> null
+		    end, Values)) of
  	    Result ->
  		Result
  	end,
@@ -960,15 +973,18 @@ fix_inout(out) ->
 fix_inout(inout) ->
     ?INOUT.
 
-string_terminate([Value| _ ] = Values) when is_list(Value)->
-    case (catch 
- 	      lists:map(fun(Str) -> Str ++ [?STR_TERMINATOR] end, Values)) of
-	Result ->
-	    Result
-    end;
-string_terminate([Value| _ ] = Values) when is_binary(Value)->
-    case (catch 
-  	      lists:map(fun(B) -> <<B/binary,0:16>> end, Values)) of
+string_terminate(Values) ->
+    case (catch lists:map(fun string_terminate_value/1, Values)) of
 	Result ->
 	    Result
     end.
+
+string_terminate_value(String) when is_list(String) ->
+    String ++ [?STR_TERMINATOR];
+string_terminate_value(Binary) when is_binary(Binary) ->
+    <<Binary/binary,0:16>>;
+string_terminate_value(null) ->
+    null.
+
+port_timeout() ->
+  application:get_env(?MODULE, port_timeout, ?ODBC_PORT_TIMEOUT).

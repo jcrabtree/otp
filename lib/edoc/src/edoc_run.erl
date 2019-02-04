@@ -1,23 +1,28 @@
 %% =====================================================================
-%% This library is free software; you can redistribute it and/or modify
-%% it under the terms of the GNU Lesser General Public License as
-%% published by the Free Software Foundation; either version 2 of the
-%% License, or (at your option) any later version.
+%% Licensed under the Apache License, Version 2.0 (the "License"); you may
+%% not use this file except in compliance with the License. You may obtain
+%% a copy of the License at <http://www.apache.org/licenses/LICENSE-2.0>
 %%
-%% This library is distributed in the hope that it will be useful, but
-%% WITHOUT ANY WARRANTY; without even the implied warranty of
-%% MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-%% Lesser General Public License for more details.
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
-%% You should have received a copy of the GNU Lesser General Public
-%% License along with this library; if not, write to the Free Software
-%% Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307
-%% USA
+%% Alternatively, you may use this file under the terms of the GNU Lesser
+%% General Public License (the "LGPL") as published by the Free Software
+%% Foundation; either version 2.1, or (at your option) any later version.
+%% If you wish to allow use of your version of this file only under the
+%% terms of the LGPL, you should delete the provisions above and replace
+%% them with the notice and other provisions required by the LGPL; see
+%% <http://www.gnu.org/licenses/>. If you do not delete the provisions
+%% above, a recipient may use your version of this file under the terms of
+%% either the Apache License or the LGPL.
 %%
 %% @copyright 2003 Richard Carlsson
 %% @author Richard Carlsson <carlsson.richard@gmail.com>
 %% @see edoc
-%% @end 
+%% @end
 %% =====================================================================
 
 %% @doc Interface for calling EDoc from Erlang startup options.
@@ -38,11 +43,13 @@
 
 -module(edoc_run).
 
--export([file/1, application/1, packages/1, files/1, toc/1]).
+-export([file/1, application/1, files/1, toc/1]).
 
 -compile({no_auto_import,[error/1]}).
 
 -import(edoc_report, [report/2, error/1]).
+
+-type args() :: [string()].
 
 
 %% @spec application([string()]) -> none()
@@ -58,6 +65,7 @@
 %% automatically terminated when the call has completed, signalling
 %% success or failure to the operating system.
 
+-spec application(args()) -> no_return().
 application(Args) ->
     F = fun () ->
 		case parse_args(Args) of
@@ -81,6 +89,7 @@ application(Args) ->
 %% automatically terminated when the call has completed, signalling
 %% success or failure to the operating system.
 
+-spec files(args()) -> no_return().
 files(Args) ->
     F = fun () ->
 		case parse_args(Args) of
@@ -92,29 +101,8 @@ files(Args) ->
 	end,
     run(F).
 
-%% @spec packages([string()]) -> none()
-%%
-%% @doc Calls {@link edoc:application/2} with the corresponding
-%% arguments. The strings in the list are parsed as Erlang constant
-%% terms. The list can be either `[Packages]' or `[Packages, Options]'.
-%% In the first case {@link edoc:application/1} is called instead.
-%%
-%% The function call never returns; instead, the emulator is
-%% automatically terminated when the call has completed, signalling
-%% success or failure to the operating system.
-
-packages(Args) ->
-    F = fun () ->
-		case parse_args(Args) of
-		    [Packages] -> edoc:packages(Packages);
-		    [Packages, Opts] -> edoc:packages(Packages, Opts);
-		    _ ->
-			invalid_args("edoc_run:packages/1", Args)
-		end
-	end,
-    run(F).
-
 %% @hidden   Not official yet
+-spec toc(args()) -> no_return().
 toc(Args) ->
     F = fun () ->
  		case parse_args(Args) of
@@ -131,8 +119,8 @@ toc(Args) ->
 %%
 %% @deprecated This is part of the old interface to EDoc and is mainly
 %% kept for backwards compatibility. The preferred way of generating
-%% documentation is through one of the functions {@link application/1},
-%% {@link packages/1} and {@link files/1}.
+%% documentation is through one of the functions {@link application/1}
+%% and {@link files/1}.
 %%
 %% @doc Calls {@link edoc:file/2} with the corresponding arguments. The
 %% strings in the list are parsed as Erlang constant terms. The list can
@@ -148,6 +136,7 @@ toc(Args) ->
 %% automatically terminated when the call has completed, signalling
 %% success or failure to the operating system.
 
+-spec file(args()) -> no_return().
 file(Args) ->
     F = fun () ->
 		case parse_args(Args) of
@@ -159,10 +148,9 @@ file(Args) ->
 	end,
     run(F).
 
--spec invalid_args(string(), list()) -> no_return().
-
+-spec invalid_args(string(), args()) -> no_return().
 invalid_args(Where, Args) ->
-    report("invalid arguments to ~s: ~w.", [Where, Args]),
+    report("invalid arguments to ~ts: ~tw.", [Where, Args]),
     shutdown_error().
 
 run(F) ->
@@ -171,10 +159,10 @@ run(F) ->
 	{ok, _} ->
 	    shutdown_ok();
 	{'EXIT', E} ->
-	    report("edoc terminated abnormally: ~P.", [E, 10]),
+	    report("edoc terminated abnormally: ~tP.", [E, 10]),
 	    shutdown_error();
 	Thrown ->
-	    report("internal error: throw without catch in edoc: ~P.",
+	    report("internal error: throw without catch in edoc: ~tP.",
 		   [Thrown, 15]),
 	    shutdown_error()
     end.
@@ -191,10 +179,12 @@ wait_init() ->
 %% When and if a function init:stop/1 becomes generally available, we
 %% can use that instead of delay-and-pray when there is an error.
 
+-spec shutdown_ok() -> no_return().
 shutdown_ok() ->
     %% shut down emulator nicely, signalling "normal termination"
     init:stop().
 
+-spec shutdown_error() -> no_return().
 shutdown_error() ->
     %% delay 1 second to allow I/O to finish
     receive after 1000 -> ok end,
@@ -213,13 +203,13 @@ parse_arg(A) ->
 	{ok, Expr} ->
 	    case catch erl_parse:normalise(Expr) of
 		{'EXIT', _} ->
-		    report("bad argument: '~s':", [A]),
+		    report("bad argument: '~ts':", [A]),
 		    exit(error);
 		Term ->
 		    Term
 	    end;
 	{error, _, D} ->
-	    report("error parsing argument '~s'", [A]),
+	    report("error parsing argument '~ts'", [A]),
 	    error(D),
 	    exit(error)
     end.

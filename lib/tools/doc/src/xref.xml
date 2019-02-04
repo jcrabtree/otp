@@ -1,23 +1,24 @@
-<?xml version="1.0" encoding="latin1" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <!DOCTYPE erlref SYSTEM "erlref.dtd">
 
 <erlref>
   <header>
     <copyright>
-      <year>2000</year><year>2011</year>
+      <year>2000</year><year>2017</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
-      The contents of this file are subject to the Erlang Public License,
-      Version 1.1, (the "License"); you may not use this file except in
-      compliance with the License. You should have received a copy of the
-      Erlang Public License along with this software. If not, it can be
-      retrieved online at http://www.erlang.org/.
+      Licensed under the Apache License, Version 2.0 (the "License");
+      you may not use this file except in compliance with the License.
+      You may obtain a copy of the License at
+ 
+          http://www.apache.org/licenses/LICENSE-2.0
 
-      Software distributed under the License is distributed on an "AS IS"
-      basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-      the License for the specific language governing rights and limitations
-      under the License.
+      Unless required by applicable law or agreed to in writing, software
+      distributed under the License is distributed on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+      See the License for the specific language governing permissions and
+      limitations under the License.
 
     </legalnotice>
 
@@ -31,7 +32,7 @@
     <rev>PA1</rev>
     <file>xref.sgml</file>
   </header>
-  <module>xref</module>
+  <module since="">xref</module>
   <modulesummary>A Cross Reference Tool for analyzing dependencies between functions, modules, applications and releases.</modulesummary>
   <description>
     <p>Xref is a cross reference tool that can be used for finding
@@ -346,6 +347,9 @@ represented by
       <item>Locally Used Functions (*). Functions of all modules that have
        been used in some local call.
       </item>
+      <tag><c>OL</c></tag>
+      <item>Functions with an attribute tag <c>on_load</c> (*).
+      </item>
       <tag><c>LC</c></tag>
       <item>Local Calls (*).</item>
       <tag><c>XC</c></tag>
@@ -392,6 +396,7 @@ facts about the
       <c>LU</c> and <c>XU</c> may have elements in common. Put in
        another way:</item>
       <item><c>V</c> is equal to <c>UU + XU + LU</c>.</item>
+      <item><c>OL</c> is a subset of <c>F</c>.</item>
       <item><c>E</c> is equal to <c>LC + XC</c>. Note that <c>LC</c>
        and <c>XC</c> may have elements in common, namely if some
        function is locally and externally used from one and the same
@@ -558,8 +563,10 @@ Two functions (modules,
       analyzing operators:
       </p>
     <list type="bulleted">
-      <item>Expression ::= Expression GraphOp Expression</item>
-      <item>GraphOp ::= <c>components</c> | <c>condensation</c> | <c>of</c></item>
+      <item>Expression ::= Expression BinaryGraphOp Expression</item>
+      <item>Expression ::= UnaryGraphOp Expression</item>
+      <item>UnaryGraphOp ::= <c>components</c> | <c>condensation</c></item>
+      <item>BinaryGraphOp ::= <c>of</c></item>
     </list>
     <p>As was mentioned before, the graph analyses operate on
       the <c>digraph</c> representation of graphs.
@@ -722,7 +729,7 @@ xref() = atom() | pid()  </pre>
   </description>
   <funcs>
     <func>
-      <name>add_application(Xref, Directory [, Options]) ->  {ok, application()} | Error</name>
+      <name since="">add_application(Xref, Directory [, Options]) ->  {ok, application()} | Error</name>
       <fsummary>Add the modules of an application.</fsummary>
       <type>
         <v>Directory = directory()</v>
@@ -754,7 +761,7 @@ xref() = atom() | pid()  </pre>
       </desc>
     </func>
     <func>
-      <name>add_directory(Xref, Directory [, Options]) ->  {ok, Modules} | Error</name>
+      <name since="">add_directory(Xref, Directory [, Options]) ->  {ok, Modules} | Error</name>
       <fsummary>Add the modules in a directory.</fsummary>
       <type>
         <v>Directory = directory()</v>
@@ -784,7 +791,7 @@ xref() = atom() | pid()  </pre>
       </desc>
     </func>
     <func>
-      <name>add_module(Xref, File [, Options]) -> {ok, module()} | Error</name>
+      <name since="">add_module(Xref, File [, Options]) -> {ok, module()} | Error</name>
       <fsummary>Add a module.</fsummary>
       <type>
         <v>Error = {error, module(), Reason}</v>
@@ -807,7 +814,7 @@ xref() = atom() | pid()  </pre>
       </desc>
     </func>
     <func>
-      <name>add_release(Xref, Directory [, Options]) ->  {ok, release()} | Error</name>
+      <name since="">add_release(Xref, Directory [, Options]) ->  {ok, release()} | Error</name>
       <fsummary>Add the modules of a release.</fsummary>
       <type>
         <v>Directory = directory()</v>
@@ -842,7 +849,7 @@ xref() = atom() | pid()  </pre>
       </desc>
     </func>
     <func>
-      <name>analyze(Xref, Analysis [, Options]) ->  {ok, Answer} | Error</name>
+      <name since="">analyze(Xref, Analysis [, Options]) ->  {ok, Answer} | Error</name>
       <fsummary>Evaluate a predefined analysis.</fsummary>
       <type>
         <v>Analysis = undefined_function_calls  | undefined_functions | locals_not_used | exports_not_used | deprecated_function_calls | {deprecated_function_calls, DeprFlag} | deprecated_functions | {deprecated_functions, DeprFlag} | {call, FuncSpec} | {use, FuncSpec} | {module_call, ModSpec} | {module_use, ModSpec} | {application_call, AppSpec} | {application_use, AppSpec} | {release_call, RelSpec} | {release_use, RelSpec}</v>
@@ -932,7 +939,7 @@ Evaluates a predefined analysis.
       </desc>
     </func>
     <func>
-      <name>d(Directory) -> [DebugInfoResult] | [NoDebugInfoResult] | Error</name>
+      <name since="">d(Directory) -> [DebugInfoResult] | [NoDebugInfoResult] | Error</name>
       <fsummary>Check the modules in a directory using the code path.</fsummary>
       <type>
         <v>Directory = directory()</v>
@@ -972,8 +979,8 @@ Evaluates a predefined analysis.
       </desc>
     </func>
     <func>
-      <name>forget(Xref) -> ok</name>
-      <name>forget(Xref, Variables) -> ok | Error</name>
+      <name since="">forget(Xref) -> ok</name>
+      <name since="">forget(Xref, Variables) -> ok | Error</name>
       <fsummary>Remove user variables and their values.</fsummary>
       <type>
         <v>Error = {error, module(), Reason}</v>
@@ -987,7 +994,7 @@ Evaluates a predefined analysis.
       </desc>
     </func>
     <func>
-      <name>format_error(Error) -> Chars</name>
+      <name since="">format_error(Error) -> Chars</name>
       <fsummary>Return an English description of an Xref error reply.</fsummary>
       <type>
         <v>Error = {error, module(), term()}</v>
@@ -1001,8 +1008,8 @@ Evaluates a predefined analysis.
       </desc>
     </func>
     <func>
-      <name>get_default(Xref) -> [{Option, Value}]</name>
-      <name>get_default(Xref, Option) -> {ok, Value} | Error</name>
+      <name since="">get_default(Xref) -> [{Option, Value}]</name>
+      <name since="">get_default(Xref, Option) -> {ok, Value} | Error</name>
       <fsummary>Return the default values of options.</fsummary>
       <type>
         <v>Error = {error, module(), Reason}</v>
@@ -1016,7 +1023,7 @@ Evaluates a predefined analysis.
       </desc>
     </func>
     <func>
-      <name>get_library_path(Xref) -> {ok, LibraryPath}</name>
+      <name since="">get_library_path(Xref) -> {ok, LibraryPath}</name>
       <fsummary>Return the library path.</fsummary>
       <type>
         <v>LibraryPath = library_path()</v>
@@ -1027,9 +1034,9 @@ Evaluates a predefined analysis.
       </desc>
     </func>
     <func>
-      <name>info(Xref) -> [Info]</name>
-      <name>info(Xref, Category) -> [{Item, [Info]}]</name>
-      <name>info(Xref, Category, Items) ->  [{Item, [Info]}]</name>
+      <name since="">info(Xref) -> [Info]</name>
+      <name since="">info(Xref, Category) -> [{Item, [Info]}]</name>
+      <name since="">info(Xref, Category, Items) ->  [{Item, [Info]}]</name>
       <fsummary>Return information about an Xref server.</fsummary>
       <type>
         <v>Application = [] | [application()]</v>
@@ -1213,8 +1220,8 @@ Evaluates a predefined analysis.
       </desc>
     </func>
     <func>
-      <name>m(Module) -> [DebugInfoResult] | [NoDebugInfoResult] | Error</name>
-      <name>m(File) -> [DebugInfoResult] | [NoDebugInfoResult] | Error</name>
+      <name since="">m(Module) -> [DebugInfoResult] | [NoDebugInfoResult] | Error</name>
+      <name since="">m(File) -> [DebugInfoResult] | [NoDebugInfoResult] | Error</name>
       <fsummary>Check a module using the code path.</fsummary>
       <type>
         <v>DebugInfoResult = {deprecated, [funcall()]} | {undefined, [funcall()]} | {unused, [mfa()]}</v>
@@ -1256,7 +1263,7 @@ Evaluates a predefined analysis.
       </desc>
     </func>
     <func>
-      <name>q(Xref, Query [, Options]) -> {ok, Answer} | Error</name>
+      <name since="">q(Xref, Query [, Options]) -> {ok, Answer} | Error</name>
       <fsummary>Evaluate a query.</fsummary>
       <type>
         <v>Answer = false | [constant()] | [Call] | [Component] | int() | [DefineAt] | [CallAt] | [AllLines]</v>
@@ -1315,7 +1322,7 @@ Evaluates a predefined analysis.
       </desc>
     </func>
     <func>
-      <name>remove_application(Xref, Applications) -> ok | Error</name>
+      <name since="">remove_application(Xref, Applications) -> ok | Error</name>
       <fsummary>Remove applications and their modules.</fsummary>
       <type>
         <v>Applications = application() | [application()]</v>
@@ -1328,7 +1335,7 @@ Evaluates a predefined analysis.
       </desc>
     </func>
     <func>
-      <name>remove_module(Xref, Modules) -> ok | Error</name>
+      <name since="">remove_module(Xref, Modules) -> ok | Error</name>
       <fsummary>Remove analyzed modules.</fsummary>
       <type>
         <v>Error = {error, module(), Reason}</v>
@@ -1341,7 +1348,7 @@ Evaluates a predefined analysis.
       </desc>
     </func>
     <func>
-      <name>remove_release(Xref, Releases) -> ok | Error</name>
+      <name since="">remove_release(Xref, Releases) -> ok | Error</name>
       <fsummary>Remove releases and their applications and modules.</fsummary>
       <type>
         <v>Error = {error, module(), Reason}</v>
@@ -1356,7 +1363,7 @@ Evaluates a predefined analysis.
       </desc>
     </func>
     <func>
-      <name>replace_application(Xref, Application,  Directory [, Options]) -> {ok, application()} | Error</name>
+      <name since="">replace_application(Xref, Application,  Directory [, Options]) -> {ok, application()} | Error</name>
       <fsummary>Replace an application's modules.</fsummary>
       <type>
         <v>Application = application()</v>
@@ -1377,7 +1384,7 @@ Evaluates a predefined analysis.
       </desc>
     </func>
     <func>
-      <name>replace_module(Xref, Module, File [, Options]) ->  {ok, module()} | Error</name>
+      <name since="">replace_module(Xref, Module, File [, Options]) ->  {ok, module()} | Error</name>
       <fsummary>Replace an analyzed module.</fsummary>
       <type>
         <v>Error = {error, module(), Reason}</v>
@@ -1402,8 +1409,8 @@ Evaluates a predefined analysis.
       </desc>
     </func>
     <func>
-      <name>set_default(Xref, Option, Value) -> {ok, OldValue} | Error</name>
-      <name>set_default(Xref, OptionValues) -> ok | Error</name>
+      <name since="">set_default(Xref, Option, Value) -> {ok, OldValue} | Error</name>
+      <name since="">set_default(Xref, OptionValues) -> ok | Error</name>
       <fsummary>Set the default values of options.</fsummary>
       <type>
         <v>Error = {error, module(), Reason}</v>
@@ -1428,7 +1435,7 @@ Evaluates a predefined analysis.
       </desc>
     </func>
     <func>
-      <name>set_library_path(Xref, LibraryPath [, Options]) ->  ok | Error</name>
+      <name since="">set_library_path(Xref, LibraryPath [, Options]) ->  ok | Error</name>
       <fsummary>Set the library path and finds the library modules.</fsummary>
       <type>
         <v>Error = {error, module(), Reason}</v>
@@ -1453,7 +1460,7 @@ Evaluates a predefined analysis.
           Note however that the code path will be traversed once for
           each used <seealso marker="#library_module">library module</seealso> while setting up module data.
           On the other hand, if there are only a few modules that are
-          used by not analyzed, using <c>code_path</c> may be faster
+          used but not analyzed, using <c>code_path</c> may be faster
           than setting the library path to <c>code:get_path()</c>.
           </p>
         <p>If the library path is set to <c>code_path</c>, the set of
@@ -1462,7 +1469,7 @@ Evaluates a predefined analysis.
       </desc>
     </func>
     <func>
-      <name>start(NameOrOptions) -> Return</name>
+      <name since="">start(NameOrOptions) -> Return</name>
       <fsummary>Create an Xref server.</fsummary>
       <type>
         <v>NameOrOptions = Name | Options</v>
@@ -1480,7 +1487,7 @@ Evaluates a predefined analysis.
       </desc>
     </func>
     <func>
-      <name>start(Name, Options) -> Return</name>
+      <name since="">start(Name, Options) -> Return</name>
       <fsummary>Create an Xref server.</fsummary>
       <type>
         <v>Name = atom()</v>
@@ -1497,7 +1504,7 @@ Evaluates a predefined analysis.
       </desc>
     </func>
     <func>
-      <name>stop(Xref)</name>
+      <name since="">stop(Xref)</name>
       <fsummary>Delete an Xref server.</fsummary>
       <type>
         <v>Xref = xref()</v>
@@ -1507,7 +1514,7 @@ Evaluates a predefined analysis.
       </desc>
     </func>
     <func>
-      <name>update(Xref [, Options]) -> {ok, Modules} | Error</name>
+      <name since="">update(Xref [, Options]) -> {ok, Modules} | Error</name>
       <fsummary>Replace newly compiled analyzed modules.</fsummary>
       <type>
         <v>Error = {error, module(), Reason}</v>
@@ -1527,7 +1534,7 @@ Evaluates a predefined analysis.
       </desc>
     </func>
     <func>
-      <name>variables(Xref [, Options]) -> {ok, [VariableInfo]}</name>
+      <name since="">variables(Xref [, Options]) -> {ok, [VariableInfo]}</name>
       <fsummary>Return the names of variables.</fsummary>
       <type>
         <v>Options = [Option] | Option</v>

@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2005-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2005-2018. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -60,8 +61,25 @@ which_port(#mod{config_db = ConfigDb}) ->
 which_peername(#mod{init_data = #init_data{peername = {_, RemoteAddr}}}) ->
     RemoteAddr.
 
+which_peercert(#mod{socket_type = {Type, _}, socket = Socket}) when Type == essl;
+								    Type == ssl ->
+    case ssl:peercert(Socket) of
+	{ok, Cert} ->
+	    Cert;
+	{error, no_peercert} -> 
+	    no_peercert;
+	_  ->
+	    undefined
+    end;
+which_peercert(_) -> %% Not an ssl connection
+    undefined.
+
+
 which_resolve(#mod{init_data = #init_data{resolve = Resolve}}) ->
     Resolve.
+
+which_name(#mod{config_db = ConfigDB}) ->
+    httpd_util:lookup(ConfigDB, server_name).
 
 which_method(#mod{method = Method}) ->
     Method.
@@ -71,17 +89,20 @@ which_request_uri(#mod{request_uri = RUri}) ->
 
 create_basic_elements(esi, ModData) ->
     [{server_software,   which_server(ModData)},
-     {server_name,       which_resolve(ModData)},
+     {server_name,       which_name(ModData)},
+     {host_name,         which_resolve(ModData)},
      {gateway_interface, ?GATEWAY_INTERFACE},
      {server_protocol,   ?SERVER_PROTOCOL},
      {server_port,       which_port(ModData)},
      {request_method,    which_method(ModData)},
      {remote_addr,       which_peername(ModData)},
+     {peer_cert,         which_peercert(ModData)},
      {script_name,       which_request_uri(ModData)}];
 
 create_basic_elements(cgi, ModData) ->
     [{"SERVER_SOFTWARE",   which_server(ModData)},
-     {"SERVER_NAME",       which_resolve(ModData)},
+     {"SERVER_NAME",       which_name(ModData)},
+     {"HOST_NAME",         which_resolve(ModData)},
      {"GATEWAY_INTERFACE", ?GATEWAY_INTERFACE},
      {"SERVER_PROTOCOL",   ?SERVER_PROTOCOL},
      {"SERVER_PORT",       integer_to_list(which_port(ModData))},
@@ -103,7 +124,7 @@ create_http_header_elements(ScriptType, [{Name, [Value | _] = Values } |
 
 create_http_header_elements(ScriptType, [{Name, Value} | Headers], Acc) 
   when is_list(Value) ->
-    {ok, NewName, _} = inets_regexp:gsub(Name,"-","_"),
+    NewName = re:replace(Name,"-","_", [{return,list}, global]),
     Element = http_env_element(ScriptType, NewName, Value),
     create_http_header_elements(ScriptType, Headers, [Element | Acc]).
 
@@ -145,9 +166,9 @@ create_script_elements(cgi, path_info, PathInfo, ModData) ->
     [{"PATH_INFO", PathInfo},
      {"PATH_TRANSLATED", PathTranslated}];
 create_script_elements(esi, entity_body, Body, _) ->
-    [{content_length, httpd_util:flatlength(Body)}]; 
+    [{content_length, integer_to_list(httpd_util:flatlength(Body))}]; 
 create_script_elements(cgi, entity_body, Body, _) ->
-    [{"CONTENT_LENGTH", httpd_util:flatlength(Body)}]; 
+    [{"CONTENT_LENGTH", integer_to_list(httpd_util:flatlength(Body))}]; 
 create_script_elements(_, _, _, _) ->
     [].
 

@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2008-2011. All Rights Reserved.
+ * Copyright Ericsson AB 2008-2016. All Rights Reserved.
  *
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  * %CopyrightEnd%
  */
@@ -26,7 +27,7 @@
 /* arch wrapper includes hipe_${arch}_asm.h to define NR_ARG_REGS */
 
 struct nstack_walk_state {
-    const struct sdesc *sdesc0;	/* .sdesc0 must be a pointer rvalue */
+    const struct hipe_sdesc *sdesc0;	/* .sdesc0 must be a pointer rvalue */
 };
 
 static inline int nstack_walk_init_check(const Process *p)
@@ -42,15 +43,28 @@ static inline Eterm *nstack_walk_nsp_begin(const Process *p)
     return p->hipe.nsp + nstkarity;
 }
 
-static inline const struct sdesc*
+static inline const struct hipe_sdesc*
 nstack_walk_init_sdesc(const Process *p, struct nstack_walk_state *state)
 {
-    const struct sdesc *sdesc = hipe_find_sdesc((unsigned long)p->hipe.nra);
+    const struct hipe_sdesc *sdesc = hipe_find_sdesc((unsigned long)p->hipe.nra);
     state->sdesc0 = sdesc;
     return sdesc;
 }
 
-static inline void nstack_walk_update_trap(Process *p, const struct sdesc *sdesc0)
+static inline const struct hipe_sdesc*
+nstack_walk_init_sdesc_ignore_trap(const Process *p,
+				   struct nstack_walk_state *state)
+{
+    unsigned long ra = (unsigned long)p->hipe.nra;
+    const struct hipe_sdesc *sdesc;
+    if (ra == (unsigned long)&nbif_stack_trap_ra)
+	ra = (unsigned long)p->hipe.ngra;
+    sdesc = hipe_find_sdesc(ra);
+    state->sdesc0 = sdesc;
+    return sdesc;
+}
+
+static inline void nstack_walk_update_trap(Process *p, const struct hipe_sdesc *sdesc0)
 {
     Eterm *nsp = p->hipe.nsp;
     p->hipe.nsp = nstack_walk_nsp_begin(p);
@@ -89,7 +103,7 @@ static inline int nstack_walk_nsp_reached_end(const Eterm *nsp, const Eterm *nsp
     return nsp >= nsp_end;
 }
 
-static inline unsigned int nstack_walk_frame_size(const struct sdesc *sdesc)
+static inline unsigned int nstack_walk_frame_size(const struct hipe_sdesc *sdesc)
 {
     return sdesc_fsize(sdesc) + 1 + sdesc_arity(sdesc);
 }
@@ -100,7 +114,7 @@ static inline Eterm *nstack_walk_frame_index(Eterm *nsp, unsigned int i)
 }
 
 static inline unsigned long
-nstack_walk_frame_ra(const Eterm *nsp, const struct sdesc *sdesc)
+nstack_walk_frame_ra(const Eterm *nsp, const struct hipe_sdesc *sdesc)
 {
     return nsp[sdesc_fsize(sdesc)];
 }

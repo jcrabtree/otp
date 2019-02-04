@@ -1,28 +1,29 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2006-2009. All Rights Reserved.
+%% Copyright Ericsson AB 2006-2018. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
 
-%%% @doc Logging functionality for Common Test Master.
+%%% doc Logging functionality for Common Test Master.
 %%%
-%%% <p>This module keeps a list of <code>{Node,Status}</code>
+%%% This module keeps a list of {Node,Status}
 %%% tuples. It is possible to anytime during a test run get
 %%% a snapshot of the test status. The module is an event
-%%% handler for the master event manager.</p>
+%%% handler for the master event manager.
 -module(ct_master_status).
 
 -behaviour(gen_event).
@@ -70,7 +71,7 @@ init(_) ->
 %%
 handle_event(#event{name=Name,node=Node,data=Data},State) ->
     print("~n=== ~w ===~n", [?MODULE]),
-    print("~p on ~p: ~p~n", [Name,Node,Data]),
+    print("~tw on ~w: ~tp~n", [Name,Node,Data]),
     {ok,State}.
 
 %%--------------------------------------------------------------------
@@ -100,8 +101,8 @@ handle_info(_Info, State) ->
     {ok, State}.
 
 %%--------------------------------------------------------------------
-%% Function: terminate(Reason, State) -> void()
-%% Description:Whenever an event handler is deleted from an event manager,
+%% Function: terminate(Reason, State) -> ok
+%% Description: Whenever an event handler is deleted from an event manager,
 %% this function is called. It should be the opposite of Module:init/1 and 
 %% do any necessary cleaning up. 
 %%--------------------------------------------------------------------

@@ -1,13 +1,14 @@
-%% ``The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved via the world wide web at http://www.erlang.org/.
+%% ``Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% The Initial Developer of the Original Code is Ericsson Utvecklings AB.
 %% Portions created by Ericsson are Copyright 1999, Ericsson Utvecklings
@@ -149,14 +150,12 @@ forms([], St) -> {[],St}.
 %%  Process an attribute, this just affects the state.
 
 attribute(module, {Module, As}, St) ->
-    M = package_to_string(Module),
-    St#expand{module=list_to_atom(M),
-	      package = packages:strip_last(M),
+    true = is_atom(Module),
+    St#expand{module=Module,
 	      parameters=As};
 attribute(module, Module, St) ->
-    M = package_to_string(Module),
-    St#expand{module=list_to_atom(M),
-	      package = packages:strip_last(M)};
+    true = is_atom(Module),
+    St#expand{module=Module};
 attribute(export, Es, St) ->
     St#expand{exports=union(from_list(Es), St#expand.exports)};
 attribute(import, Is, St) ->
@@ -226,8 +225,6 @@ pattern({tuple,Line,Ps}, St0) ->
 %%pattern({struct,Line,Tag,Ps}, St0) ->
 %%    {TPs,TPsvs,St1} = pattern_list(Ps, St0),
 %%    {{tuple,Line,[{atom,Line,Tag}|TPs]},TPsvs,St1};
-pattern({record_field,_,_,_}=M, St) ->
-    {expand_package(M, St), [], [], St};  % must be a package name
 pattern({record_index,Line,Name,Field}, St) ->
     {index_expr(Line, Field, Name, record_fields(Name, St)),[],[],St};
 pattern({record,Line,Name,Pfs}, St0) ->
@@ -319,7 +316,7 @@ record_test_in_guard(Line, Term, Name, Vs, St) ->
     %%            code bloat.)
     %%        (4) Xref may be run on the abstract code, so the name in the
     %%            abstract code must be erlang:is_record/3.
-    %%        (5) To achive both (3) and (4) at the same time, set the name
+    %%        (5) To achieve both (3) and (4) at the same time, set the name
     %%            here to erlang:is_record/3, but mark it as compiler-generated.
     %%            The v3_core pass will change the name to erlang:internal_is_record/3.
     Fs = record_fields(Name, St),
@@ -401,8 +398,6 @@ expr({tuple,Line,Es0}, Vs, St0) ->
 %%expr({struct,Line,Tag,Es0}, Vs, St0) ->
 %%    {Es1,Esvs,Esus,St1} = expr_list(Es0, Vs, St0),
 %%    {{tuple,Line,[{atom,Line,Tag}|Es1]},Esvs,Esus,St1};
-expr({record_field,_,_,_}=M, _Vs, St) ->
-    {expand_package(M, St), [], [], St};  % must be a package name
 expr({record_index,Line,Name,F}, Vs, St) ->
     I = index_expr(Line, F, Name, record_fields(Name, St)),
     expr(I, Vs, St);
@@ -483,10 +478,7 @@ expr({call,Line,{atom,La,N},As0}, Vs, St0) ->
 		    end
 	    end
     end;
-expr({call,Line,{record_field,_,_,_}=M,As0}, Vs, St0) ->
-    expr({call,Line,expand_package(M, St0),As0}, Vs, St0);
-expr({call,Line,{remote,Lr,M,F},As0}, Vs, St0) ->
-    M1 = expand_package(M, St0),
+expr({call,Line,{remote,Lr,M1,F},As0}, Vs, St0) ->
     {[M2,F1|As1],Asvs,Asus,St1} = expr_list([M1,F|As0], Vs, St0),
     {{call,Line,{remote,Lr,M2,F1},As1},Asvs,Asus,St1};
 expr({call,Line,{tuple,_,[{atom,_,_}=M,{atom,_,_}=F]},As}, Vs, St) ->
@@ -656,7 +648,7 @@ new_fun_name(#expand{func=F,arity=A,fcount=I}=St) ->
 	++ "-fun-" ++ integer_to_list(I) ++ "-",
     {list_to_atom(Name),St#expand{fcount=I+1}}.
 
-
+
 %% normalise_fields([RecDef]) -> [Field].
 %%  Normalise the field definitions to always have a default value. If
 %%  none has been given then use 'undefined'.
@@ -890,7 +882,7 @@ bin_expand_strings(Es) ->
 			end, Es1, S);
 	      (E, Es1) -> [E|Es1]
 	  end, [], Es).
-
+
 %% new_var_name(State) -> {VarName,State}.
 
 new_var_name(St) ->
@@ -921,32 +913,6 @@ make_list(Ts, Line) ->
 string_to_conses(Line, Cs, Tail) ->
     foldr(fun (C, T) -> {cons,Line,{char,Line,C},T} end, Tail, Cs).
 
-
-%% In syntax trees, module/package names are atoms or lists of atoms.
-
-package_to_string(A) when atom(A) -> atom_to_list(A);
-package_to_string(L) when list(L) -> packages:concat(L).
-
-expand_package({atom,L,A} = M, St) ->
-    case dict:find(A, St#expand.mod_imports) of
-	{ok, A1} ->
-	    {atom,L,A1};
-	error ->
-	    case packages:is_segmented(A) of
-		true ->
-		    M;
-		false ->
-		    M1 = packages:concat(St#expand.package, A),
-		    {atom,L,list_to_atom(M1)}
-	    end
-    end;
-expand_package(M, _St) ->
-    case erl_parse:package_segments(M) of
-	error ->
-	    M;
-	M1 ->
-	    {atom,element(2,M),list_to_atom(package_to_string(M1))}
-    end.
 
 %% Create a case-switch on true/false, generating badarg for all other
 %% values.
@@ -1005,15 +971,10 @@ new_in_all(Before, Region) ->
 %%  Handle import declarations and est for imported functions. No need to
 %%  check when building imports as code is correct.
 
-import({Mod0,Fs}, St) ->
-    Mod = list_to_atom(package_to_string(Mod0)),
+import({Mod,Fs}, St) ->
+    true = is_atom(Mod),
     Mfs = from_list(Fs),
-    St#expand{imports=add_imports(Mod, Mfs, St#expand.imports)};
-import(Mod0, St) ->
-    Mod = package_to_string(Mod0),
-    Key = list_to_atom(packages:last(Mod)),
-    St#expand{mod_imports=dict:store(Key, list_to_atom(Mod),
-				     St#expand.mod_imports)}.
+    St#expand{imports=add_imports(Mod, Mfs, St#expand.imports)}.
 
 add_imports(Mod, [F|Fs], Is) ->
     add_imports(Mod, Fs, orddict:store(F, Mod, Is));

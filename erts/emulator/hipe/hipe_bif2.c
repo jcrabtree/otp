@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  * 
- * Copyright Ericsson AB 2001-2011. All Rights Reserved.
+ * Copyright Ericsson AB 2001-2018. All Rights Reserved.
  * 
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  * %CopyrightEnd%
  */
@@ -31,6 +32,7 @@
 #include "erl_process.h"
 #include "bif.h"
 #include "big.h"
+#include "erl_map.h"
 #include "hipe_debug.h"
 #include "hipe_mode_switch.h"
 #include "hipe_arch.h"
@@ -43,7 +45,7 @@ static void proc_unlock(Process* c_p, Process* rp)
 	locks &= ~ERTS_PROC_LOCK_MAIN;
     }
     if (rp && locks) {
-	erts_smp_proc_unlock(rp, locks);
+	erts_proc_unlock(rp, locks);
     }
 }
 
@@ -151,25 +153,45 @@ BIF_RETTYPE hipe_bifs_modeswitch_debug_off_0(BIF_ALIST_0)
     BIF_RET(am_true);
 }
 
-#if defined(ERTS_ENABLE_LOCK_CHECK) && defined(ERTS_SMP)
+#if defined(ERTS_ENABLE_LOCK_CHECK)
 
-BIF_RETTYPE hipe_debug_bif_wrapper(BIF_ALIST_1);
+BIF_RETTYPE hipe_debug_bif_wrapper(NBIF_ALIST_1);
 
-#    define ERTS_SMP_REQ_PROC_MAIN_LOCK(P) \
-        if ((P)) erts_proc_lc_require_lock((P), ERTS_PROC_LOCK_MAIN)
-#    define ERTS_SMP_UNREQ_PROC_MAIN_LOCK(P) \
+#    define ERTS_REQ_PROC_MAIN_LOCK(P) \
+       if ((P)) erts_proc_lc_require_lock((P), ERTS_PROC_LOCK_MAIN,\
+					  __FILE__, __LINE__)
+#    define ERTS_UNREQ_PROC_MAIN_LOCK(P) \
         if ((P)) erts_proc_lc_unrequire_lock((P), ERTS_PROC_LOCK_MAIN)
 
-BIF_RETTYPE hipe_debug_bif_wrapper(BIF_ALIST_1)
+BIF_RETTYPE hipe_debug_bif_wrapper(NBIF_ALIST_1)
 {
-    typedef BIF_RETTYPE Bif(BIF_ALIST_1);
-    Bif* fp = (Bif*) (BIF_P->hipe.bif_callee);
+    typedef BIF_RETTYPE nBif(NBIF_ALIST_1);
+    nBif* fp = (nBif*) (BIF_P->hipe.bif_callee);
     BIF_RETTYPE res;
-    ERTS_SMP_UNREQ_PROC_MAIN_LOCK(BIF_P);
-    res = (*fp)(BIF_P, BIF__ARGS);
-    ERTS_SMP_REQ_PROC_MAIN_LOCK(BIF_P);
+    ERTS_UNREQ_PROC_MAIN_LOCK(BIF_P);
+    res = (*fp)(NBIF_CALL_ARGS);
+    ERTS_REQ_PROC_MAIN_LOCK(BIF_P);
     return res;
 }
 
-#endif /* ERTS_ENABLE_LOCK_CHECK && ERTS_SMP */
+#endif /* ERTS_ENABLE_LOCK_CHECK*/
 
+
+BIF_RETTYPE hipe_bifs_debug_native_called_2(BIF_ALIST_2)
+{
+    erts_printf("hipe_debug_native_called: %T(%T)\r\n", BIF_ARG_1, BIF_ARG_2);
+    BIF_RET(am_ok);
+}
+
+/* Stub-BIF for LLVM:
+ * Reloads BP, SP (in llvm unwind label) */
+
+BIF_RETTYPE hipe_bifs_llvm_fix_pinned_regs_0(BIF_ALIST_0)
+{
+    BIF_RET(am_ok);
+}
+
+BIF_RETTYPE hipe_bifs_build_stacktrace_1(BIF_ALIST_1)
+{
+    BIF_RET(build_stacktrace(BIF_P, BIF_ARG_1));
+}

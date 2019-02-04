@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2005-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2005-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -29,7 +30,7 @@
 -define(privdir, "yecc_SUITE_priv").
 -define(t, test_server).
 -else.
--include_lib("test_server/include/test_server.hrl").
+-include_lib("common_test/include/ct.hrl").
 -define(datadir, ?config(data_dir, Config)).
 -define(privdir, ?config(priv_dir, Config)).
 -endif.
@@ -48,7 +49,8 @@
 	 
 	 otp_5369/1, otp_6362/1, otp_7945/1, otp_8483/1, otp_8486/1,
 	 
-	 otp_7292/1, otp_7969/1, otp_8919/1]).
+	 otp_7292/1, otp_7969/1, otp_8919/1, otp_10302/1, otp_11269/1,
+         otp_11286/1, otp_14285/1]).
 
 % Default timetrap timeout (set in init_per_testcase).
 -define(default_timeout, ?t:minutes(1)).
@@ -75,7 +77,8 @@ groups() ->
       [empty, prec, yeccpre, lalr, old_yecc, other_examples]},
      {bugs, [],
       [otp_5369, otp_6362, otp_7945, otp_8483, otp_8486]},
-     {improvements, [], [otp_7292, otp_7969, otp_8919]}].
+     {improvements, [], [otp_7292, otp_7969, otp_8919, otp_10302,
+                         otp_11269, otp_11286, otp_14285]}].
 
 init_per_suite(Config) ->
     Config.
@@ -338,8 +341,8 @@ syntax(Config) when is_list(Config) ->
                           {_,[{L1,_,{undefined_function,{yeccpars2_2_,1}}},
                               {L2,_,{bad_inline,{yeccpars2_2_,1}}}]}],
                    []} = compile:file(Parserfile1, [basic_validation,return]),
-            ?line L1 = 28 + SzYeccPre,
-            ?line L2 = 35 + SzYeccPre
+            ?line L1 = 31 + SzYeccPre,
+            ?line L2 = 39 + SzYeccPre
     end(),
 
     %% Bad macro in action. OTP-7224.
@@ -356,8 +359,8 @@ syntax(Config) when is_list(Config) ->
                           {_,[{L1,_,{undefined_function,{yeccpars2_2_,1}}},
                               {L2,_,{bad_inline,{yeccpars2_2_,1}}}]}],
                    []} = compile:file(Parserfile1, [basic_validation,return]),
-            ?line L1 = 28 + SzYeccPre,
-            ?line L2 = 35 + SzYeccPre
+            ?line L1 = 31 + SzYeccPre,
+            ?line L2 = 39 + SzYeccPre
     end(),
 
     %% Check line numbers. OTP-7224.
@@ -1519,7 +1522,9 @@ otp_7945(doc) ->
     "OTP-7945. A bug introduced in R13A.";
 otp_7945(suite) -> [];
 otp_7945(Config) when is_list(Config) ->
-    ?line {error,_} = erl_parse:parse([{atom,3,foo},{'.',2,9,9}]),
+    A2 = erl_anno:new(2),
+    A3 = erl_anno:new(3),
+    {error,_} = erl_parse:parse([{atom,A3,foo},{'.',A2,9,9}]),
     ok.
 
 otp_8483(doc) ->
@@ -1617,8 +1622,8 @@ otp_7292(Config) when is_list(Config) ->
                         {L2,_,{bad_inline,{yeccpars2_2_,1}}}]}],
                    [{_,[{16,_,{unused_function,{foo,0}}}]}]} = 
                 compile:file(Parserfile1, [basic_validation, return]),
-            ?line L1 = 38 + SzYeccPre,
-            ?line L2 = 45 + SzYeccPre
+            L1 = 41 + SzYeccPre,
+            L2 = 49 + SzYeccPre
     end(),
 
     YeccPre = filename:join(Dir, "yeccpre.hrl"),
@@ -1635,8 +1640,8 @@ otp_7292(Config) when is_list(Config) ->
                         {L2,_,{bad_inline,{yeccpars2_2_,1}}}]}],
                    [{_,[{16,_,{unused_function,{foo,0}}}]}]} = 
                 compile:file(Parserfile1, [basic_validation, return]),
-            ?line L1 = 37 + SzYeccPre,
-            ?line L2 = 44 + SzYeccPre
+            ?line L1 = 40 + SzYeccPre,
+            ?line L2 = 48 + SzYeccPre
     end(),
 
     file:delete(YeccPre),
@@ -1669,8 +1674,7 @@ format_error(Message) ->
 yeccpars0(Tokens, MFA) ->
     try yeccpars1(Tokens, MFA, 0, [], [])
     catch 
-        error: Error ->
-            Stacktrace = erlang:get_stacktrace(),
+        error: Error : Stacktrace ->
             try yecc_error_type(Error, Stacktrace) of
                 {syntax_error, Token} ->
                     yeccerror(Token);
@@ -1784,7 +1788,8 @@ otp_7969(Config) when is_list(Config) ->
 
     ?line {ok, Ts11, _}=R1 = erl_scan:string("f() -> a."),
     ?line F1 = fun() -> {ok,Ts11 ++ [{'$end',2}],2} end,
-    ?line{ok,{function,1,f,0,[{clause,1,[],[],[{atom,1,a}]}]}} =
+    A1 = erl_anno:new(1),
+    {ok,{function,A1,f,0,[{clause,A1,[],[],[{atom,A1,a}]}]}} =
         erl_parse:parse_and_scan({F1, []}),
     ?line F2 = fun() -> erl_scan:string("f() -> ,") end,
     ?line {error,{1,erl_parse,_}} = erl_parse:parse_and_scan({F2, []}),
@@ -1795,7 +1800,7 @@ otp_7969(Config) when is_list(Config) ->
                                 put(foo,bar), R1
                         end
                end,
-    ?line {ok,{function,1,f,0,[{clause,1,[],[],[{atom,1,a}]}]}} =
+    {ok,{function,A1,f,0,[{clause,A1,[],[],[{atom,A1,a}]}]}} =
         erl_parse:parse_and_scan({F3,[]}),
     F4 = fun() -> {error, {1, ?MODULE, bad}, 2} end,
     ?line {error, {1,?MODULE,bad}} = erl_parse:parse_and_scan({F4, []}),
@@ -1811,9 +1816,331 @@ otp_8919(doc) ->
     "OTP-8919. Improve formating of Yecc error messages.";
 otp_8919(suite) -> [];
 otp_8919(Config) when is_list(Config) ->
-    {error,{1,Mod,Mess}} = erl_parse:parse([{cat,1,"hello"}]),
+    A1 = erl_anno:new(1),
+    {error,{1,Mod,Mess}} = erl_parse:parse([{cat,A1,"hello"}]),
     "syntax error before: \"hello\"" = lists:flatten(Mod:format_error(Mess)),
     ok.
+
+otp_10302(doc) ->
+    "OTP-10302. Unicode characters scanner/parser.";
+otp_10302(suite) -> [];
+otp_10302(Config) when is_list(Config) ->
+    Dir = ?privdir,
+    Filename = filename:join(Dir, "OTP-10302.yrl"),
+    Ret = [return, {report, true}],
+    Mini1 = <<"%% coding: utf-8
+               Nonterminals Häpp.
+               nt -> t.">>,
+    ok = file:write_file(Filename, Mini1),
+    %% This could (and should) be refined:
+    {error,[{Filename,[{2,Mod1,Err1}]}],[]} =
+        yecc:file(Filename, Ret),
+    "cannot translate from UTF-8" = Mod1:format_error(Err1),
+
+    Mini2 = <<"%% coding: Utf-8
+               Nonterminals Hopp.
+               Terminals t.
+               Rootsymbol Hopp.
+
+               Hopp -> t.
+
+               Erlang code.
+
+               t() ->
+                   Häpp.">>,
+    ok = file:write_file(Filename, Mini2),
+    {error,[{Filename,[{11,Mod2,Err2}]}],[]} =
+        yecc:file(Filename, Ret),
+    "cannot parse; possibly encoding mismatch" = Mod2:format_error(Err2),
+
+    Mini3 = <<"%% coding: latin-1
+               Nonterminals Hopp.
+               Terminals t.
+               Rootsymbol Hopp.
+
+               Hopp -> t.
+
+               Erlang code.
+
+               t() ->
+                   Häpp.">>,
+    ok = file:write_file(Filename, Mini3),
+    YeccPre = filename:join(Dir, "yeccpre.hrl"),
+    ok = file:write_file(YeccPre, [<<"%% coding: UTF-8\n ä.\n">>]),
+    Inc = [{includefile,YeccPre}],
+    {error,[{_,[{2,yecc,cannot_parse}]}],[]} =
+        yecc:file(Filename, Inc ++ Ret),
+
+    ok = file:write_file(Filename,
+     <<"%% coding: UTF-8
+        Nonterminals Hopp.
+        Terminals t.
+        Rootsymbol \"Ã¶rn_Ð\".
+        Hopp -> t : '$1'.">>),
+    {error,[{Filename,[{4,yecc,{bad_symbol,"örn_"++[1024]}}]}],[]} =
+        yecc:file(Filename, Ret),
+
+    ok = file:write_file(Filename,
+     <<"%% coding: UTF-8
+        Nonterminals Hopp.
+        Terminals t.
+        Rootsymbol Hopp.
+        Endsymbol \"Ã¶rn_Ð\".
+        Hopp -> t : '$1'.">>),
+    {error,[{Filename,[{5,yecc,{bad_symbol,"örn_"++[1024]}}]}],[]} =
+        yecc:file(Filename, Ret),
+
+    ok = file:write_file(Filename,
+     <<"%% coding: UTF-8
+        Nonterminals Hopp.
+        Terminals t.
+        Rootsymbol Hopp.
+        Expect \"Ã¶rn_Ð\".
+        Hopp -> t : '$1'.">>),
+    {error,[{Filename,[{5,yecc,{bad_symbol,"örn_"++[1024]}}]}],[]} =
+        yecc:file(Filename, Ret),
+
+    ok = file:write_file(Filename,
+     <<"%% coding: UTF-8
+        Nonterminals Hopp.
+        Terminals t.
+        Rootsymbol Hopp.
+        States \"Ã¶rn_Ð\".
+        Hopp -> t : '$1'.">>),
+    {error,[{Filename,[{5,yecc,{bad_symbol,"örn_"++[1024]}}]}],[]} =
+        yecc:file(Filename, Ret),
+
+    Ts = [{otp_10302_1,<<"
+           %% coding: UTF-8
+           Header \"%% Ã¶rn_Ð\" \"%% \\x{400}B\".
+           Nonterminals HÃ¤pp list.
+           Terminals element.
+           Rootsymbol HÃ¤pp.
+
+           HÃ¤pp -> list : '$1'.
+
+           list -> element : '$1'.
+           list -> list element :
+                       begin
+                           HÃ¤pp = foo,
+                           {HÃ¤pp, 'HÃ¤pp',\"\\x{400}B\",\"Ã¶rn_Ð\"}
+                       end.
+
+           Erlang code.
+
+           -export([t/0]).
+
+           t() ->
+               L = [{element, 1}, {element,2}],
+               {ok, R} = parse(L),
+               HÃ¤pp = foo,
+               {_,_,[1024,66],[246,114,110,95,1024]} = R,
+               {HÃ¤pp,'HÃ¤pp',\"\\x{400}B\",\"Ã¶rn_Ð\"} = R,
+               ok.
+          ">>,default,ok},
+          {otp_10302_2,<<"
+           %% coding: Latin-1
+           Nonterminals Häpp list.
+           Terminals element.
+           Rootsymbol Häpp.
+
+           Häpp -> list : '$1'.
+
+           list -> element : '$1'.
+           list -> list element :
+                       begin
+                           Häpp = foo,
+                           {Häpp, 'Häpp',\"\\x{400}B\",\"Ã¶rn_Ð\"}
+                       end.
+
+           Erlang code.
+
+           -export([t/0]).
+
+           t() ->
+               L = [{element, 1}, {element,2}],
+               {ok, R} = parse(L),
+               Häpp = foo,
+               {_,_,[1024,66],[195,182,114,110,95,208,128]} = R,
+               {Häpp,'Häpp',\"\\x{400}B\",\"Ã¶rn_Ð\"} = R,
+               ok.
+          ">>,default,ok}],
+    run(Config, Ts),
+    ok.
+
+otp_11269(doc) ->
+    "OTP-11269. A bug.";
+otp_11269(suite) -> [];
+otp_11269(Config) when is_list(Config) ->
+    Dir = ?privdir,
+    Filename = filename:join(Dir, "OTP-11269.yrl"),
+    Ret = [return, {report, false}],
+    Pai = <<"Nonterminals
+             list list0 list1 newline_list.
+
+             Terminals
+             '\n' semi.
+
+             Rootsymbol  list.
+
+             Endsymbol '$end'.
+
+             list ->   newline_list list0 : '$2'.
+
+             list0 -> list1 '\n' newline_list : '$1'.
+
+             list1 -> list1 semi newline_list list1 :
+                           {command_connect, '$1', '$4', semi}.
+
+             newline_list -> newline_list '\n' : nil.">>,
+    ok = file:write_file(Filename, Pai),
+    {ok,ErlFile,[{_YrlFile,[{none,yecc,{conflicts,1,0}}]}]} =
+        yecc:file(Filename, Ret),
+    Opts = [return, warn_unused_vars,{outdir,Dir}],
+    {ok,'OTP-11269',_Warnings} = compile:file(ErlFile, Opts),
+    ok.
+
+otp_11286(doc) ->
+    "OTP-11286. A Unicode filename bug; both Leex and Yecc.";
+otp_11286(suite) -> [];
+otp_11286(Config) when is_list(Config) ->
+    Node = start_node(otp_11286, "+fnu"),
+    Dir = ?privdir,
+    UName = [1024] ++ "u",
+    UDir = filename:join(Dir, UName),
+    _ = rpc:call(Node, file, make_dir, [UDir]),
+
+    %% Note: Cannot use UName as filename since the filename is used
+    %% as module name. To be fixed in R18.
+    Filename = filename:join(UDir, 'OTP-11286.yrl'),
+    Ret = [return, {report, false}, time],
+
+    Mini1 = <<"%% coding: utf-8
+               Terminals t.
+               Nonterminals nt.
+               Rootsymbol  nt.
+               nt -> t.">>,
+    ok = rpc:call(Node, file, write_file, [Filename, Mini1]),
+    {ok,ErlFile,[]} = rpc:call(Node, yecc, file, [Filename, Ret]),
+    Opts = [return, warn_unused_vars,{outdir,Dir}],
+    {ok,_,_Warnings} = rpc:call(Node, compile, file, [ErlFile, Opts]),
+
+    Mini2 = <<"Terminals t.
+               Nonterminals nt.
+               Rootsymbol  nt.
+               nt -> t.">>,
+    ok = rpc:call(Node, file, write_file, [Filename, Mini2]),
+    {ok,ErlFile,[]} = rpc:call(Node, yecc, file, [Filename, Ret]),
+    Opts = [return, warn_unused_vars,{outdir,Dir}],
+    {ok,_,_Warnings} = rpc:call(Node, compile, file, [ErlFile, Opts]),
+
+    Mini3 = <<"%% coding: latin-1
+               Terminals t.
+               Nonterminals nt.
+               Rootsymbol  nt.
+               nt -> t.">>,
+    ok = rpc:call(Node, file, write_file, [Filename, Mini3]),
+    {ok,ErlFile,[]} = rpc:call(Node, yecc, file, [Filename, Ret]),
+    Opts = [return, warn_unused_vars,{outdir,Dir}],
+    {ok,_,_Warnings} = rpc:call(Node, compile, file, [ErlFile, Opts]),
+
+    true = test_server:stop_node(Node),
+    ok.
+
+otp_14285(Config) ->
+    Dir = ?privdir,
+    YeccPre = filename:join(Dir, "yeccpre.hrl"),
+    ?line ok = file:write_file(YeccPre,
+                               [<<"-export([t/0]).\n">>,my_yeccpre()]),
+
+    T0 = <<"
+        Nonterminals '\\x{400}'. 
+        Terminals t.
+        Rootsymbol '\\x{400}'.
+       '\\x{400}' -> t : '$1'.
+       Erlang code.
+       t() ->
+           L = [{t, 1}],
+           {ok, R} = parse(L),
+           {t, 1} = R,
+           ok.">>,
+    Ts0 = [{otp_14285_1,
+           [<<"%% coding: Latin-1\n">>,T0],YeccPre,ok},
+         {otp_14285_2,
+           [<<"%% coding: coding: UTF-8\n">>,T0],YeccPre,ok}],
+    run(Config, Ts0),
+    file:delete(YeccPre),
+
+    T1 = <<"
+        Nonterminals '1\\x{400}' list 'unused\\x{400}'.
+        Terminals '2\\x{400}'.
+        Rootsymbol '1\\x{400}'.
+
+        '1\\x{400}' -> list : '$1'.
+
+        list -> '2\\x{400}' : '$1'.
+        list -> list '2\\x{400}' : {foo,'\\x{400}'}.
+
+        Erlang code.
+
+        -export([t/0]).
+
+        t() ->
+            L = [{'2\\x{400}', 1}, {'2\\x{400}',2}],
+            {ok, R} = parse(L),
+            {foo,A} = R,
+            '\\x{400}' = A,
+            [1024] = atom_to_list(A),
+            ok.">>,
+
+    Ts1 = [{otp_14285_3,
+            [<<"%% coding: Latin-1\n">>,T1],default,ok},
+           {otp_14285_4,
+            [<<"%% coding: UTF-8\n">>,T1],default,ok}],
+    run(Config, Ts1),
+
+    T2 = <<"
+        Nonterminals E.
+        Terminals '-' '+' '=' id.
+        Rootsymbol E.
+        Endsymbol '\\x{400}'.
+
+        E -> E '=' E : {op, '=', '$1', '$3'}.
+        E -> E '+' E  : {op, '+', '$1', '$3'}.
+        E -> '-' E : {op, '-', '$2'}.
+        E -> id : '$1'.
+
+        Nonassoc 100 '='.
+        Right 200 '+' '-'.
+
+        Erlang code.
+
+        -export([t/0]).
+
+        t() ->
+            {ok,{op,'=',{id,1},{op,'-',{op,'+',{id,4},{id,6}}}}} = 
+                parse([{id,1},{'=',2},{'-',3},{id,4},{'+',5},{id,6},
+                      {'\\x{400}',1}]),
+            ok.">>,
+
+    Ts2 = [{otp_14285_5,
+            [<<"%% coding: Latin-1\n">>,T2],default,ok},
+           {otp_14285_6,
+            [<<"%% coding: UTF-8\n">>,T2],default,ok}],
+    run(Config, Ts2),
+
+    ok.
+
+start_node(Name, Args) ->
+    [_,Host] = string:tokens(atom_to_list(node()), "@"),
+    ct:log("Trying to start ~w@~s~n", [Name,Host]),
+    case test_server:start_node(Name, peer, [{args,Args}]) of
+	{error,Reason} ->
+	    test_server:fail(Reason);
+	{ok,Node} ->
+	    ct:log("Node ~p started~n", [Node]),
+	    Node
+    end.
 
 yeccpre_size() ->
     yeccpre_size(default_yeccpre()).

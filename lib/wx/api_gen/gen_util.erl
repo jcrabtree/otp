@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2008-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2008-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -49,8 +50,10 @@ get_taylor_made(Str, Name) ->
 	   [dotall, {capture, all_but_first, list}]).
 
 open_write(File) ->
+    open_write(File, []).
+open_write(File, Opts) ->
     %% io:format("Generating ~s~n",[File]),
-    {ok, Fd} = file:open(File++".temp", [write]),
+    {ok, Fd} = file:open(File++".temp", [write|Opts]),
     put(current_file, {Fd,File}).
 
 
@@ -103,8 +106,8 @@ check_diff(Diff) ->
 	throw:_ ->  diff;
 	error:{badmatch,_} ->
 	    diff;
-	_:What ->
-	    io:format("~p:~p: ~p ~p~n", [?MODULE,?LINE, What, erlang:get_stacktrace()]),
+	_:What:Stacktrace ->
+	    io:format("~p:~p: ~p ~p~n", [?MODULE,?LINE, What, Stacktrace]),
 	    diff
     end.
 
@@ -187,6 +190,8 @@ replace_and_remove([$| | R], Acc) ->
     replace_and_remove(R, ["|"|Acc]);
 replace_and_remove([$* | R], Acc) ->
     replace_and_remove(R, ["*"|Acc]);
+replace_and_remove([$+ | R], Acc) ->
+    replace_and_remove(R, ["+"|Acc]);
 replace_and_remove([$& | R], Acc) ->
     replace_and_remove(R, [$&|Acc]);
 replace_and_remove([$<,$< | R], Acc) ->
@@ -198,7 +203,7 @@ replace_and_remove([$; | R], Acc) ->
 replace_and_remove([$@ | R], Acc) ->
     replace_and_remove(R, [directive|Acc]);
 
-replace_and_remove([_E|R], Acc) ->       %% Ignore everthing else
+replace_and_remove([_E|R], Acc) ->       %% Ignore everything else
     replace_and_remove(R, Acc);
 replace_and_remove([], Acc) ->
     Acc.
@@ -218,41 +223,45 @@ halt(Reason) ->
 
 erl_copyright() ->
     StartYear = start_year(get(current_class)),
+    {CurrentYear,_,_}   = erlang:date(),
     w("%%~n",[]),
     w("%% %CopyrightBegin%~n",[]),
     w("%%~n",[]),
-    w("%% Copyright Ericsson AB ~p-2012. All Rights Reserved.~n",
-      [StartYear]),
+    w("%% Copyright Ericsson AB ~p-~p. All Rights Reserved.~n",
+      [StartYear, CurrentYear]),
     w("%%~n",[]),
-    w("%% The contents of this file are subject to the Erlang Public License,~n",[]),
-    w("%% Version 1.1, (the \"License\"); you may not use this file except in~n",[]),
-    w("%% compliance with the License. You should have received a copy of the~n",[]),
-    w("%% Erlang Public License along with this software. If not, it can be~n",[]),
-    w("%% retrieved online at http://www.erlang.org/.~n",[]),
+    w("%% Licensed under the Apache License, Version 2.0 (the \"License\");~n",[]),
+    w("%% you may not use this file except in compliance with the License.~n",[]),
+    w("%% You may obtain a copy of the License at~n",[]),
     w("%%~n",[]),
-    w("%% Software distributed under the License is distributed on an \"AS IS\"~n",[]),
-    w("%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See~n",[]),
-    w("%% the License for the specific language governing rights and limitations~n",[]),
-    w("%% under the License.~n",[]),
+    w("%%     http://www.apache.org/licenses/LICENSE-2.0~n",[]),
+    w("%%~n",[]),
+    w("%% Unless required by applicable law or agreed to in writing, software~n",[]),
+    w("%% distributed under the License is distributed on an \"AS IS\" BASIS,~n",[]),
+    w("%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.~n",[]),
+    w("%% See the License for the specific language governing permissions and~n",[]),
+    w("%% limitations under the License.~n",[]),
     w("%%~n",[]),
     w("%% %CopyrightEnd%~n",[]).
 
 c_copyright() ->
+    {CurrentYear,_,_}   = erlang:date(),
     w("/*~n",[]),
     w(" * %CopyrightBegin%~n",[]),
     w(" *~n",[]),
-    w(" * Copyright Ericsson AB 2008-2012. All Rights Reserved.~n",[]),
+    w(" * Copyright Ericsson AB 2008-~p. All Rights Reserved.~n",[CurrentYear]),
     w(" *~n",[]),
-    w(" * The contents of this file are subject to the Erlang Public License,~n",[]),
-    w(" * Version 1.1, (the \"License\"); you may not use this file except in~n",[]),
-    w(" * compliance with the License. You should have received a copy of the~n",[]),
-    w(" * Erlang Public License along with this software. If not, it can be~n",[]),
-    w(" * retrieved online at http://www.erlang.org/.~n",[]),
+    w(" * Licensed under the Apache License, Version 2.0 (the \"License\");~n",[]),
+    w(" * you may not use this file except in compliance with the License.~n",[]),
+    w(" * You may obtain a copy of the License at~n",[]),
     w(" *~n",[]),
-    w(" * Software distributed under the License is distributed on an \"AS IS\"~n",[]),
-    w(" * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See~n",[]),
-    w(" * the License for the specific language governing rights and limitations~n",[]),
-    w(" * under the License.~n",[]),
+    w(" *     http://www.apache.org/licenses/LICENSE-2.0~n",[]),
+    w(" *~n",[]),
+    w(" * Unless required by applicable law or agreed to in writing, software~n",[]),
+    w(" * distributed under the License is distributed on an \"AS IS\" BASIS,~n",[]),
+    w(" * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.~n",[]),
+    w(" * See the License for the specific language governing permissions and~n",[]),
+    w(" * limitations under the License.~n",[]),
     w(" *~n",[]),
     w(" * %CopyrightEnd% ~n",[]),
     w("*/~n",[]).

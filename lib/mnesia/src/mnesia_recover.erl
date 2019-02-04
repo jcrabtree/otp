@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1997-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -45,7 +46,8 @@
 	 note_log_decision/2,
 	 outcome/2,
 	 start/0,
-	 start_garb/0,
+	 next_garb/0,
+	 next_check_overload/0,
 	 still_pending/1,
 	 sync_trans_tid_serial/1,
 	 sync/0,
@@ -91,10 +93,38 @@ start() ->
 init() ->
     call(init).
 
-start_garb() ->
+next_garb() ->
     Pid = whereis(mnesia_recover),
-    {ok, _} = timer:send_interval(timer:minutes(2), Pid, garb_decisions),
-    {ok, _} = timer:send_interval(timer:seconds(10), Pid, check_overload).
+    erlang:send_after(timer:minutes(2), Pid, garb_decisions).
+
+next_check_overload() ->
+    Pid = whereis(mnesia_recover),
+    erlang:send_after(timer:seconds(10), Pid, check_overload).
+
+
+do_check_overload(S) ->
+    %% Time to check if mnesia_tm is overloaded
+    case whereis(mnesia_tm) of
+    Pid when is_pid(Pid) ->
+        Threshold = 100,
+        Prev = S#state.tm_queue_len,
+        {message_queue_len, Len} =
+        process_info(Pid, message_queue_len),
+        if
+        Len > Threshold, Prev > Threshold ->
+            What = {mnesia_tm, message_queue_len, [Prev, Len]},
+            mnesia_lib:report_system_event({mnesia_overload, What}),
+            mnesia_lib:overload_set(mnesia_tm, true),
+            S#state{tm_queue_len = 0};
+        Len > Threshold ->
+            S#state{tm_queue_len = Len};
+        true ->
+            mnesia_lib:overload_set(mnesia_tm, false),
+            S#state{tm_queue_len = 0}
+        end;
+    undefined ->
+        S
+    end.
 
 allow_garb() ->
     cast(allow_garb).
@@ -147,9 +177,10 @@ disconnect(Node) ->
 log_decision(D) ->
     cast({log_decision, D}).
 
+%% Local function in order to avoid external function call
 val(Var) ->
-    case ?catch_val(Var) of
-	{'EXIT', Reason} -> mnesia_lib:other_val(Var, Reason); 
+    case ?catch_val_and_stack(Var) of
+	{'EXIT', Stacktrace} -> mnesia_lib:other_val(Var, Stacktrace);
 	Value -> Value
     end.
 
@@ -340,11 +371,8 @@ log_master_nodes2([], _UseDir, IsRunning, WorstRes) ->
 get_master_node_info() ->
     Tab = mnesia_decision,
     Pat = {master_nodes, '_', '_'},
-    case catch mnesia_lib:db_match_object(ram_copies,Tab, Pat) of
-	{'EXIT', _} ->
-	    [];
-	Masters ->
-	    Masters
+    try mnesia_lib:db_match_object(ram_copies,Tab, Pat)
+    catch error:_ -> []
     end.
 
 get_master_node_tables() ->
@@ -352,9 +380,8 @@ get_master_node_tables() ->
     [Tab || {master_nodes, Tab, _Nodes} <- Masters].
 
 get_master_nodes(Tab) ->
-    case catch ?ets_lookup_element(mnesia_decision, Tab, 3) of
-	{'EXIT', _} -> [];
-	Nodes  -> Nodes
+    try ?ets_lookup_element(mnesia_decision, Tab, 3)
+    catch error:_ -> []
     end.
 
 %% Determine what has happened to the transaction
@@ -452,8 +479,6 @@ load_decision_tab() ->
     load_decision_tab(Cont, load_decision_tab),
     mnesia_log:close_decision_tab().
 
-load_decision_tab(eof, _InitBy) ->
-    ok;
 load_decision_tab(Cont, InitBy) ->
     case mnesia_log:chunk_decision_tab(Cont) of
 	{Cont2, Decisions} ->
@@ -486,8 +511,6 @@ dump_decision_log(InitBy) ->
     Cont = mnesia_log:prepare_decision_log_dump(),
     perform_dump_decision_log(Cont, InitBy).
 
-perform_dump_decision_log(eof, _InitBy) ->
-    confirm_decision_log_dump();
 perform_dump_decision_log(Cont, InitBy) when InitBy == startup ->
     case mnesia_log:chunk_decision_log(Cont) of
 	{Cont2, Decisions} ->
@@ -656,12 +679,29 @@ handle_call({connect_nodes, Ns}, From, State) ->
 	    %% called from handle_info
 	    gen_server:reply(From, {[], AlreadyConnected}),
 	    {noreply, State};
-	GoodNodes ->
+	ProbablyGoodNodes ->
 	    %% Now we have agreed upon a protocol with some new nodes
-	    %% and we may use them when we recover transactions
+	    %% and we may use them when we recover transactions.
+	    %%
+	    %% Just in case Mnesia was stopped on some of those nodes
+	    %% between the protocol negotiation and now, we check one
+	    %% more time the state of Mnesia.
+	    %%
+	    %% Of course, there is still a chance that mnesia_down
+	    %% events occur during this check and we miss them. To
+	    %% prevent it, handle_cast({mnesia_down, ...}, ...) removes
+	    %% the down node again, in addition to mnesia_down/1.
+	    %%
+	    %% See a comment in handle_cast({mnesia_down, ...}, ...).
+	    Verify = fun(N) ->
+			     Run = mnesia_lib:is_running(N),
+			     Run =:= yes orelse Run =:= starting
+		     end,
+	    GoodNodes = [N || N <- ProbablyGoodNodes, Verify(N)],
+
 	    mnesia_lib:add_list(recover_nodes, GoodNodes),
 	    cast({announce_all, GoodNodes}),
-	    case get_master_nodes(schema) of 
+	    case get_master_nodes(schema) of
 		[] ->
 		    Context = starting_partitioned_network,
 		    mnesia_monitor:detect_inconcistency(GoodNodes, Context);
@@ -722,7 +762,7 @@ handle_call(sync, _From, State) ->
     {reply, ok, State};
 
 handle_call(Msg, _From, State) ->
-    error("~p got unexpected call: ~p~n", [?MODULE, Msg]),
+    error("~p got unexpected call: ~tp~n", [?MODULE, Msg]),
     {noreply, State}.
 
 do_log_mnesia_up(Node) ->
@@ -809,6 +849,14 @@ handle_cast({what_decision, Node, OtherD}, State) ->
     {noreply, State};
 
 handle_cast({mnesia_down, Node}, State) ->
+    %% The node was already removed from recover_nodes in mnesia_down/1,
+    %% but we do it again here in the mnesia_recover process, in case
+    %% another event incorrectly added it back. This can happen during
+    %% Mnesia startup which takes time betweenthe connection, the
+    %% protocol negotiation and the merge of the schema.
+    %%
+    %% See a comment in handle_call({connect_nodes, ...), ...).
+    mnesia_lib:del(recover_nodes, Node),
     case State#state.unclear_decision of
 	undefined ->
 	    {noreply, State};
@@ -833,7 +881,7 @@ handle_cast({log_dump_overload, Flag}, State) when is_boolean(Flag) ->
     {noreply, State#state{log_dump_overload = Flag}};
 
 handle_cast(Msg, State) ->
-    error("~p got unexpected cast: ~p~n", [?MODULE, Msg]),
+    error("~p got unexpected cast: ~tp~n", [?MODULE, Msg]),
     {noreply, State}.
 
 %%----------------------------------------------------------------------
@@ -853,34 +901,13 @@ handle_info({connect_nodes, Ns, From}, State) ->
     handle_call({connect_nodes,Ns},From,State);
 
 handle_info(check_overload, S) ->
-    %% Time to check if mnesia_tm is overloaded
-    case whereis(mnesia_tm) of
-	Pid when is_pid(Pid) ->
-	    
-	    Threshold = 100,
-	    Prev = S#state.tm_queue_len,
-	    {message_queue_len, Len} =
-		process_info(Pid, message_queue_len),
-	    if
-		Len > Threshold, Prev > Threshold ->
-		    What = {mnesia_tm, message_queue_len, [Prev, Len]},
-		    mnesia_lib:report_system_event({mnesia_overload, What}),
-                    mnesia_lib:overload_set(mnesia_tm, true),
-		    {noreply, S#state{tm_queue_len = 0}};
-		
-		Len > Threshold ->
-		    {noreply, S#state{tm_queue_len = Len}};
-		
-		true ->
-                    mnesia_lib:overload_set(mnesia_tm, false),
-		    {noreply, S#state{tm_queue_len = 0}}
-	    end;
-	undefined ->
-	    {noreply, S}
-    end;
+    State2 = do_check_overload(S),
+    next_check_overload(),
+    {noreply, State2};
 
 handle_info(garb_decisions, State) ->
     do_garb_decisions(),
+    next_garb(),
     {noreply, State};
 
 handle_info({force_decision, Tid}, State) ->
@@ -900,11 +927,11 @@ handle_info({force_decision, Tid}, State) ->
     end;
 
 handle_info({'EXIT', Pid, R}, State) when Pid == State#state.supervisor ->
-    mnesia_lib:dbg_out("~p was ~p~n",[?MODULE, R]),
+    mnesia_lib:dbg_out("~p was ~tp~n",[?MODULE, R]),
     {stop, shutdown, State};
 
 handle_info(Msg, State) ->
-    error("~p got unexpected info: ~p~n", [?MODULE, Msg]),
+    error("~p got unexpected info: ~tp~n", [?MODULE, Msg]),
     {noreply, State}.
 
 %%----------------------------------------------------------------------
@@ -987,7 +1014,7 @@ decision(Tid) ->
     decision(Tid, tabs()).
 
 decision(Tid, [Tab | Tabs]) ->
-    case catch ?ets_lookup(Tab, Tid) of
+    try ?ets_lookup(Tab, Tid) of
 	[D] when is_record(D, decision) ->
 	    D;
 	[C] when is_record(C, transient_decision) ->
@@ -997,8 +1024,8 @@ decision(Tid, [Tab | Tabs]) ->
 		      ram_nodes = []
 		     };
 	[] ->
-	    decision(Tid, Tabs);
-	{'EXIT', _} ->
+	    decision(Tid, Tabs)
+    catch error:_ ->
 	    %% Recently switched transient decision table
 	    decision(Tid, Tabs)
     end;
@@ -1009,11 +1036,8 @@ outcome(Tid, Default) ->
     outcome(Tid, Default, tabs()).
 
 outcome(Tid, Default, [Tab | Tabs]) ->
-    case catch ?ets_lookup_element(Tab, Tid, 3) of
-	{'EXIT', _} ->
-	    outcome(Tid, Default, Tabs);
-	Val ->
-	    Val
+    try ?ets_lookup_element(Tab, Tid, 3)
+    catch error:_ -> outcome(Tid, Default, Tabs)
     end;
 outcome(_Tid, Default, []) ->
     Default.

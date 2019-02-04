@@ -1,18 +1,19 @@
 #
 # %CopyrightBegin%
 # 
-# Copyright Ericsson AB 1997-2011. All Rights Reserved.
+# Copyright Ericsson AB 1997-2018. All Rights Reserved.
 # 
-# The contents of this file are subject to the Erlang Public License,
-# Version 1.1, (the "License"); you may not use this file except in
-# compliance with the License. You should have received a copy of the
-# Erlang Public License along with this software. If not, it can be
-# retrieved online at http://www.erlang.org/.
-# 
-# Software distributed under the License is distributed on an "AS IS"
-# basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-# the License for the specific language governing rights and limitations
-# under the License.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 # 
 # %CopyrightEnd%
 #
@@ -36,8 +37,7 @@ RELSYSDIR = $(RELEASE_PATH)/lib/$(APPLICATION)-$(VSN)
 # Target Specs
 # ----------------------------------------------------
 XML_APPLICATION_FILES = ref_man.xml
-XML_REF3_FILES = asn1ct.xml \
-	asn1rt.xml
+XML_REF3_FILES = asn1ct.xml
 
 GEN_XML = \
 	asn1_spec.xml
@@ -48,14 +48,17 @@ XML_HTML_FILE =  \
 	notes_history.xml
 
 XML_CHAPTER_FILES = \
-	asn1_ug.xml \
-	asn1_spec.xml \
+	asn1_introduction.xml \
+	asn1_getting_started.xml \
+	asn1_overview.xml \
 	notes.xml
 
 BOOK_FILES = book.xml
 
 XML_FILES = $(BOOK_FILES) $(XML_APPLICATION_FILES) $(XML_REF3_FILES) \
-            $(GEN_XML) $(XML_PART_FILES) $(XML_CHAPTER_FILES)
+            $(XML_PART_FILES) $(XML_CHAPTER_FILES)
+
+XML_GEN_FILES = $(GEN_XML:%=$(XMLDIR)/%)
 
 GIF_FILES = \
 	exclusive_Win_But.gif \
@@ -73,7 +76,8 @@ EXTRA_FILES = \
 	$(DEFAULT_HTML_FILES) \
 	$(ASN1_FILES) \
 	$(XML_REF3_FILES:%.xml=$(HTMLDIR)/%.html) \
-	$(XML_CHAPTER_FILES:%.xml=$(HTMLDIR)/%.html)
+	$(XML_CHAPTER_FILES:%.xml=$(HTMLDIR)/%.html) \
+	$(GEN_XML:%.xml=$(HTMLDIR)/%.html) \
 
 MAN3_FILES = $(XML_REF3_FILES:%.xml=$(MAN3DIR)/%.3)
 
@@ -103,6 +107,7 @@ html: gifs $(HTML_REF_MAN_FILE)
 
 clean clean_docs:
 	rm -rf $(HTMLDIR)/*
+	rm -rf $(XMLDIR)
 	rm -f $(MAN3DIR)/*
 	rm -f $(TOP_PDF_FILE) $(TOP_PDF_FILE:%.pdf=%.fo)
 	rm -f $(GEN_XML) errs core *~

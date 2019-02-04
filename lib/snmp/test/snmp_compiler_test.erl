@@ -1,18 +1,19 @@
 %% 
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2003-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2003-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %% 
@@ -28,7 +29,7 @@
 %%----------------------------------------------------------------------
 %% Include files
 %%----------------------------------------------------------------------
--include_lib("test_server/include/test_server.hrl").
+-include_lib("common_test/include/ct.hrl").
 -include("snmp_test_lib.hrl").
 -include_lib("snmp/include/snmp_types.hrl").
 
@@ -53,8 +54,12 @@
 
 	 otp_6150/1,
 	 otp_8574/1, 
-	 otp_8595/1
-
+	 otp_8595/1, 
+	 otp_10799/1, 
+	 otp_10808/1,
+	 otp_14145/1,
+         otp_13014/1,
+         otp_14196/1
 	]).
 
 %%----------------------------------------------------------------------
@@ -132,7 +137,9 @@ all() ->
     ].
 
 groups() -> 
-    [{tickets, [], [otp_6150, otp_8574, otp_8595]}].
+    [{tickets, [],
+      [otp_6150, otp_8574, otp_8595, otp_10799, otp_10808, otp_14145,
+       otp_13014, otp_14196]}].
 
 init_per_group(_GroupName, Config) ->
     Config.
@@ -326,13 +333,14 @@ warnings_as_errors(Config) when is_list(Config) ->
 otp_6150(suite) ->
     [];
 otp_6150(Config) when is_list(Config) ->
-    put(tname,otp_6150),
+    put(tname, otp6150),
     p("starting with Config: ~p~n", [Config]),
 
     Dir     = ?config(case_top_dir, Config),
     MibDir  = ?config(mib_dir,  Config),
     MibFile = join(MibDir, "ERICSSON-TOP-MIB.mib"),
-    ?line {ok, Mib} = snmpc:compile(MibFile, [{outdir, Dir}, {verbosity, trace}]),
+    ?line {ok, Mib} = 
+	snmpc:compile(MibFile, [{outdir, Dir}, {verbosity, trace}]),
     io:format("otp_6150 -> Mib: ~n~p~n", [Mib]),
     ok.
 
@@ -342,7 +350,7 @@ otp_6150(Config) when is_list(Config) ->
 otp_8574(suite) ->
     [];
 otp_8574(Config) when is_list(Config) ->
-    put(tname,otp_8574),
+    put(tname, otp8574),
     p("starting with Config: ~p~n", [Config]),
 
     Dir     = ?config(case_top_dir, Config),
@@ -375,7 +383,7 @@ otp_8574(Config) when is_list(Config) ->
 otp_8595(suite) ->
     [];
 otp_8595(Config) when is_list(Config) ->
-    put(tname,otp_8595),
+    put(tname, otp8595),
     p("starting with Config: ~p~n", [Config]),
 
     Dir     = ?config(case_top_dir, Config),
@@ -385,7 +393,117 @@ otp_8595(Config) when is_list(Config) ->
 	snmpc:compile(MibFile, [{outdir,      Dir}, 
 				{verbosity,   trace}, 
 				{group_check, false}]),
-    io:format("otp_8595 -> Mib: ~n~p~n", [Mib]),
+    p("Mib: ~n~p~n", [Mib]),
+    ok.
+
+
+%%======================================================================
+
+otp_10799(suite) ->
+    [];
+otp_10799(Config) when is_list(Config) ->
+    put(tname, otp10799),
+    p("starting with Config: ~p~n", [Config]),
+
+    Dir     = ?config(case_top_dir, Config),
+    MibDir  = ?config(mib_dir,      Config),
+    MibFile = join(MibDir, "OTP10799-MIB.mib"),
+    ?line {ok, Mib} = 
+	snmpc:compile(MibFile, [{outdir, Dir}, {verbosity, trace}]),
+    p("Mib: ~n~p~n", [Mib]),
+    ok.
+
+
+%%======================================================================
+
+otp_10808(suite) ->
+    [];
+otp_10808(Config) when is_list(Config) ->
+    put(tname, otp10808),
+    p("starting with Config: ~p~n", [Config]),
+
+    Dir     = ?config(case_top_dir, Config),
+    MibDir  = ?config(mib_dir,      Config),
+    MibFile = join(MibDir, "OTP10808-MIB.mib"),
+    ?line {ok, Mib} = 
+	snmpc:compile(MibFile, [{outdir,      Dir}, 
+				{verbosity,   trace}, 
+				{group_check, false}]),
+    p("Mib: ~n~p~n", [Mib]),
+    ok.
+
+
+%%======================================================================
+
+otp_14145(suite) ->
+    [];
+otp_14145(Config) when is_list(Config) ->
+    put(tname, otp14145),
+    p("starting with Config: ~p~n", [Config]),
+
+    Dir     = ?config(case_top_dir, Config),
+    MibDir  = ?config(mib_dir,      Config),
+    MibName = "OTP14145-MIB",
+    MibFile = join(MibDir, MibName++".mib"),
+    ?line {ok, MibBin} =
+	snmpc:compile(MibFile, [{outdir, Dir},
+				{verbosity, trace},
+				{group_check, false},
+				module_compliance]),
+    p("Mib: ~n~p~n", [MibBin]),
+    MIB = read_mib(MibBin),
+    Oid = [1,3,6,1,2,1,67,4],
+    check_mib(MIB#mib.mes, Oid, undefined),
+    ok.
+
+
+%%======================================================================
+
+otp_13014(suite) ->
+    [];
+otp_13014(Config) when is_list(Config) ->
+    put(tname, otp13014),
+    p("starting with Config: ~p~n", [Config]),
+
+    Dir     = ?config(case_top_dir, Config),
+    MibDir  = ?config(mib_dir,      Config),
+    MibName = "Test-LLDP-MIB",
+    MibFile = join(MibDir, MibName++".mib"),
+    ?line {ok, MibBin} =
+	snmpc:compile(MibFile, [{outdir, Dir},
+				{verbosity, log},
+				{group_check, false},
+				module_compliance]),
+    p("Mib: ~n~p~n", [MibBin]),
+    #mib{mes = MEs} = read_mib(MibBin),
+    Oid = [1,0,8802,1,1,2,1,1,7],
+    #me{
+       entrytype = table,
+       aliasname = lldpConfigManAddrTable,
+       assocList = [{table_info,TableInfo}]} =
+        lists:keyfind(Oid, #me.oid, MEs),
+    #table_info{
+       nbr_of_cols = 1,
+       first_accessible = 1,
+       not_accessible = [],
+       index_types = {augments,{lldpLocManAddrEntry,undefined}}} =
+        TableInfo,
+    ok.
+
+%%======================================================================
+
+otp_14196(suite) ->
+    [];
+otp_14196(Config) when is_list(Config) ->
+    put(tname, otp14196),
+    p("starting with Config: ~p~n", [Config]),
+
+    Dir     = ?config(case_top_dir, Config),
+    MibDir  = ?config(mib_dir,      Config),
+    MibFile = join(MibDir, "OTP14196-MIB.mib"),
+    ?line {ok, Mib} =
+	snmpc:compile(MibFile, [{outdir, Dir}, {verbosity, trace}]),
+    p("Mib: ~n~p~n", [Mib]),
     ok.
 
 

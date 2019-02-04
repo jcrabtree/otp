@@ -1,26 +1,31 @@
 %% ========================== -*-Erlang-*- =============================
 %% EDoc type specification grammar for the Yecc parser generator,
-%% adapted from Sven-Olof Nyström's type specification parser.
+%% adapted from Sven-Olof NystrÃ¶m's type specification parser.
 %%
 %% Also contains entry points for parsing things like typedefs,
 %% references, and throws-declarations.
 %%
 %% Copyright (C) 2002-2005 Richard Carlsson
 %%
-%% This library is free software; you can redistribute it and/or modify
-%% it under the terms of the GNU Lesser General Public License as
-%% published by the Free Software Foundation; either version 2 of the
-%% License, or (at your option) any later version.
+%% Licensed under the Apache License, Version 2.0 (the "License"); you may
+%% not use this file except in compliance with the License. You may obtain
+%% a copy of the License at <http://www.apache.org/licenses/LICENSE-2.0>
 %%
-%% This library is distributed in the hope that it will be useful, but
-%% WITHOUT ANY WARRANTY; without even the implied warranty of
-%% MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-%% Lesser General Public License for more details.
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
-%% You should have received a copy of the GNU Lesser General Public
-%% License along with this library; if not, write to the Free Software
-%% Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307
-%% USA
+%% Alternatively, you may use this file under the terms of the GNU Lesser
+%% General Public License (the "LGPL") as published by the Free Software
+%% Foundation; either version 2.1, or (at your option) any later version.
+%% If you wish to allow use of your version of this file only under the
+%% terms of the LGPL, you should delete the provisions above and replace
+%% them with the notice and other provisions required by the LGPL; see
+%% <http://www.gnu.org/licenses/>. If you do not delete the provisions
+%% above, a recipient may use your version of this file under the terms of
+%% either the Apache License or the LGPL.
 %%
 %% Author contact: carlsson.richard@gmail.com
 %% =====================================================================
@@ -28,15 +33,16 @@
 Nonterminals
 start spec func_type utype_list utype_tuple utypes utype ptypes ptype
 nutype function_name where_defs defs defs2 def typedef etype
-throws qname ref aref mref lref pref var_list vars fields field
+throws qname ref aref mref lref var_list vars fields field
+utype_map utype_map_fields utype_map_field
 futype_list bin_base_type bin_unit_type.
 
 Terminals
 atom float integer var an_var string start_spec start_typedef start_throws
 start_ref
 
-'(' ')' ',' '.' '->' '{' '}' '[' ']' '|' '+' ':' '::' '=' '/' '//' '*'
-'#' 'where' '<<' '>>' '..' '...'.
+'(' ')' ',' '.' '=>' ':=' '->' '{' '}' '[' ']' '|' '+' ':' '::' '=' '/' '//'
+'*' '#' 'where' '<<' '>>' '..' '...'.
 
 Rootsymbol start.
 
@@ -69,6 +75,19 @@ utype_list -> '(' utypes ')' : {lists:reverse('$2'), tok_line('$1')}.
 futype_list -> utype_list : '$1'.
 futype_list -> '(' '...' ')' : {[#t_var{name = '...'}], tok_line('$1')}.
 
+utype_map -> '#' '{' utype_map_fields '}' : lists:reverse('$3').
+
+utype_map_fields -> '$empty' : [].
+utype_map_fields -> utype_map_field : ['$1'].
+utype_map_fields -> utype_map_fields ',' utype_map_field : ['$3' | '$1'].
+
+utype_map_field -> utype '=>' utype : #t_map_field{assoc_type = assoc,
+                                                   k_type = '$1',
+                                                   v_type = '$3'}.
+utype_map_field -> utype ':=' utype : #t_map_field{assoc_type = exact,
+                                                   k_type = '$1',
+                                                   v_type = '$3'}.
+
 utype_tuple -> '{' utypes '}' : lists:reverse('$2').
 
 %% Produced in reverse order.
@@ -91,18 +110,17 @@ ptype -> var : #t_var{name = tok_val('$1')}.
 ptype -> atom : #t_atom{val = tok_val('$1')}.
 ptype -> integer: #t_integer{val = tok_val('$1')}.
 ptype -> integer '..' integer: #t_integer_range{from = tok_val('$1'),
-                                                   to = tok_val('$3')}.
+                                                  to = tok_val('$3')}.
 ptype -> float: #t_float{val = tok_val('$1')}.
 ptype -> utype_tuple : #t_tuple{types = '$1'}.
+ptype -> utype_map : #t_map{types = '$1'}.
 ptype -> '[' ']' : #t_nil{}.
 ptype -> '[' utype ']' : #t_list{type = '$2'}.
 ptype -> '[' utype ',' '...' ']' : #t_nonempty_list{type = '$2'}.
 ptype -> utype_list:
 	if length(element(1, '$1')) == 1 ->
 		%% there must be exactly one utype in the list
-		hd(element(1, '$1'));
-                %% Replace last line when releasing next major release:
-                %% #t_paren{type = hd(element(1, '$1'))};
+                #t_paren{type = hd(element(1, '$1'))};
 	   length(element(1, '$1')) == 0 ->
 		return_error(element(2, '$1'), "syntax error before: ')'");
 	   true ->
@@ -199,13 +217,10 @@ typedef -> atom var_list '=' utype where_defs:
 ref -> aref: '$1'.
 ref -> mref: '$1'.
 ref -> lref: '$1'.
-ref -> pref: '$1'.
 
 aref -> '//' atom:
     edoc_refs:app(tok_val('$2')).
 aref -> '//' atom '/' mref:
-    edoc_refs:app(tok_val('$2'), '$4').
-aref -> '//' atom '/' pref:
     edoc_refs:app(tok_val('$2'), '$4').
 
 mref -> qname ':' atom '/' integer:
@@ -214,9 +229,6 @@ mref -> qname ':' atom '(' ')':
     edoc_refs:type(qname('$1'), tok_val('$3')).
 mref -> qname:
     edoc_refs:module(qname('$1')).
-
-pref -> qname '.' '*':
-    edoc_refs:package(qname('$1')).
 
 lref -> atom '/' integer:
     edoc_refs:function(tok_val('$1'), tok_val('$3')).
@@ -231,57 +243,36 @@ throws -> etype where_defs:
 	#t_throws{type = '$1',
 		  defs = '$2'}.
 
-%% (commented out for now)
-%% Header
-%% "%% ========================== -*-Erlang-*- ============================="
-%% "%% EDoc function specification parser, generated from the file"
-%% "%% \"edoc_parser.yrl\" by the Yecc parser generator."
-%% "%%"
-%% "%% Copyright (C) 2002-2005 Richard Carlsson"
-%% "%%"
-%% "%% This library is free software; you can redistribute it and/or modify"
-%% "%% it under the terms of the GNU Lesser General Public License as"
-%% "%% published by the Free Software Foundation; either version 2 of the"
-%% "%% License, or (at your option) any later version."
-%% "%%"
-%% "%% This library is distributed in the hope that it will be useful, but"
-%% "%% WITHOUT ANY WARRANTY; without even the implied warranty of"
-%% "%% MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU"
-%% "%% Lesser General Public License for more details."
-%% "%%"
-%% "%% You should have received a copy of the GNU Lesser General Public"
-%% "%% License along with this library; if not, write to the Free Software"
-%% "%% Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307"
-%% "%% USA"
-%% "%%"
-%% "%% @private"
-%% "%% @author Richard Carlsson <carlsson.richard@gmail.com>"
-%% "%% ===================================================================="
-%% .
+Header
+"%% EDoc function specification parser, generated from the file"
+"%% \"edoc_parser.yrl\" by the Yecc parser generator."
+"%%"
+"%% Licensed under the Apache License, Version 2.0 (the \"License\"); you may"
+"%% not use this file except in compliance with the License. You may obtain"
+"%% a copy of the License at <http://www.apache.org/licenses/LICENSE-2.0>"
+"%%"
+"%% Unless required by applicable law or agreed to in writing, software"
+"%% distributed under the License is distributed on an \"AS IS\" BASIS,"
+"%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied."
+"%% See the License for the specific language governing permissions and"
+"%% limitations under the License."
+"%%"
+"%% Alternatively, you may use this file under the terms of the GNU Lesser"
+"%% General Public License (the \"LGPL\") as published by the Free Software"
+"%% Foundation; either version 2.1, or (at your option) any later version."
+"%% If you wish to allow use of your version of this file only under the"
+"%% terms of the LGPL, you should delete the provisions above and replace"
+"%% them with the notice and other provisions required by the LGPL; see"
+"%% <http://www.gnu.org/licenses/>. If you do not delete the provisions"
+"%% above, a recipient may use your version of this file under the terms of"
+"%% either the Apache License or the LGPL."
+"%%"
+"%% @private"
+"%% @copyright 2002-2005 Richard Carlsson"
+"%% @author Richard Carlsson <carlsson.richard@gmail.com>"
+"".
 
 Erlang code.
-
-%% ========================== -*-Erlang-*- =============================
-%% EDoc function specification parser, generated from the file
-%% "edoc_parser.yrl" by the Yecc parser generator.
-%%
-%% Copyright (C) 2002-2005 Richard Carlsson
-%%
-%% This library is free software; you can redistribute it and/or modify
-%% it under the terms of the GNU Lesser General Public License as
-%% published by the Free Software Foundation; either version 2 of the
-%% License, or (at your option) any later version.
-%%
-%% This library is distributed in the hope that it will be useful, but
-%% WITHOUT ANY WARRANTY; without even the implied warranty of
-%% MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-%% Lesser General Public License for more details.
-%%
-%% You should have received a copy of the GNU Lesser General Public
-%% License along with this library; if not, write to the Free Software
-%% Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307
-%% USA
-%% ====================================================================
 
 -export([parse_spec/2, parse_typedef/2, parse_throws/2, parse_ref/2,
 	 parse_see/2, parse_param/2]).
@@ -319,10 +310,7 @@ tok_val(T) -> element(3, T).
 
 tok_line(T) -> element(2, T).
 
-qname([A]) ->
-    A;    % avoid unnecessary call to packages:concat/1.
-qname(List) ->
-    list_to_atom(packages:concat(lists:reverse(List))).
+qname([A]) -> A.
 
 union(Ts) ->
     case Ts of
@@ -339,7 +327,7 @@ build_def(S, P, As, T) ->
                                   args = lists:reverse(As)},
                    type = T};
         false ->
-            return_error(element(2, P), "variable expected after '('")
+            return_error(tok_line(P), "variable expected after '('")
     end.
 
 all_vars([#t_var{} | As]) ->
@@ -394,7 +382,7 @@ parse_typedef_1(S, L) ->
 
 %% @doc Parses a <a
 %% href="overview-summary.html#References">reference</a> to a module,
-%% package, function, type, or application
+%% function, type, or application
 
 parse_ref(S, L) ->
     case edoc_scanner:string(S, L) of
@@ -453,7 +441,7 @@ parse_throws(S, L) ->
 
 %% ---------------------------------------------------------------------
 
--spec throw_error(term(), erl_scan:line()) -> no_return().
+-spec throw_error(term(), erl_anno:line()) -> no_return().
 
 throw_error({parse_spec, E}, L) ->
     throw_error({"specification", E}, L);
@@ -466,4 +454,6 @@ throw_error({parse_throws, E}, L) ->
 throw_error(parse_param, L) ->
     throw({error, L, "missing parameter name"});
 throw_error({Where, E}, L) when is_list(Where) ->
-    throw({error,L,{"unknown error parsing ~s: ~P.",[Where,E,15]}}).
+    throw({error,L,{"unknown error parsing ~ts: ~P.",[Where,E,15]}}).
+
+%% vim: ft=erlang

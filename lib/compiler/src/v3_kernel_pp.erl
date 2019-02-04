@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1999-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1999-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -46,7 +47,7 @@
 
 canno(Cthing) -> element(2, Cthing).
 
--spec format(cerl:cerl()) -> iolist().
+-spec format(#k_mdef{}) -> iolist().
 
 format(Node) -> format(Node, #ctxt{}).
 
@@ -104,6 +105,30 @@ format_1(#k_tuple{es=Es}, Ctxt) ->
      format_hseq(Es, ",", ctxt_bump_indent(Ctxt, 1), fun format/2),
      $}
     ];
+format_1(#k_map{var=#k_literal{val=M},op=assoc,es=Es}, Ctxt) when is_map(M), map_size(M) =:= 0 ->
+    ["~{",
+     format_hseq(Es, ",", ctxt_bump_indent(Ctxt, 1), fun format/2),
+     "}~"
+    ];
+format_1(#k_map{var=#k_literal{val=M},op=exact,es=Es}, Ctxt) when is_map(M), map_size(M) =:= 0 ->
+    ["::{",
+     format_hseq(Es, ",", ctxt_bump_indent(Ctxt, 1), fun format/2),
+     "}::"
+    ];
+format_1(#k_map{var=Var,op=assoc,es=Es}, Ctxt) ->
+    ["~{",
+     format_hseq(Es, ",", ctxt_bump_indent(Ctxt, 1), fun format/2),
+     " | ",format_1(Var, Ctxt),
+     "}~"
+    ];
+format_1(#k_map{var=Var,op=exact,es=Es}, Ctxt) ->
+    ["::{",
+     format_hseq(Es, ",", ctxt_bump_indent(Ctxt, 1), fun format/2),
+     " | ",format_1(Var, Ctxt),
+     "}::"
+    ];
+format_1(#k_map_pair{key=K,val=V}, Ctxt) ->
+    ["<",format(K, Ctxt),",",format(V, Ctxt),">"];
 format_1(#k_binary{segs=S}, Ctxt) ->
     ["#<",format(S, ctxt_bump_indent(Ctxt, 2)),">#"];
 format_1(#k_bin_seg{next=Next}=S, Ctxt) ->
@@ -120,7 +145,7 @@ format_1(#k_local{name=N,arity=A}, Ctxt) ->
     "local " ++ format_fa_pair({N,A}, Ctxt);
 format_1(#k_remote{mod=M,name=N,arity=A}, _Ctxt) ->
     %% This is for our internal translator.
-    io_lib:format("remote ~s:~s/~w", [format(M),format(N),A]);
+    io_lib:format("remote ~ts:~ts/~w", [format(M),format(N),A]);
 format_1(#k_internal{name=N,arity=A}, Ctxt) ->
     "internal " ++ format_fa_pair({N,A}, Ctxt);
 format_1(#k_seq{arg=A,body=B}, Ctxt) ->
@@ -210,15 +235,20 @@ format_1(#k_bif{op=Op,args=As,ret=Rs}, Ctxt) ->
     [Txt,format_args(As, Ctxt1),
      format_ret(Rs, Ctxt1)
     ];
-format_1(#k_test{op=Op,args=As}, Ctxt) ->
-    Txt = ["test (",format(Op, ctxt_bump_indent(Ctxt, 6)),$)],
+format_1(#k_test{op=Op,args=As,inverted=Inverted}, Ctxt) ->
+    Txt = case Inverted of
+	      false ->
+		  ["test (",format(Op, ctxt_bump_indent(Ctxt, 6)),$)];
+	      true ->
+		  ["inverted_test (",format(Op, ctxt_bump_indent(Ctxt, 6)),$)]
+	  end,
     Ctxt1 = ctxt_bump_indent(Ctxt, 2),
     [Txt,format_args(As, Ctxt1)];
 format_1(#k_put{arg=A,ret=Rs}, Ctxt) ->
     [format(A, Ctxt),
      format_ret(Rs, ctxt_bump_indent(Ctxt, 1))
     ];
-format_1(#k_try{arg=A,vars=Vs,body=B,evars=Evs,handler=H}, Ctxt) ->
+format_1(#k_try{arg=A,vars=Vs,body=B,evars=Evs,handler=H,ret=Rs}, Ctxt) ->
     Ctxt1 = ctxt_bump_indent(Ctxt, Ctxt#ctxt.body_indent),
     ["try",
      nl_indent(Ctxt1),
@@ -234,7 +264,8 @@ format_1(#k_try{arg=A,vars=Vs,body=B,evars=Evs,handler=H}, Ctxt) ->
      nl_indent(Ctxt1),
      format(H, Ctxt1),
      nl_indent(Ctxt),
-     "end"
+     "end",
+     format_ret(Rs, Ctxt)
     ];
 format_1(#k_try_enter{arg=A,vars=Vs,body=B,evars=Evs,handler=H}, Ctxt) ->
     Ctxt1 = ctxt_bump_indent(Ctxt, Ctxt#ctxt.body_indent),
@@ -253,6 +284,15 @@ format_1(#k_try_enter{arg=A,vars=Vs,body=B,evars=Evs,handler=H}, Ctxt) ->
      format(H, Ctxt1),
      nl_indent(Ctxt),
      "end"
+    ];
+format_1(#k_protected{arg=A,ret=Rs}, Ctxt) ->
+    Ctxt1 = ctxt_bump_indent(Ctxt, Ctxt#ctxt.body_indent),
+    ["protected",
+     nl_indent(Ctxt1),
+     format(A, Ctxt1),
+     nl_indent(Ctxt),
+     "end",
+     format_ret(Rs, ctxt_bump_indent(Ctxt, 1))
     ];
 format_1(#k_catch{body=B,ret=Rs}, Ctxt) ->
     Ctxt1 = ctxt_bump_indent(Ctxt, Ctxt#ctxt.body_indent),
@@ -452,7 +492,7 @@ indent(Ctxt) -> indent(Ctxt#ctxt.indent, Ctxt).
 indent(N, _Ctxt) when N =< 0 -> "";
 indent(N, Ctxt) ->
     T = Ctxt#ctxt.tab_width,
-    string:chars($\t, N div T, string:chars($\s, N rem T)).
+    lists:duplicate(N div T, $\t) ++ lists:duplicate(N rem T, $\s).
 
 nl_indent(Ctxt) -> [$\n|indent(Ctxt)].
 
@@ -469,7 +509,7 @@ unindent([$\t|T], N, Ctxt, C) ->
     if N >= Tab ->
 	    unindent(T, N - Tab, Ctxt, C);
        true ->
-	    unindent([string:chars($\s, Tab - N)|T], 0, Ctxt, C)
+            unindent([lists:duplicate(Tab - N, $\s)|T], 0, Ctxt, C)
     end;
 unindent([L|T], N, Ctxt, C) when is_list(L) ->
     unindent(L, N, Ctxt, [T|C]);

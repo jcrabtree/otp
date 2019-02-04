@@ -1,30 +1,31 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2006-2009. All Rights Reserved.
+%% Copyright Ericsson AB 2006-2018. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
 
-%%% @doc Common Test Framework Event Handler
+%%% doc Common Test Framework Event Handler
 %%%
-%%% <p>This module implements an event handler that CT uses to
+%%% This module implements an event handler that CT uses to
 %%% handle status and progress notifications during test runs.
 %%% The notifications are handled locally (per node) and passed
 %%% on to ct_master when CT runs in distributed mode. This
 %%% module may be used as a template for other event handlers
-%%% that can be plugged in to handle local logging and reporting.</p>
+%%% that can be plugged in to handle local logging and reporting.
 -module(ct_event).
 
 -behaviour(gen_event).
@@ -136,6 +137,7 @@ is_alive() ->
 %% this function is called to initialize the event handler.
 %%--------------------------------------------------------------------
 init(RecvPids) ->
+    ct_util:mark_process(),
     %% RecvPids = [{RecvTag,Pid}]
     {ok,#state{receivers=RecvPids}}.
 
@@ -150,7 +152,7 @@ init(RecvPids) ->
 %%--------------------------------------------------------------------
 handle_event(Event,State=#state{receivers=RecvPids}) ->
     print("~n=== ~w ===~n", [?MODULE]),
-    print("~p: ~p~n", [Event#event.name,Event#event.data]),
+    print("~tw: ~tw~n", [Event#event.name,Event#event.data]),
     lists:foreach(fun(Recv) -> report_event(Recv,Event) end, RecvPids),
     {ok,State}.
 
@@ -259,8 +261,8 @@ handle_info(_Info, State) ->
     {ok, State}.
 
 %%--------------------------------------------------------------------
-%% Function: terminate(Reason, State) -> void()
-%% Description:Whenever an event handler is deleted from an event manager,
+%% Function: terminate(Reason, State) -> ok
+%% Description: Whenever an event handler is deleted from an event manager,
 %% this function is called. It should be the opposite of Module:init/1 and 
 %% do any necessary cleaning up. 
 %%--------------------------------------------------------------------

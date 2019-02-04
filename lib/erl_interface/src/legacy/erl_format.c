@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  * 
- * Copyright Ericsson AB 1996-2011. All Rights Reserved.
+ * Copyright Ericsson AB 1996-2016. All Rights Reserved.
  * 
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
- * 
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  * 
  * %CopyrightEnd%
  */
@@ -574,10 +575,22 @@ static int ematch(ETERM *p, ETERM *t)
 
   switch (type_p) {
 
-  case ERL_ATOM:
-    return p->uval.aval.len == t->uval.aval.len &&
-      memcmp(p->uval.aval.a, t->uval.aval.a, p->uval.aval.len) == 0;
-	
+  case ERL_ATOM: {
+      Erl_Atom_data* pa = &p->uval.aval.d;
+      Erl_Atom_data* ta = &t->uval.aval.d;
+      if (pa->utf8 && ta->utf8) {
+	  return pa->lenU == ta->lenU && memcmp(pa->utf8, ta->utf8, pa->lenU)==0; 
+      }
+      else if (pa->latin1 && ta->latin1) {
+	  return pa->lenL == ta->lenL && memcmp(pa->latin1, ta->latin1, pa->lenL)==0; 
+      }
+      else if (pa->latin1) {
+	  return cmp_latin1_vs_utf8(pa->latin1, pa->lenL, ta->utf8, ta->lenU)==0;
+      }
+      else {
+	  return cmp_latin1_vs_utf8(ta->latin1, ta->lenL, pa->utf8, pa->lenU)==0;
+      }
+  }
   case ERL_VARIABLE:
     if (strcmp(p->uval.vval.name, "_") == 0) /* anon. variable */
       return ERL_TRUE;

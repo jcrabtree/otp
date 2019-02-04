@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1997-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2018. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -26,7 +27,7 @@
 -include("inet_int.hrl").
 
 -type option() ::
-        {active,          true | false | once} |
+        {active,          true | false | once | -32768..32767} |
         {add_membership,  {inet:ip_address(), inet:ip_address()}} |
         {broadcast,       boolean()} |
         {buffer,          non_neg_integer()} |
@@ -34,6 +35,8 @@
         {dontroute,       boolean()} |
         {drop_membership, {inet:ip_address(), inet:ip_address()}} |
         {header,          non_neg_integer()} |
+        {high_msgq_watermark, pos_integer()} |
+        {low_msgq_watermark, pos_integer()} |
         {mode,            list | binary} | list | binary |
         {multicast_if,    inet:ip_address()} |
         {multicast_loop,  boolean()} |
@@ -47,7 +50,13 @@
         {recbuf,          non_neg_integer()} |
         {reuseaddr,       boolean()} |
         {sndbuf,          non_neg_integer()} |
-        {tos,             non_neg_integer()}.
+        {tos,             non_neg_integer()} |
+        {tclass,          non_neg_integer()} |
+        {ttl,             non_neg_integer()} |
+	{recvtos,         boolean()} |
+	{recvtclass,      boolean()} |
+	{recvttl,         boolean()} |
+	{ipv6_v6only,     boolean()}.
 -type option_name() ::
         active |
         broadcast |
@@ -55,6 +64,8 @@
         deliver |
         dontroute |
         header |
+        high_msgq_watermark |
+        low_msgq_watermark |
         mode |
         multicast_if |
         multicast_loop |
@@ -69,10 +80,17 @@
         recbuf |
         reuseaddr |
         sndbuf |
-        tos.
+        tos |
+        tclass |
+        ttl |
+        recvtos |
+        recvtclass |
+        recvttl |
+        pktoptions |
+	ipv6_v6only.
 -type socket() :: port().
 
--export_type([option/0, option_name/0]).
+-export_type([option/0, option_name/0, socket/0]).
 
 -spec open(Port) -> {ok, Socket} | {error, Reason} when
       Port :: inet:port_number(),
@@ -85,18 +103,20 @@ open(Port) ->
 -spec open(Port, Opts) -> {ok, Socket} | {error, Reason} when
       Port :: inet:port_number(),
       Opts :: [Option],
-      Option :: {ip, inet:ip_address()}
+      Option :: {ip, inet:socket_address()}
               | {fd, non_neg_integer()}
-              | {ifaddr, inet:ip_address()}
+              | {ifaddr, inet:socket_address()}
               | inet:address_family()
               | {port, inet:port_number()}
+              | {netns, file:filename_all()}
+              | {bind_to_device, binary()}
               | option(),
       Socket :: socket(),
       Reason :: inet:posix().
 
-open(Port, Opts) ->
-    Mod = mod(Opts, undefined),
-    {ok,UP} = Mod:getserv(Port),
+open(Port, Opts0) ->
+    {Mod, Opts} = inet:udp_module(Opts0),
+    {ok, UP} = Mod:getserv(Port),
     Mod:open(UP, Opts).
 
 -spec close(Socket) -> ok when
@@ -107,7 +127,7 @@ close(S) ->
 
 -spec send(Socket, Address, Port, Packet) -> ok | {error, Reason} when
       Socket :: socket(),
-      Address :: inet:ip_address() | inet:hostname(),
+      Address :: inet:socket_address() | inet:hostname(),
       Port :: inet:port_number(),
       Packet :: iodata(),
       Reason :: not_owner | inet:posix().
@@ -138,11 +158,13 @@ send(S, Packet) when is_port(S) ->
     end.
 
 -spec recv(Socket, Length) ->
-                  {ok, {Address, Port, Packet}} | {error, Reason} when
+                  {ok, RecvData} | {error, Reason} when
       Socket :: socket(),
       Length :: non_neg_integer(),
-      Address :: inet:ip_address(),
+      RecvData :: {Address, Port, Packet} | {Address, Port, AncData, Packet},
+      Address :: inet:ip_address() | inet:returned_non_ip_address(),
       Port :: inet:port_number(),
+      AncData :: inet:ancillary_data(),
       Packet :: string() | binary(),
       Reason :: not_owner | inet:posix().
 
@@ -155,12 +177,14 @@ recv(S,Len) when is_port(S), is_integer(Len) ->
     end.
 
 -spec recv(Socket, Length, Timeout) ->
-                  {ok, {Address, Port, Packet}} | {error, Reason} when
+                  {ok, RecvData} | {error, Reason} when
       Socket :: socket(),
       Length :: non_neg_integer(),
       Timeout :: timeout(),
-      Address :: inet:ip_address(),
+      RecvData :: {Address, Port, Packet} | {Address, Port, AncData, Packet},
+      Address :: inet:ip_address() | inet:returned_non_ip_address(),
       Port :: inet:port_number(),
+      AncData :: inet:ancillary_data(),
       Packet :: string() | binary(),
       Reason :: not_owner | inet:posix().
 
@@ -188,7 +212,7 @@ connect(S, Address, Port) when is_port(S) ->
 -spec controlling_process(Socket, Pid) -> ok | {error, Reason} when
       Socket :: socket(),
       Pid :: pid(),
-      Reason :: closed | not_owner | inet:posix().
+      Reason :: closed | not_owner | badarg | inet:posix().
 
 controlling_process(S, NewOwner) ->
     inet:udp_controlling_process(S, NewOwner).
@@ -196,32 +220,6 @@ controlling_process(S, NewOwner) ->
 %%
 %% Create a port/socket from a file descriptor 
 %%
-fdopen(Fd, Opts) ->
-    Mod = mod(Opts, undefined),
+fdopen(Fd, Opts0) ->
+    {Mod,Opts} = inet:udp_module(Opts0),
     Mod:fdopen(Fd, Opts).
-
-
-%% Get the udp_module, but IPv6 address overrides default IPv4
-mod(Address) ->
-    case inet_db:udp_module() of
-	inet_udp when tuple_size(Address) =:= 8 ->
-	    inet6_udp;
-	Mod ->
-	    Mod
-    end.
-
-%% Get the udp_module, but option udp_module|inet|inet6 overrides
-mod([{udp_module,Mod}|_], _Address) ->
-    Mod;
-mod([inet|_], _Address) ->
-    inet_udp;
-mod([inet6|_], _Address) ->
-    inet6_udp;
-mod([{ip, Address}|Opts], _) ->
-    mod(Opts, Address);
-mod([{ifaddr, Address}|Opts], _) ->
-    mod(Opts, Address);
-mod([_|Opts], Address) ->
-    mod(Opts, Address);
-mod([], Address) ->
-    mod(Address).

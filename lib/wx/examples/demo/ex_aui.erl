@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2009-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2009-2018. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 
@@ -32,7 +33,8 @@
 -record(state, 
 	{
 	  parent,
-	  config
+	  config,
+	  aui
 	}).
 
 start(Config) ->
@@ -45,48 +47,65 @@ init(Config) ->
 -define(pi, wxAuiPaneInfo).
 
 do_init(Config) ->
-    Parent = proplists:get_value(parent, Config),  
+    Parent = proplists:get_value(parent, Config),
     Panel = wxPanel:new(Parent, []),
-
     %% Setup sizers
     MainSizer = wxBoxSizer:new(?wxVERTICAL),
 
-    Manager = wxAuiManager:new([{managed_wnd, Panel}
-				]),
+    Manager = wxAuiManager:new([{managed_wnd, Panel}]),
+    try
+	Art = wxAuiManager:getArtProvider(Manager),
+	wxAuiDockArt:setColour(Art, ?wxAUI_DOCKART_BACKGROUND_COLOUR, {200, 100, 100}),
+	wxAuiDockArt:setColour(Art, ?wxAUI_DOCKART_ACTIVE_CAPTION_COLOUR, {200, 100, 100}),
+	wxAuiDockArt:setColour(Art, ?wxAUI_DOCKART_INACTIVE_CAPTION_COLOUR, {100, 200, 100}),
 
-    Pane = ?pi:new(),
-    ?pi:closeButton(Pane),
-    ?pi:right(Pane),
-    ?pi:dockable(Pane, [{b, true}]),
-    ?pi:floatingSize(Pane, 300,200),
-    ?pi:minSize(Pane, {50,50}),
-    ?pi:paneBorder(Pane),
-    ?pi:floatable(Pane, [{b, true}]),
 
-    create_pane(Panel, Manager, Pane),
-    create_pane(Panel, Manager,
-		?pi:caption(?pi:top(?pi:new(Pane)), "One")),
-    create_pane(Panel, Manager,
-		?pi:caption(?pi:left(?pi:new(Pane)), "two")),
-    create_pane(Panel, Manager,
-		?pi:caption(?pi:bottom(?pi:new(Pane)), "Three")),
-    Pane2 = wxAuiPaneInfo:new(Pane),
-    ?pi:centrePane(Pane2),
-    create_notebook(Panel, Manager, ?pi:new(Pane2)),
+	Pane = ?pi:new(),
+	?pi:closeButton(Pane),
+	?pi:right(Pane),
+	?pi:dockable(Pane, [{b, true}]),
+	?pi:floatingSize(Pane, 300,200),
+	?pi:minSize(Pane, {50,50}),
+	?pi:paneBorder(Pane),
+	?pi:floatable(Pane, [{b, true}]),
 
-    wxPanel:setSizer(Panel, MainSizer),
+	create_pane(Panel, Manager, Pane),
+	create_pane(Panel, Manager,
+		    ?pi:caption(?pi:top(?pi:new(Pane)), "One")),
+	create_pane(Panel, Manager,
+		    ?pi:caption(?pi:left(?pi:new(Pane)), "two")),
+	create_pane(Panel, Manager,
+		    ?pi:caption(?pi:bottom(?pi:new(Pane)), "Three")),
+	Pane2 = wxAuiPaneInfo:new(Pane),
+	?pi:centrePane(Pane2),
+	create_notebook(Panel, Manager, ?pi:new(Pane2)),
 
-    wxAuiManager:connect(Manager, aui_pane_button, [{skip,true}]),
-    wxAuiManager:connect(Manager, aui_pane_maximize, [{skip,true}]),
-    wxAuiManager:update(Manager),
+	wxPanel:setSizer(Panel, MainSizer),
 
-    {Panel, #state{parent=Panel, config=Config}}.
+	wxAuiManager:connect(Manager, aui_pane_button, [{skip,true}]),
+	wxAuiManager:connect(Manager, aui_pane_maximize, [{skip,true}]),
+	wxAuiManager:update(Manager),
+	process_flag(trap_exit, true),
+	{Panel, #state{parent=Panel, config=Config, aui=Manager}}
+    catch Class:Reason:ST ->
+	    io:format("AUI Crashed ~p ~p~n",[Reason, ST]),
+	    wxAuiManager:unInit(Manager),
+	    wxAuiManager:destroy(Manager),
+	    wxPanel:destroy(Panel),
+	    erlang:raise(Class, Reason, ST)
+    end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Callbacks handled as normal gen_server callbacks
 handle_info(Msg, State) ->
     demo:format(State#state.config, "Got Info ~p\n", [Msg]),
     {noreply, State}.
+
+handle_call(shutdown, _From, State=#state{parent=Panel, aui=Manager}) ->
+    wxAuiManager:unInit(Manager),
+    wxAuiManager:destroy(Manager),
+    wxPanel:destroy(Panel),
+    {stop, normal, ok, State};
 
 handle_call(Msg, _From, State) ->
     demo:format(State#state.config, "Got Call ~p\n", [Msg]),
@@ -134,11 +153,10 @@ handle_event(Ev = #wx{}, State) ->
     io:format("~p\n", [Ev]),
     {noreply, State}.
 
-
 code_change(_, _, State) ->
     {stop, ignore, State}.
 
-terminate(_Reason, _State) ->
+terminate(_Reason, _) ->
     ok.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -157,6 +175,15 @@ create_notebook(Parent, Manager, Pane) ->
 	    ),
     
     Notebook = wxAuiNotebook:new(Parent, [{style, Style}]),
+
+    Art = wxAuiSimpleTabArt:new(),
+    case ?wxMAJOR_VERSION > 2 of
+	true ->
+	    wxAuiSimpleTabArt:setColour(Art, {200, 0, 0}),
+	    wxAuiSimpleTabArt:setActiveColour(Art, {0, 0, 200});
+	false -> ignore
+    end,
+    ok = wxAuiNotebook:setArtProvider(Notebook, Art),
 
     Tab1 = wxPanel:new(Notebook, []),
     wxPanel:setBackgroundColour(Tab1, ?wxBLACK),

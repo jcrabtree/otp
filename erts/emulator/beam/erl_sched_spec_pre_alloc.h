@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2011. All Rights Reserved.
+ * Copyright Ericsson AB 2011-2018. All Rights Reserved.
  *
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  * %CopyrightEnd%
  */
@@ -30,7 +31,6 @@
 #ifndef ERTS_SCHED_SPEC_PRE_ALLOC_H__
 #define ERTS_SCHED_SPEC_PRE_ALLOC_H__
 
-#ifdef ERTS_SMP
 
 #undef ERL_THR_PROGRESS_TSD_TYPE_ONLY
 #define ERL_THR_PROGRESS_TSD_TYPE_ONLY
@@ -59,6 +59,11 @@ typedef struct {
     char *start;
     char *end;
     int chunks_mem_size;
+    int nthreads;
+
+    /* Used only by thread variant: */
+    erts_tsd_key_t tsd_key;
+    erts_atomic_t id_generator;
 } erts_sspa_data_t;
 
 typedef union erts_sspa_blk_t_ erts_sspa_blk_t;
@@ -140,7 +145,9 @@ check_local_list(erts_sspa_chunk_header_t *chdr)
 #endif
 
 erts_sspa_data_t *erts_sspa_create(size_t blk_sz,
-				   int pa_size);
+				   int pa_size,
+                                   int nthreads,
+                                   const char* name);
 void erts_sspa_remote_free(erts_sspa_chunk_header_t *chdr,
 			   erts_sspa_blk_t *blk,
 			   int cinit);
@@ -158,7 +165,7 @@ ERTS_GLB_INLINE int erts_sspa_free(erts_sspa_data_t *data, int cix, char *blk);
 ERTS_GLB_INLINE erts_sspa_chunk_t *
 erts_sspa_cix2chunk(erts_sspa_data_t *data, int cix)
 {
-    ASSERT(0 <= cix && cix < erts_no_schedulers);
+    ASSERT(0 <= cix && cix < data->nthreads);
     return (erts_sspa_chunk_t *) (data->start + cix*data->chunks_mem_size);
 }
 
@@ -171,7 +178,7 @@ erts_sspa_ptr2cix(erts_sspa_data_t *data, void *ptr)
 	return -1;
     diff = ((char *) ptr) - data->start;
     cix = (int) diff / data->chunks_mem_size;
-    ASSERT(0 <= cix && cix < erts_no_schedulers);
+    ASSERT(0 <= cix && cix < data->nthreads);
     return cix;
 }
 
@@ -181,6 +188,7 @@ erts_sspa_alloc(erts_sspa_data_t *data, int cix)
     erts_sspa_chunk_t *chnk;
     erts_sspa_chunk_header_t *chdr;
     erts_sspa_blk_t *res;
+    ERTS_MSACC_PUSH_AND_SET_STATE_M_X(ERTS_MSACC_STATE_ALLOC);
 
     chnk = erts_sspa_cix2chunk(data, cix);
     chdr = &chnk->aligned.header;
@@ -194,11 +202,15 @@ erts_sspa_alloc(erts_sspa_data_t *data, int cix)
 	    chdr->local.last = NULL;
 	ERTS_SSPA_DBG_CHK_LCL(chdr);
     }
-    if (chdr->local.cnt <= chdr->local.lim)
-	return (char *) erts_sspa_process_remote_frees(chdr, res);
+    if (chdr->local.cnt <= chdr->local.lim) {
+	res = erts_sspa_process_remote_frees(chdr, res);
+        ERTS_MSACC_POP_STATE_M_X();
+        return (char*) res;
+    }
     else if (chdr->head.no_thr_progress_check < ERTS_SSPA_FORCE_THR_CHECK_PROGRESS)
 	chdr->head.no_thr_progress_check++;
     ASSERT(res);
+    ERTS_MSACC_POP_STATE_M_X();
     return (char *) res;
 }
 
@@ -235,6 +247,5 @@ erts_sspa_free(erts_sspa_data_t *data, int cix, char *cblk)
 
 #endif /* ERTS_GLB_INLINE_INCL_FUNC_DEF */
 
-#endif /* ERTS_SMP */
 
 #endif /* ERTS_SCHED_SPEC_PRE_ALLOC_H__ */

@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2011-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2011-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -21,7 +22,8 @@
 -include_lib("common_test/include/ct.hrl").
 -include("test_lib.hrl").
 
--compile(export_all).
+-compile([export_all, nowarn_export_all]).
+-export([scheduler_wall_time/0, garbage_collect/0]). %% rpc'ed
 
 % Default timetrap timeout (set in init_per_testcase).
 %-define(default_timeout, ?t:minutes(40)).
@@ -35,7 +37,8 @@ init_per_suite(Config) ->
     application:start(sasl),
     Config.
 
-end_per_suite(_Config) ->
+end_per_suite(Config) ->
+    clean_priv_dir(Config,true),
     ok.
 
 all() -> 
@@ -50,9 +53,9 @@ unix_cases() ->
 		true ->  [{group, release}];
 		false -> [no_run_erl]
 	    end,
-    [target_system] ++ RunErlCases ++ cases().
+    [target_system, target_system_unicode] ++ RunErlCases ++ cases().
 
-win32_cases() -> 
+win32_cases() ->
     [{group,release} | cases()].
 
 %% Cases that can be run on all platforms
@@ -63,7 +66,8 @@ cases() ->
      instructions, eval_appup, eval_appup_with_restart,
      supervisor_which_children_timeout,
      release_handler_which_releases, install_release_syntax_check,
-     upgrade_supervisor, upgrade_supervisor_fail, otp_9864].
+     upgrade_supervisor, upgrade_supervisor_fail, otp_9864,
+     otp_10463_upgrade_script_regexp, no_dot_erlang, unicode_upgrade].
 
 groups() ->
     [{release,[],
@@ -86,11 +90,16 @@ groups() ->
 %% {group,release}
 %% Top group for all cases using run_erl
 init_per_group(release, Config) ->
-    Dog = ?t:timetrap(?default_timeout),
-    P1gInstall = filename:join(priv_dir(Config),p1g_install),
-    ok = create_p1g(Config,P1gInstall),
-    ok = create_p1h(Config),
-    ?t:timetrap_cancel(Dog);
+    case {os:type(), os:version()} of
+	{{win32, nt}, Vsn} when Vsn > {6,1,999999} ->
+	    {skip, "Requires admin privileges on Win 8 and later"};
+	_ ->
+	    Dog = ?t:timetrap(?default_timeout),
+	    P1gInstall = filename:join(priv_dir(Config),p1g_install),
+	    ok = create_p1g(Config,P1gInstall),
+	    ok = create_p1h(Config),
+	    ?t:timetrap_cancel(Dog)
+    end;
 
 %% {group,release_single}
 %% Subgroup of {group,release}, contains all cases that are not
@@ -162,7 +171,6 @@ end_per_group(release, Config) ->
 	{win32,_} -> delete_all_services();
 	_ -> ok
     end,
-    clean_priv_dir(Config,true),
     ?t:timetrap_cancel(Dog),
     Config;
 end_per_group(_GroupName, Config) ->
@@ -666,6 +674,9 @@ release_handler_which_releases(Conf) ->
 
     ok.
 
+release_handler_which_releases(cleanup,_Conf) ->
+    stop_node(node_name(release_handler_which_releases)).
+
 %%-----------------------------------------------------------------
 %% Ticket: OTP-2740
 %% Slogan: vsn not numeric doesn't work so good in release_handling
@@ -937,7 +948,7 @@ otp_9417(cleanup,_Conf) ->
 
 %% OTP-9395 - performance problems when there are MANY processes
 %% Test that the procedure of checking for old code before an upgrade
-%% can be started is "very much faster" when there is no old code in
+%% can be started is faster when there is no old code in
 %% the system.
 otp_9395_check_old_code(Conf) when is_list(Conf) ->
 
@@ -977,8 +988,8 @@ otp_9395_check_old_code(Conf) when is_list(Conf) ->
 		   "\tAfter purge: ~.2f sec~n"
 		   "\tT1/T2: ~.2f",
 		   [NProcs,length(Modules),T1/1000000,T2/1000000,X]),
-	    if X < 1000 ->
-		    ct:fail({not_enough_improvement_after_purge,round(X)});
+	    if X < 1 ->
+		    ct:fail({no_improvement_after_purge,X});
 	       true ->
 		    ok
 	    end;
@@ -1053,6 +1064,12 @@ otp_9395_check_and_purge(cleanup,_Conf) ->
 %% OTP-9395 - performance problems when there are MANY processes
 %% Upgrade which updates many modules (brutal_purge)
 otp_9395_update_many_mods(Conf) when is_list(Conf) ->
+
+    %% "nain" is very slow - it fails this test quite often due to a
+    %% long sys call
+    %% /proc/cpuinfo: "clock: 1249MHz"
+    inet:gethostname() == {ok,"nain"} andalso throw({skip,"slow test host"}),
+
     %% Set some paths
     PrivDir = priv_dir(Conf),
     Dir = filename:join(PrivDir,"otp_9395_update_many_mods"),
@@ -1069,8 +1086,9 @@ otp_9395_update_many_mods(Conf) when is_list(Conf) ->
     Rel2Dir = filename:dirname(Rel2),
 
     %% Start a slave node
+    PA = filename:dirname(code:which(?MODULE)),
     {ok, Node} = t_start_node(otp_9395_update_many_mods, Rel1,
-			      filename:join(Rel1Dir,"sys.config")),
+			      filename:join(Rel1Dir,"sys.config"), "-pa " ++ PA),
 
     %% Start a lot of processes on the new node, all with refs to each
     %% module that will be updated
@@ -1093,9 +1111,12 @@ otp_9395_update_many_mods(Conf) when is_list(Conf) ->
 		  [RelVsn2, filename:join(Rel2Dir, "sys.config")]),
 
     %% First, install release directly and check how much time it takes
+    rpc:call(Node,?MODULE,garbage_collect,[]),
+    SWTFlag0 = spawn_link(Node, ?MODULE, scheduler_wall_time, []),
     {TInst0,{ok, _, []}} =
 	timer:tc(rpc,call,[Node, release_handler, install_release, [RelVsn2]]),
-    ct:log("install_release: ~.2f",[TInst0/1000000]),
+    SWT0 = rpc:call(Node,erlang,statistics,[scheduler_wall_time]),
+%    ct:log("install_release: ~.2f",[TInst0/1000000]),
 
     %% Restore to old release, spawn processes again and load to get old code
     {_,RelVsn1} = init:script_id(),
@@ -1109,20 +1130,47 @@ otp_9395_update_many_mods(Conf) when is_list(Conf) ->
     true = rpc:call(Node,erlang,check_old_code,[m10]),
 
     %% Run check_install_release with purge before install this time
-    {TCheck,{ok, _RelVsn1, []}} =
+    {_TCheck,{ok, _RelVsn1, []}} =
 	timer:tc(rpc,call,[Node, release_handler, check_install_release,
 			   [RelVsn2,[purge]]]),
-    ct:log("check_install_release with purge: ~.2f",[TCheck/1000000]),
+%    ct:log("check_install_release with purge: ~.2f",[_TCheck/1000000]),
 
     %% Finally install release after check and purge, and check that
     %% this install was faster than the first.
+    SWTFlag0 ! die,
+    rpc:call(Node,?MODULE,garbage_collect,[]),
+    _SWTFlag1 = spawn_link(Node, ?MODULE, scheduler_wall_time, []),
     {TInst2,{ok, _RelVsn1, []}} =
 	timer:tc(rpc,call,[Node, release_handler, install_release, [RelVsn2]]),
-    ct:log("install_release: ~.2f",[TInst2/1000000]),
+    SWT2 = rpc:call(Node,erlang,statistics,[scheduler_wall_time]),
+%    ct:log("install_release: ~.2f",[TInst2/1000000]),
 
-    true = (TInst2 < TInst0),
+    %% Calculate and print real time and CPU utilization
+    SumFun = fun({_,A,T},{AAcc,TAcc}) -> {A+AAcc,T+TAcc} end,
+    {SumA0,SumT0} = lists:foldl(SumFun,{0,0},SWT0),
+    {SumA2,SumT2} = lists:foldl(SumFun,{0,0},SWT2),
+    TI0=TInst0/1000000,
+    TI2=TInst2/1000000,
+    CPU0=SumA0/SumT0,
+    CPU2=SumA2/SumT2,
+    X0 = TI0*CPU0,
+    X2 = TI2*CPU2,
+    ct:log("First run:  T=~.2fsec, CPU=~.2f, T*CPU=~.2f~n"
+	   "Second run: T=~.2fsec, CPU=~.2f, T*CPU=~.2f~n",
+	   [TI0, CPU0, X0, TI2, CPU2, X2]),
+
+    true = (X2 =< X0),  % disregarding wait time for file access etc.
 
     ok.
+
+scheduler_wall_time() ->
+    erlang:system_flag(scheduler_wall_time,true),
+    receive _Msg -> normal end.
+
+garbage_collect() ->
+    Pids = processes(),
+    [erlang:garbage_collect(Pid) || Pid <- Pids].
+
 
 otp_9395_update_many_mods(cleanup,_Conf) ->
     stop_node(node_name(otp_9395_update_many_mods)).
@@ -1131,6 +1179,12 @@ otp_9395_update_many_mods(cleanup,_Conf) ->
 %% OTP-9395 - performance problems when there are MANY processes
 %% Upgrade which removes many modules (brutal_purge)
 otp_9395_rm_many_mods(Conf) when is_list(Conf) ->
+
+    %% "nain" is very slow - it fails this test quite often due to a
+    %% long sys call
+    %% /proc/cpuinfo: "clock: 1249MHz"
+    inet:gethostname() == {ok,"nain"} andalso throw({skip,"slow test host"}),
+
     %% Set some paths
     PrivDir = priv_dir(Conf),
     Dir = filename:join(PrivDir,"otp_9395_rm_many_mods"),
@@ -1147,8 +1201,9 @@ otp_9395_rm_many_mods(Conf) when is_list(Conf) ->
     Rel2Dir = filename:dirname(Rel2),
 
     %% Start a slave node
+    PA = filename:dirname(code:which(?MODULE)),
     {ok, Node} = t_start_node(otp_9395_rm_many_mods, Rel1,
-			      filename:join(Rel1Dir,"sys.config")),
+			      filename:join(Rel1Dir,"sys.config"), "-pa " ++ PA),
 
     %% Start a lot of processes on the new node, all with refs to each
     %% module that will be updated
@@ -1171,9 +1226,12 @@ otp_9395_rm_many_mods(Conf) when is_list(Conf) ->
 		  [RelVsn2, filename:join(Rel2Dir, "sys.config")]),
 
     %% First, install release directly and check how much time it takes
+    rpc:call(Node,?MODULE,garbage_collect,[]),
+    SWTFlag0 = spawn_link(Node, ?MODULE, scheduler_wall_time, []),
     {TInst0,{ok, _, []}} =
 	timer:tc(rpc,call,[Node, release_handler, install_release, [RelVsn2]]),
-    ct:log("install_release: ~.2f",[TInst0/1000000]),
+    SWT0 = rpc:call(Node,erlang,statistics,[scheduler_wall_time]),
+%    ct:log("install_release: ~.2f",[TInst0/1000000]),
 
     %% Restore to old release, spawn processes again and load to get old code
     {_,RelVsn1} = init:script_id(),
@@ -1187,18 +1245,36 @@ otp_9395_rm_many_mods(Conf) when is_list(Conf) ->
     true = rpc:call(Node,erlang,check_old_code,[m10]),
 
     %% Run check_install_release with purge before install this time
-    {TCheck,{ok, _RelVsn1, []}} =
+    {_TCheck,{ok, _RelVsn1, []}} =
 	timer:tc(rpc,call,[Node, release_handler, check_install_release,
 			   [RelVsn2,[purge]]]),
-    ct:log("check_install_release with purge: ~.2f",[TCheck/1000000]),
+%    ct:log("check_install_release with purge: ~.2f",[_TCheck/1000000]),
 
     %% Finally install release after check and purge, and check that
     %% this install was faster than the first.
+    SWTFlag0 ! die,
+    rpc:call(Node,?MODULE,garbage_collect,[]),
+    _SWTFlag1 = spawn_link(Node, ?MODULE, scheduler_wall_time, []),
     {TInst2,{ok, _RelVsn1, []}} =
 	timer:tc(rpc,call,[Node, release_handler, install_release, [RelVsn2]]),
-    ct:log("install_release: ~.2f",[TInst2/1000000]),
+    SWT2 = rpc:call(Node,erlang,statistics,[scheduler_wall_time]),
+%    ct:log("install_release: ~.2f",[TInst2/1000000]),
 
-    true = (TInst2 =< TInst0),
+    %% Calculate and print real time and CPU utilization
+    SumFun = fun({_,A,T},{AAcc,TAcc}) -> {A+AAcc,T+TAcc} end,
+    {SumA0,SumT0} = lists:foldl(SumFun,{0,0},SWT0),
+    {SumA2,SumT2} = lists:foldl(SumFun,{0,0},SWT2),
+    TI0=TInst0/1000000,
+    TI2=TInst2/1000000,
+    CPU0=SumA0/SumT0,
+    CPU2=SumA2/SumT2,
+    X0 = TI0*CPU0,
+    X2 = TI2*CPU2,
+    ct:log("First run:  T=~.2fsec, CPU=~.2f, T*CPU=~.2f~n"
+	   "Second run: T=~.2fsec, CPU=~.2f, T*CPU=~.2f~n",
+	   [TI0, CPU0, X0, TI2, CPU2, X2]),
+
+    true = (X2 =< X0),  % disregarding wait time for file access etc.
 
     ok.
 
@@ -1206,12 +1282,25 @@ otp_9395_rm_many_mods(cleanup,_Conf) ->
     stop_node(node_name(otp_9395_rm_many_mods)).
 
 otp_9864(Conf) ->
+    case os:type() of
+	{win32,_} ->
+	    {skip,"Testing handling of symlinks - skipped on windows"};
+	_ ->
+	    do_otp_9864(Conf)
+    end.
+do_otp_9864(Conf) ->
     %% Set some paths
     PrivDir = priv_dir(Conf),
     Dir = filename:join(PrivDir,"otp_9864"),
     RelDir = filename:join(?config(data_dir, Conf), "app1_app2"),
-    LibDir1 = filename:join(RelDir, "lib1"),
-    LibDir2 = filename:join(RelDir, "lib2"),
+
+    %% Copy libs to priv_dir because remove_release will remove some
+    %% of these again, and we don't want to remove anything from
+    %% data_dir
+    copy_tree(Conf,filename:join(RelDir, "lib1"),Dir),
+    copy_tree(Conf,filename:join(RelDir, "lib2"),Dir),
+    LibDir1 = filename:join(Dir, "lib1"),
+    LibDir2 = filename:join(Dir, "lib2"),
 
     %% Create the releases
     Rel1 = create_and_install_fake_first_release(Dir,
@@ -1229,10 +1318,6 @@ otp_9864(Conf) ->
     {ok, Node} = t_start_node(otp_9864, Rel1, filename:join(Rel1Dir,"sys.config")),
     
     %% Unpack rel2 (make sure it does not work if an AppDir is bad)
-    LibDir3 = filename:join(RelDir, "lib3"),
-    {error, {no_such_directory, _}} =
-	rpc:call(Node, release_handler, set_unpacked,
-		 [Rel2++".rel", [{app1,"2.0",LibDir2}, {app2,"1.0",LibDir3}]]),
     {ok, RelVsn2} =
 	rpc:call(Node, release_handler, set_unpacked,
 		 [Rel2++".rel", [{app1,"2.0",LibDir2}, {app2,"1.0",LibDir2}]]),
@@ -1243,21 +1328,26 @@ otp_9864(Conf) ->
     ok = rpc:call(Node, release_handler, install_file,
 			[RelVsn2, filename:join(Rel2Dir, "sys.config")]),
 
-    %% Install RelVsn2 without {update_paths, true} option
+    %% Install RelVsn2
     {ok, RelVsn1, []} =
 	rpc:call(Node, release_handler, install_release, [RelVsn2]),
 
-    %% Install RelVsn1 again
+    %% Create a symlink inside release 2
+    Releases2Dir = filename:join([Dir,"releases","2"]),
+    Link = filename:join(Releases2Dir,"foo_symlink_dir"),
+    file:make_symlink(Releases2Dir,Link),
+
+    %% Back down to RelVsn1
     {ok, RelVsn1, []} =
 	rpc:call(Node, release_handler, install_release, [RelVsn1]),
-
-    TempRel2Dir = filename:join(Dir,"releases/2"),
-    file:make_symlink(TempRel2Dir, filename:join(TempRel2Dir, "foo_symlink_dir")),
 
     %% This will fail if symlinks are not handled
     ok = rpc:call(Node, release_handler, remove_release, [RelVsn2]),
 
     ok.
+
+otp_9864(cleanup,_Conf) ->
+    stop_node(node_name(otp_9864)).
 
 
 upgrade_supervisor(Conf) when is_list(Conf) ->
@@ -1304,13 +1394,16 @@ upgrade_supervisor(Conf) when is_list(Conf) ->
     ASupBeam2 = rpc:call(Node, code, which, [a_sup]),
 
     %% Check that the restart strategy and child spec is updated
-    {status, _, {module, _}, [_, _, _, _, [_,_,{data,[{"State",State}]}]]} =
+    {status, _, {module, _}, [_, _, _, _, [_,_,{data,[{"State",State}]}|_]]} =
 	rpc:call(Node,sys,get_status,[a_sup]),
-    {state,_,RestartStrategy,[Child],_,_,_,_,_,_} = State,
+    {state,_,RestartStrategy,{[a],Db},_,_,_,_,_,_,_} = State,
     one_for_all = RestartStrategy, % changed from one_for_one
-    {child,_,_,_,_,brutal_kill,_,_} = Child, % changed from timeout 2000
+    {child,_,_,_,_,brutal_kill,_,_} = maps:get(a,Db), % changed from timeout 2000
 
     ok.
+
+upgrade_supervisor(cleanup,_Condf) ->
+    stop_node(node_name(upgrade_supervisor)).
 
 %% Check that if the supervisor fails, then the upgrade is rolled back
 %% and an ok error message is returned
@@ -1351,18 +1444,41 @@ upgrade_supervisor_fail(Conf) when is_list(Conf) ->
 
     {error,{code_change_failed,_Pid,a_sup,_Vsn,
 	    {error,{invalid_shutdown,brutal_kil}}}} =
-	rpc:call(Node, release_handler, install_release, [RelVsn2]),
+	rpc:call(Node, release_handler, install_release,
+		 [RelVsn2, [{error_action,reboot}]]),
 
-    %% Check that the upgrade is terminated - normally this would mean
-    %% rollback, but since this testcase is very simplified the node
-    %% is not started with heart supervision and will therefore not be
-    %% restarted. So we just check that the node goes down.
+    %% Check that the upgrade is terminated - normally this would be a
+    %% rollback, but
+    %%
+    %% 1. Default rollback is done with init:restart(), which does not
+    %%    reboot the emulator, it only restarts the system inside the
+    %%    running erlang node.
+    %%
+    %% 2. This does not work well on a slave node since, if timing is
+    %%    right (bad), the slave node will get the nodedown from its
+    %%    master (because distribution is terminated as part of
+    %%    init:restart()) and then it will do halt() and thus never be
+    %%    restarted (see slave:wloop/1)
+    %%
+    %% 3. Sometimes, though, init:restart() will manage to finish its
+    %%    job before the nodedown is received, making the node
+    %%    actually restart - in which case it might very well confuse
+    %%    the next test case.
+    %%
+    %% 4. So, to avoid unstability we use {error_action,reboot} above,
+    %%    to ensure that the node is actually stopped. Of course, in a
+    %%    real system this must be used together with heart
+    %%    supervision, and then the node will be restarted anyway. But
+    %%    here in this simple test case we are satisfied to see that
+    %%    the node terminates.
     receive {nodedown,Node} -> ok
     after 10000 -> ct:fail(failed_upgrade_never_restarted_node)
     end,
 
     ok.
 
+upgrade_supervisor_fail(cleanup,_Condf) ->
+    stop_node(node_name(upgrade_supervisor_fail)).
 
 %% Test upgrade and downgrade of applications
 eval_appup(Conf) when is_list(Conf) ->
@@ -1506,6 +1622,9 @@ eval_appup_with_restart(Conf) when is_list(Conf) ->
 %% Test the example/target_system.erl module
 target_system(Conf) when is_list(Conf) ->
     PrivDir = priv_dir(Conf),
+    target_system1(Conf,PrivDir).
+
+target_system1(Conf,PrivDir) ->
     DataDir = ?config(data_dir,Conf),
 
     TargetCreateDir = filename:join([PrivDir,"target_system","create"]),
@@ -1513,7 +1632,6 @@ target_system(Conf) when is_list(Conf) ->
 
     ok = filelib:ensure_dir(filename:join(TargetCreateDir,"xx")),
     ok = filelib:ensure_dir(filename:join(TargetInstallDir,"xx")),
-
 
     %% Create the .rel file
     RelName = filename:join(TargetCreateDir,"ts-1.0"),
@@ -1554,7 +1672,8 @@ target_system(Conf) when is_list(Conf) ->
     StdlibVsn = vsn(stdlib,current),
     SaslVsn = vsn(sasl,current),
     RelFileBasename = filename:basename(RelFile),
-    true = filelib:is_dir(filename:join(LibDir,"kernel-"++KernelVsn)),
+    KernelLibDir = filename:join(LibDir,"kernel-"++KernelVsn),
+    true = filelib:is_dir(KernelLibDir),
     true = filelib:is_dir(filename:join(LibDir,"stdlib-"++StdlibVsn)),
     true = filelib:is_dir(filename:join(LibDir,"sasl-"++SaslVsn)),
     true = filelib:is_dir(filename:join(LibDir,"a-1.0")),
@@ -1563,11 +1682,13 @@ target_system(Conf) when is_list(Conf) ->
     true = filelib:is_regular(filename:join(RelDir,"start_erl.data")),
     true = filelib:is_regular(filename:join(RelDir,RelFileBasename)),
     true = filelib:is_dir(filename:join(RelDir,RelVsn)),
-    true = filelib:is_regular(filename:join([RelDir,RelVsn,"start.boot"])),
+    StartBoot = filename:join([RelDir,RelVsn,"start.boot"]),
+    true = filelib:is_regular(StartBoot),
     true = filelib:is_regular(filename:join([RelDir,RelVsn,RelFileBasename])),
     BinDir = filename:join(TargetInstallDir,bin),
+    Erl = filename:join(BinDir,erl),
+    true = filelib:is_regular(Erl),
     true = filelib:is_regular(filename:join(BinDir,"start.boot")),
-    true = filelib:is_regular(filename:join(BinDir,erl)),
     true = filelib:is_regular(filename:join(BinDir,start_erl)),
     true = filelib:is_regular(filename:join(BinDir,start)),
     true = filelib:is_regular(filename:join(BinDir,epmd)),
@@ -1578,9 +1699,75 @@ target_system(Conf) when is_list(Conf) ->
     ErtsVsn = vsn(erts,current),
     {ok,SED} = file:read_file(filename:join(RelDir,"start_erl.data")),
     [ErtsVsn,RelVsn] = string:tokens(binary_to_list(SED),"\s\n"),
+
+    %% Check that installation can be started
+    Sname = list_to_atom(atom_to_list(?MODULE) ++ "-target_system"),
+    {ok,Node} = start_target_node_with_erl(Erl,Sname,StartBoot),
+
+    TargetInstallDir = rpc:call(Node,code,root_dir,[]),
+    KernelLibDir = rpc:call(Node,code,lib_dir,[kernel]),
+    [{RelName,RelVsn,_Apps,permanent}] =
+	rpc:call(Node,release_handler,which_releases,[]),
+
+    ?t:format("Target node ok:~nRootDir: ~ts~nKernelLibDir: ~ts~nRelease: ~ts",
+	      [TargetInstallDir,KernelLibDir,RelName]),
+
     ok.
 
+target_system(cleanup,_Conf) ->
+    Sname = list_to_atom(atom_to_list(?MODULE) ++ "-target_system"),
+    stop_target_node(node_name(Sname)),
+    ok.
 
+start_target_node_with_erl(Erl,Sname,Boot) ->
+    FullName = node_name(Sname),
+    FilenameMode = case file:native_name_encoding() of
+		       latin1 -> "+fnl";
+		       utf8 -> "+fnui"
+		   end,
+    Args = [FilenameMode,"-detached", "-noinput","-sname",atom_to_list(Sname),
+	   "-boot",filename:rootname(Boot)],
+    ?t:format("Starting node ~p: ~ts~n",
+	      [FullName, lists:flatten([[X," "] || X <- [Erl|Args]])]),
+    case rh_test_lib:cmd(Erl,Args,[]) of
+	ok ->
+	    ok = wait_nodes_up([FullName],"target_system test node"),
+	    {ok,FullName};
+	Error ->
+            ?t:fail({failed_to_start_node, FullName, Error})
+    end.
+
+stop_target_node(Node) ->
+    monitor_node(Node, true),
+    _ = rpc:call(Node,erlang,halt,[]),
+    receive {nodedown, Node} -> ok end.
+
+%% Test that the example/target_system.erl module can create and
+%% install under a path which includes unicode characters
+target_system_unicode(Conf) when is_list(Conf) ->
+    PrivDir = priv_dir(Conf),
+    UnicodePrivDir = filename:join(PrivDir,"αβ"),
+
+    PA = filename:dirname(code:which(?MODULE)),
+
+    %% Make sure this runs on a node with unicode file name mode
+    Sname = list_to_atom(atom_to_list(?MODULE) ++ "-target_system_unicode"),
+    {ok,Node} = ?t:start_node(Sname,peer,[{args,"+fnui -pa " ++ PA}]),
+    ok = rpc:call(Node,file,make_dir,[UnicodePrivDir]),
+    case rpc:call(Node,application,start,[sasl]) of
+	ok -> ok;
+	{error,{already_started,sasl}} -> ok;
+	Error -> ?t:fail({failed_to_start_sasl_on_test_node,Node,Error})
+    end,
+    ok = rpc:call(Node,?MODULE,target_system1,[Conf,UnicodePrivDir]),
+    ok.
+
+target_system_unicode(cleanup,Conf) ->
+    Sname = list_to_atom(atom_to_list(?MODULE) ++ "-target_system_unicode"),
+    Node = node_name(Sname),
+    _ = rpc:call(Node,?MODULE,target_system,[cleanup,Conf]),
+    _ = stop_node(Node),
+    ok.
 
 %%%=================================================================
 %%% Testing global groups.
@@ -1602,8 +1789,6 @@ upgrade_gg(Conf) ->
     Nodes1 = [Gg1,Gg3,Gg4,Gg5] =
 	start_nodes(Conf,[Gg1Sname,Gg3Sname,Gg4Sname,Gg5Sname],"upgrade_gg"),
 
-    %% Give some time to synch nodes, then check global group info.
-    timer:sleep(1000),
     [check_gg_info(Node,Nodes1,[],Nodes1--[Node]) || Node <- Nodes1],
 
     %% register a process on each of the nodes
@@ -1646,6 +1831,153 @@ upgrade_gg(cleanup,Config) ->
     ok = stop_nodes(NodeNames).
 
 
+%%%-----------------------------------------------------------------
+%%% OTP-10463, Bug - release_handler could not handle regexp in appup
+%%% files.
+otp_10463_upgrade_script_regexp(Config) ->
+    DataDir = ?config(data_dir,Config),
+    code:add_path(filename:join([DataDir,regexp_appup,app1,ebin])),
+    application:start(app1),
+    {ok,"1.1",_} = release_handler:upgrade_script(app1,code:lib_dir(app1)),
+    ok.
+
+otp_10463_upgrade_script_regexp(cleanup,Config) ->
+    DataDir = ?config(data_dir,Config),
+    application:stop(app1),
+    code:del_path(filename:join([DataDir,regexp_appup,app1,ebin])),
+    ok.
+
+no_dot_erlang(_Conf) ->
+    case init:get_argument(home) of
+        {ok,[[Home]]} when is_list(Home) ->
+            no_dot_erlang_1(Home);
+        _ -> ok
+    end.
+
+no_dot_erlang_1(Home) ->
+    DotErlang = filename:join(Home, ".erlang"),
+    BupErlang = filename:join(Home, ".erlang_testbup"),
+    try
+        {ok, Wd} = file:get_cwd(),
+        case filelib:is_file(DotErlang) of
+            true -> {ok, _} = file:copy(DotErlang, BupErlang);
+            false -> ok
+        end,
+	Erl0 =  filename:join([code:root_dir(),"bin","erl"]),
+	Erl = filename:nativename(Erl0),
+	Quote = "\"",
+	Args = " -noinput -run c pwd -run erlang halt",
+	ok = file:write_file(DotErlang, <<"io:put_chars(\"DOT_ERLANG_READ\\n\").\n">>),
+
+	CMD1 = Quote ++ Erl ++ Quote ++ Args ,
+	case os:cmd(CMD1) of
+	    "DOT_ERLANG_READ" ++ _ ->
+                io:format("~p: Success~n", [?LINE]);
+	    Other1 ->
+		io:format("Failed: ~ts~n",[CMD1]),
+		io:format("Expected: ~s ++ _~n",["DOT_ERLANG_READ "]),
+		io:format("Got: ~ts~n",[Other1]),
+		exit({failed_to_start, test_error})
+	end,
+	NO_DOT_ERL = " -boot no_dot_erlang",
+	CMD2 = Quote ++ Erl ++ Quote ++ NO_DOT_ERL ++ Args,
+	case lists:prefix(Wd, Other2 = os:cmd(CMD2)) of
+	    true -> io:format("~p: Success~n", [?LINE]);
+	    false ->
+		io:format("Failed: ~ts~n",[CMD2]),
+		io:format("Expected: ~s~n",["TESTOK"]),
+		io:format("Got: ~ts~n",[Other2]),
+		exit({failed_to_start, no_dot_erlang})
+	end
+    after
+        case filelib:is_file(BupErlang) of
+            true ->
+                {ok, _} = file:copy(BupErlang, DotErlang),
+                _ = file:delete(BupErlang);
+            false ->
+                _ = file:delete(DotErlang)
+        end
+    end.
+
+%%%-----------------------------------------------------------------
+%%% Test unicode handling. Make sure that release name, application
+%%% description, and application environment variables may contain
+%%% unicode characters.
+unicode_upgrade(Conf) ->
+    %% Set some paths
+    DataDir = ?config(data_dir, Conf),
+    PrivDir = priv_dir(Conf),
+    Dir = filename:join(PrivDir,"unicode"),
+    LibDir0 = filename:join(DataDir, "unicode"),
+    LibDir =
+        case {file:native_name_encoding(),os:type()} of
+            {utf8,{Os,_}} when Os =/= win32 ->
+                LD = filename:join(DataDir,"unicode_αβ"),
+                file:make_symlink("unicode",LD),
+                LD;
+            _ ->
+                LibDir0
+        end,
+
+    %% Create the releases
+    RelName = "unicode_rel_αβ",
+    Rel1 = create_and_install_fake_first_release(Dir,{RelName,"1"},
+						 [{u,"1.0",LibDir}]),
+    Rel2 = create_fake_upgrade_release(Dir,
+				       {RelName,"2"},
+				       [{u,"1.1",LibDir}],
+				       {[Rel1],[Rel1],[LibDir]}),
+    Rel1Dir = filename:dirname(Rel1),
+    Rel2Dir = filename:dirname(Rel2),
+
+    %% Start a slave node
+    {ok, Node} = t_start_node(unicode_upgrade, Rel1,
+                              filename:join(Rel1Dir,"sys.config"), "+pc unicode"),
+
+    %% Check
+    Dir1 = filename:join([LibDir, "u-1.0"]),
+    Dir1 = rpc:call(Node, code, lib_dir, [u]),
+    UBeam1 = filename:join([Dir1,"ebin","u.beam"]),
+    UBeam1 = rpc:call(Node,code,which,[u]),
+    {RelName,"1"} = rpc:call(Node,init,script_id,[]),
+    {Env,state} = rpc:call(Node,u,u,[]),
+    'val_αβ' = proplists:get_value('key_αβ',Env),
+    [{RelName,"1",_,permanent}|_] =
+        rpc:call(Node,release_handler,which_releases,[]),
+    {ok,ReleasesDir} = rpc:call(Node,application,get_env,[sasl,releases_dir]),
+    {ok,[[{release,RelName,"1",_,_,permanent}|_]]} =
+        file:consult(filename:join(ReleasesDir,"RELEASES")),
+
+    %% Install second release
+    {ok, RelVsn2} =
+	rpc:call(Node, release_handler, set_unpacked,
+		 [Rel2++".rel", [{u,"1.1",LibDir}]]),
+    ok = rpc:call(Node, release_handler, install_file,
+		  [RelVsn2, filename:join(Rel2Dir, "relup")]),
+    ok = rpc:call(Node, release_handler, install_file,
+		  [RelVsn2, filename:join(Rel2Dir, "start.boot")]),
+    ok = rpc:call(Node, release_handler, install_file,
+		  [RelVsn2, filename:join(Rel2Dir, "sys.config")]),
+
+    {ok, _RelVsn1, []} =
+	rpc:call(Node, release_handler, install_release, [RelVsn2]),
+
+    %% And check
+    Dir2 = filename:join([LibDir, "u-1.1"]),
+    Dir2 = rpc:call(Node, code, lib_dir, [u]),
+    UBeam2 = filename:join([Dir2,"ebin","u.beam"]),
+    {file,UBeam2} = rpc:call(Node,code,is_loaded,[u]),
+    {RelName,"1"} = rpc:call(Node,init,script_id,[]),
+    {Env,{state,'αβ'}} = rpc:call(Node,u,u,[]),
+    [{RelName,"2",_,current}|_] =
+        rpc:call(Node,release_handler,which_releases,[]),
+    {ok,ReleasesDir2} = rpc:call(Node,application,get_env,[sasl,releases_dir]),
+    {ok,<<"%% coding: utf-8\n[{release,\"unicode_rel_αβ\",\"2\""/utf8,_/binary>>}=
+        file:read_file(filename:join(ReleasesDir2,"RELEASES")),
+    ok.
+
+unicode_upgrade(cleanup,_Conf) ->
+    stop_node(node_name(unicode_upgrade)).
 
 
 %%%=================================================================
@@ -1704,7 +2036,7 @@ wait_nodes_up(Nodes, Tag) ->
 wait_nodes_up(Nodes0, Tag, Apps) ->
     ?t:format("wait_nodes_up(~p, ~p, ~p):",[Nodes0, Tag, Apps]),
     Nodes = fix_nodes(Nodes0),
-    wait_nodes_up(Nodes, Tag, lists:umerge(Apps,[kernel,stdlib,sasl]), 30).
+    wait_nodes_up(Nodes, Tag, lists:umerge(Apps,[kernel,stdlib,sasl]), 60).
 
 fix_nodes([{Node,InitPid}|Nodes]) ->
     [{Node,InitPid} | fix_nodes(Nodes)];
@@ -1746,7 +2078,7 @@ wait_nodes_up(Nodes, Tag, Apps, N) ->
 	    ?t:format("",[]),
 	    ok;
 	_ ->
-	    timer:sleep(1000),
+	    timer:sleep(2000),
 	    wait_nodes_up(Pang, Tag, Apps, N-1)
     end.
 
@@ -1774,6 +2106,8 @@ are_names_reg_gg(Node, Names, N) ->
 
 
 t_start_node(Name, Boot, SysConfig) ->
+    t_start_node(Name, Boot, SysConfig, "").
+t_start_node(Name, Boot, SysConfig, ArgStr) ->
     Args = 
 	case Boot of
 	    [] -> [];
@@ -1782,15 +2116,16 @@ t_start_node(Name, Boot, SysConfig) ->
 	case SysConfig of
 	    [] -> [];
 	    _ -> " -config " ++ SysConfig
-	end,
-    test_server:start_node(Name, slave, [{args, Args}]).
+	end ++
+        " " ++ ArgStr,
+    test_server:start_node(Name, peer, [{args, Args}]).
 
 stop_node(Node) ->
     ?t:stop_node(Node).
 
 
 copy_client(Conf,Master,Sname,Client) ->
-    io:format("copy_client(Conf)"),
+    ?t:format("copy_client(Conf)"),
 
     DataDir = ?config(data_dir, Conf),
     MasterDir = filename:join(priv_dir(Conf),Master),
@@ -1829,81 +2164,11 @@ copy_client(Conf,Master,Sname,Client) ->
 
 clean_priv_dir(Conf,Save) ->
     PrivDir = priv_dir(Conf),
-
-    {ok, OrigWd} = file:get_cwd(),
-
-    ok = file:set_cwd(PrivDir),
-    ?t:format("========  current dir ~p~n",[PrivDir]),
-    {ok, Dirs} = file:list_dir(PrivDir),
-    ?t:format("========  deleting  ~p~n",[Dirs]),
-
-    ok = clean_dirs_os(Dirs,Save),
-    {ok,Remaining} = file:list_dir(PrivDir),
-    ?t:format("========  remaining  ~p~n",[Remaining]),
-
-    case Remaining of
-	[] ->
-	    ok;
-	_ ->
-	    clean_dirs_os(Remaining,Save),
-	    Remaining2 = file:list_dir(PrivDir),
-	    ?t:format("========  remaining after second try ~p~n",[Remaining2])
-    end,
-
-    ok = file:set_cwd(OrigWd),
-    ok.
-
-
-clean_dirs_os(Dirs,Save) ->
-    case os:type() of
-	{unix, _} ->
-	    clean_dirs_unix(Dirs,Save);
-	{win32, _} ->
-	    clean_dirs_win32(Dirs,Save);
-	Os ->
-	    test_server:fail({error, {not_yet_implemented_os, Os}})
+    rh_test_lib:clean_dir(PrivDir,Save),
+    case file:list_dir(PrivDir) of
+	{ok,[]} -> _ = file:del_dir(PrivDir);
+	_ -> ok
     end.
-
-
-clean_dirs_unix([],_) ->
-    ok;
-clean_dirs_unix(["save"|Dirs],Save) when Save ->
-    clean_dirs_unix(Dirs,Save);
-clean_dirs_unix([Dir|Dirs],Save) ->
-    Rm = string:concat("rm -rf ", Dir),
-    ?t:format("============== COMMAND ~p~n",[Rm]),
-    case file:list_dir(Dir) of
-	{error, enotdir} ->
-	    ok;
-	X ->
-	    ?t:format("------- Dir ~p~n       ~p~n",[Dir, X])
-    end,
-    case os:cmd(Rm) of
-	      [] ->
-		  ?t:format("------- Result of COMMAND ~p~n",[ok]);
-	      Y ->
-		  ?t:format("!!!!!!! delete ERROR  Dir ~p Error ~p~n",[Dir, Y]),
-		  ?t:format("------- ls -al  ~p~n",[os:cmd("ls -al " ++ Dir)])
-	  end,
-
-    clean_dirs_unix(Dirs,Save).
-
-clean_dirs_win32([],_) ->
-    ok;
-clean_dirs_win32(["save"|Dirs],Save) when Save ->
-    clean_dirs_win32(Dirs,Save);
-clean_dirs_win32([Dir|Dirs],Save) ->
-    Rm =
-       case filelib:is_dir(Dir) of
-          true ->
-             string:concat("rmdir /s /q ", Dir);
-          false ->
-             string:concat("del /q ", Dir)
-       end,
-    ?t:format("============== COMMAND ~p~n",[Rm]),
-    [] = os:cmd(Rm),
-    clean_dirs_win32(Dirs,Save).
-
 
 node_name(Sname) when is_atom(Sname) ->
     {ok,Host} = inet:gethostname(),
@@ -1950,7 +2215,7 @@ chmod(Dest,Opts) ->
 
 
 copy_error(Src, Dest, Reason) ->
-    io:format("Copy ~s to ~s failed: ~s\n",
+    ?t:format("Copy ~ts to ~ts failed: ~ts\n",
 	      [Src,Dest,file:format_error(Reason)]),
     ?t:fail(file_copy_failed).
 
@@ -1990,9 +2255,11 @@ subst_file(Src, Dest, Vars) ->
     subst_file(Src, Dest, Vars, []).
 subst_file(Src, Dest, Vars, Opts) ->
     {ok, Bin} = file:read_file(Src),
-    Conts = binary_to_list(Bin),
+    Conts = binary_to_list(Bin), % The source will always be latin1
     NConts = subst(Conts, Vars),
-    ok = file:write_file(Dest, NConts),
+    %% The destination must be utf8 if file name encoding is unicode
+    Enc = file:native_name_encoding(),
+    ok = file:write_file(Dest, unicode:characters_to_binary(NConts,Enc,Enc)),
     preserve(Src,Dest,Opts),
     chmod(Dest,Opts).
 
@@ -2025,13 +2292,22 @@ subst_var([], Vars, Result, VarAcc) ->
 
 
 priv_dir(Conf) ->
-%%    filename:absname(?config(priv_dir, Conf)). % Get rid of trailing slash
     %% Due to problem with long paths on windows => creating a new
     %% priv_dir under data_dir
-    filename:absname(filename:join(?config(data_dir, Conf),priv_dir)).
+    %% And get rid of trailing slash (absname does that)
+    %% And if file name translation mode is utf8, use a path with
+    %% unicode characters
+    PrivDir =
+	case file:native_name_encoding() of
+	    utf8 ->
+		"priv_dir_αβ";
+	    _ ->
+		"priv_dir"
+	end,
+    filename:absname(filename:join([?config(data_dir, Conf),PrivDir])).
 
 init_priv_dir(Conf) ->
-    Dir = filename:absname(filename:join(?config(data_dir, Conf),priv_dir)),
+    Dir = priv_dir(Conf),
     case filelib:is_dir(Dir) of
 	true ->
 	    clean_priv_dir(Conf,false);
@@ -2056,7 +2332,7 @@ rh_print() ->
     receive
 	{print, {Module,Line}, [H|T]} ->
 	    ?t:format("=== ~p:~p - ~p",[Module,Line,H]),
-	    lists:foreach(fun(Term) -> ?t:format("    ~p",[Term]) end, T),
+	    lists:foreach(fun(Term) -> ?t:format("    ~tp",[Term]) end, T),
 	    ?t:format("",[]),
 	    rh_print();
 	kill ->
@@ -2149,8 +2425,8 @@ create_p1g(Conf,TargetDir) ->
     ok.
 
 fix_version(SystemLib,App) ->
-    FromVsn = vsn(App,current),
-    ToVsn = vsn(App,old),
+    FromVsn = re:replace(vsn(App,current),"\\.","\\\\.",[{return,binary}]),
+    ToVsn = re:replace(vsn(App,old),"\\.","\\\\.",[{return,binary}]),
     Rootname = filename:join([SystemLib,app_dir(App,old),ebin,atom_to_list(App)]),
 
     AppFile = Rootname ++ ".app",
@@ -2291,19 +2567,30 @@ create_rel_file(RelFile,RelName,RelVsn,Erts,ExtraApps) ->
 
 %% Insert a term in a file, which can be read with file:consult/1.
 write_term_file(File,Term) ->
-    ok = file:write_file(File,io_lib:format("~p.~n",[Term])).
+    Str = io_lib:format("%% ~s~n~tp.~n",[epp:encoding_to_string(utf8),Term]),
+    Bin = unicode:characters_to_binary(Str),
+    ok = file:write_file(File,Bin).
     
 
-%% Check that global group info is correct
+%% Check that global group info is correct - try again for a maximum of 5 sec
 check_gg_info(Node,OtherAlive,OtherDead,Synced) ->
+    check_gg_info(Node,OtherAlive,OtherDead,Synced,5).
+
+check_gg_info(Node,OtherAlive,OtherDead,Synced,N) ->
     GGI = rpc:call(Node, global_group, info, []),
     GI = rpc:call(Node, global, info,[]),
     try do_check_gg_info(OtherAlive,OtherDead,Synced,GGI,GI) 
-    catch _:E ->
-	    ?t:format("~ncheck_gg_info failed for ~p: ~p~nwhen GGI was: ~p~n"
-		      "and GI was: ~p~n",
-		      [Node,E,GGI,GI]),
-	    ?t:fail("check_gg_info failed")
+    catch _:E:Stacktrace when N==0 ->
+	    ?t:format("~nERROR: check_gg_info failed for ~p:~n~p~n"
+		      "when GGI was: ~p~nand GI was: ~p~n",
+		      [Node,{E,Stacktrace},GGI,GI]),
+	    ?t:fail("check_gg_info failed");
+	  _:E:Stacktrace ->
+	    ?t:format("~nWARNING: check_gg_info failed for ~p:~n~p~n"
+		      "when GGI was: ~p~nand GI was: ~p~n",
+		      [Node,{E,Stacktrace},GGI,GI]),
+	    timer:sleep(1000),
+	    check_gg_info(Node,OtherAlive,OtherDead,Synced,N-1)
     end.
 
 do_check_gg_info(OtherAlive,OtherDead,Synced,GGI,GI) ->
@@ -2449,11 +2736,14 @@ start_nodes(Conf,Snames,Tag) ->
     
 start_node_unix(Sname,NodeDir) ->
     Script = filename:join([NodeDir,"bin","start"]),
-    Cmd = "env NODENAME="++atom_to_list(Sname) ++ " " ++ Script,
-    %% {ok,StartFile} = file:read_file(Cmd),
-    %% io:format("~s:\n~s~n~n",[Start,binary_to_list(StartFile)]),
-    Res = os:cmd(Cmd),
-    io:format("Start ~p: ~p~n=>\t~p~n", [Sname,Cmd,Res]).
+    ?t:format("Starting ~p: ~ts~n", [Sname,Script]),
+    case rh_test_lib:cmd(Script,[],[{"NODENAME",atom_to_list(Sname)}]) of
+	ok ->
+	    {ok,node_name(Sname)};
+        Error ->
+            ?t:fail({failed_to_start_node, Sname, Error})
+    end.
+
 
 start_node_win32(Sname,NodeDir) ->
     Name = atom_to_list(Sname) ++ "_P1G",
@@ -2538,8 +2828,8 @@ cover_fun(Node,Func) ->
 %% and possibly other applications if they are listed in AppDirs =
 %% [{App,Vsn,LibDir}]
 create_and_install_fake_first_release(Dir,AppDirs) ->
-    %% Create the first release
-    {RelName,RelVsn} = init:script_id(),
+    create_and_install_fake_first_release(Dir,init:script_id(),AppDirs).
+create_and_install_fake_first_release(Dir,{RelName,RelVsn},AppDirs) ->
     {Rel,_} = create_fake_release(Dir,RelName,RelVsn,AppDirs),
     ReleasesDir = filename:join(Dir, "releases"),
     RelDir = filename:dirname(Rel),
@@ -2563,9 +2853,11 @@ create_and_install_fake_first_release(Dir,AppDirs) ->
 %% be upgraded to from the release created by
 %% create_and_install_fake_first_release/2. Unpack first by calls to
 %% release_handler:set_unpacked and release_handler:install_file.
-create_fake_upgrade_release(Dir,RelVsn,AppDirs,{UpFrom,DownTo,ExtraLibs}) ->
-    %% Create a new release
+create_fake_upgrade_release(Dir,RelVsn,AppDirs,UpgrInstr) when not is_tuple(RelVsn) ->
     {RelName,_} = init:script_id(),
+    create_fake_upgrade_release(Dir,{RelName,RelVsn},AppDirs,UpgrInstr);
+create_fake_upgrade_release(Dir,{RelName,RelVsn},AppDirs,{UpFrom,DownTo,ExtraLibs}) ->
+    %% Create a new release
     {Rel,Paths} = create_fake_release(Dir,RelName,RelVsn,AppDirs),
     RelDir = filename:dirname(Rel),
 
@@ -2614,7 +2906,7 @@ rpc_inst(Node,Func,Args) ->
 
 delete_all_services() ->
     ErlSrv = erlsrv:erlsrv(erlang:system_info(version)),
-    [_|Serviceinfo] = string:tokens(os:cmd(ErlSrv ++ " list"),"\n"),
+    [_|Serviceinfo] = string:tokens(os:cmd("\"" ++ ErlSrv ++ "\" list"),"\n"),
     Services =
 	[lists:takewhile(fun($\t) -> false; (_) -> true end,S)
 	 || S <- Serviceinfo],

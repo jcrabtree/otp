@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2009-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2009-2016. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 
@@ -58,8 +59,8 @@ do_init(Config) ->
     IL = wxImageList:new(16,16),
     wxImageList:add(IL, wxArtProvider:getBitmap("wxART_COPY", [{size, {16,16}}])),
     wxImageList:add(IL, wxArtProvider:getBitmap("wxART_MISSING_IMAGE", [{size, {16,16}}])),
-    wxImageList:add(IL, wxArtProvider:getBitmap("wxART_TICK_MARK", [{size, {16,16}}])),
-    wxImageList:add(IL, wxArtProvider:getBitmap("wxART_CROSS_MARK", [{size, {16,16}}])),
+    wxImageList:add(IL, wxArtProvider:getBitmap("wxART_QUESTION", [{size, {16,16}}])),
+    wxImageList:add(IL, wxArtProvider:getBitmap("wxART_WARNING", [{size, {16,16}}])),
     wxListCtrl:assignImageList(ListCtrl2, IL, ?wxIMAGE_LIST_SMALL),
     Fun =
 	fun(Item) ->
@@ -142,6 +143,10 @@ handle_event(#wx{obj = _ListCtrl,
 handle_info(Msg, State) ->
     demo:format(State#state.config, "Got Info ~p\n",[Msg]),
     {noreply,State}.
+
+handle_call(shutdown, _From, State=#state{parent=Panel}) ->
+    wxPanel:destroy(Panel),
+    {stop, normal, ok, State};
 
 handle_call(Msg, _From, State) ->
     demo:format(State#state.config,"Got Call ~p\n",[Msg]),

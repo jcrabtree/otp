@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2008-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2008-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%%-------------------------------------------------------------------
@@ -65,7 +66,7 @@
 	 get_env/0,set_env/1, debug/1,
 	 batch/1,foreach/2,map/2,foldl/3,foldr/3,
 	 getObjectType/1, typeCast/2,
-	 null/0, is_null/1]).
+	 null/0, is_null/1, equal/2]).
 
 -export([create_memory/1, get_memory_bin/1,
 	 retain_memory/1, release_memory/1]).
@@ -102,16 +103,22 @@ new() ->
 
 %% @doc Starts a wx server.
 %% Option may be {debug, Level}, see debug/1.
--spec new([Option]) -> wx_object() when Option :: {debug, list() | atom()}.
+%% Or {silent_start, Bool}, which causes error messages at startup to
+%% be suppressed. The latter can be used as a silent test of whether
+%% wx is properly installed or not.
+-spec new([Option]) -> wx_object()
+         when Option :: {'debug', list() | atom()} | {'silent_start', boolean()}.
 new(Options) when is_list(Options) ->
-    #wx_env{port=Port} = wxe_server:start(),
-    put(opengl_port, Port),
     Debug = proplists:get_value(debug, Options, 0),
-    debug(Debug),
+    SilentStart = proplists:get_value(silent_start, Options, false),
+    Level = calc_level(Debug),
+    #wx_env{port=Port} = wxe_server:start(SilentStart andalso Level =:= 0),
+    put(opengl_port, Port),
+    set_debug(Level),
     null().
 
 %% @doc Stops a wx server.
--spec destroy() -> ok.
+-spec destroy() -> 'ok'.
 destroy() ->
     wxe_server:stop(),
     erase(?WXE_IDENTIFIER),
@@ -129,7 +136,7 @@ get_env() ->
 
 %% @doc Sets the process wx environment, allows this process to use
 %% another process wx environment.
--spec set_env(wx_env()) -> ok.
+-spec set_env(wx_env()) -> 'ok'.
 set_env(#wx_env{sv=Pid, port=Port} = Env) ->
     put(?WXE_IDENTIFIER, Env),
     put(opengl_port, Port),
@@ -145,6 +152,10 @@ null() ->
 %% @doc Returns true if object is null, false otherwise
 -spec is_null(wx_object()) -> boolean().
 is_null(#wx_ref{ref=NULL}) -> NULL =:= 0.
+
+%% @doc Returns true if both arguments references the same object, false otherwise
+-spec equal(wx_object(), wx_object()) -> boolean().
+equal(#wx_ref{ref=Ref1}, #wx_ref{ref=Ref2}) -> Ref1 =:= Ref2.
 
 %% @doc Returns the object type
 -spec getObjectType(wx_object()) -> atom().
@@ -172,7 +183,7 @@ batch(Fun) ->
     ok = wxe_util:cast(?BATCH_BEGIN, <<>>),
     try Fun()
     catch
-	error:W -> erlang:exit({W, erlang:get_stacktrace()});
+	error:W:S -> erlang:exit({W, S});
 	throw:W -> erlang:throw(W);
 	exit:W  -> erlang:exit(W)
     after
@@ -180,12 +191,12 @@ batch(Fun) ->
     end.
 
 %% @doc Behaves like {@link //stdlib/lists:foreach/2} but batches wx commands. See {@link batch/1}.
--spec foreach(function(), list()) -> ok.
+-spec foreach(function(), list()) -> 'ok'.
 foreach(Fun, List) ->
     ok = wxe_util:cast(?BATCH_BEGIN, <<>>),
     try lists:foreach(Fun, List)
     catch
-	error:W -> erlang:exit({W, erlang:get_stacktrace()});
+	error:W:S -> erlang:exit({W, S});
 	throw:W -> erlang:throw(W);
 	exit:W  -> erlang:exit(W)
     after
@@ -198,7 +209,7 @@ map(Fun, List) ->
     ok = wxe_util:cast(?BATCH_BEGIN, <<>>),
     try lists:map(Fun, List)
     catch
-	error:W -> erlang:exit({W, erlang:get_stacktrace()});
+	error:W:S -> erlang:exit({W, S});
 	throw:W -> erlang:throw(W);
 	exit:W  -> erlang:exit(W)
     after
@@ -211,7 +222,7 @@ foldl(Fun, Acc, List) ->
     ok = wxe_util:cast(?BATCH_BEGIN, <<>>),
     try lists:foldl(Fun, Acc, List)
     catch
-	error:W -> erlang:exit({W, erlang:get_stacktrace()});
+	error:W:S -> erlang:exit({W, S});
 	throw:W -> erlang:throw(W);
 	exit:W  -> erlang:exit(W)
     after
@@ -224,7 +235,7 @@ foldr(Fun, Acc, List) ->
     ok = wxe_util:cast(?BATCH_BEGIN, <<>>),
     try lists:foldr(Fun, Acc, List)
     catch
-	error:W -> erlang:exit({W, erlang:get_stacktrace()});
+	error:W:S -> erlang:exit({W, S});
 	throw:W -> erlang:throw(W);
 	exit:W  -> erlang:exit(W)
     after
@@ -256,7 +267,7 @@ get_memory_bin(#wx_mem{bin=Bin, size=Size}) ->
 
 %% @doc Saves the memory from deletion until release_memory/1 is called.
 %% If release_memory/1 is not called the memory will not be garbage collected.
--spec retain_memory(wx_memory()) -> ok.
+-spec retain_memory(wx_memory()) -> 'ok'.
 retain_memory(#wx_mem{bin=Bin}) ->
     wxe_util:send_bin(Bin),
     ok = wxe_util:cast(?WXE_BIN_INCR, <<>>);
@@ -268,7 +279,7 @@ retain_memory(Bin) when is_binary(Bin) ->
     wxe_util:send_bin(Bin),
     ok = wxe_util:cast(?WXE_BIN_INCR, <<>>).
 
--spec release_memory(wx_memory()) -> ok.
+-spec release_memory(wx_memory()) -> 'ok'.
 release_memory(#wx_mem{bin=Bin}) ->
     wxe_util:send_bin(Bin),
     ok = wxe_util:cast(?WXE_BIN_DECR, <<>>);
@@ -279,16 +290,19 @@ release_memory(Bin) when is_binary(Bin) ->
 %% @doc Sets debug level. If debug level is 'verbose' or 'trace'
 %% each call is printed on console. If Level is 'driver' each allocated
 %% object and deletion is printed on the console.
--spec debug(Level | [Level]) -> ok
-     when Level :: none | verbose | trace | driver | integer().
+-spec debug(Level | [Level]) -> 'ok'
+     when Level :: 'none' | 'verbose' | 'trace' | 'driver' | integer().
 
-debug(none) -> debug(0);
-debug(verbose) -> debug(1);
-debug(trace) -> debug(2);
-debug(driver) -> debug(16);
-debug([]) -> debug(0);
+debug(Debug) ->
+    Level = calc_level(Debug),
+    set_debug(Level).
 
-debug(List) when is_list(List) ->
+calc_level(none) -> calc_level(0);
+calc_level(verbose) -> calc_level(1);
+calc_level(trace) -> calc_level(2);
+calc_level(driver) -> calc_level(16);
+calc_level([]) -> calc_level(0);
+calc_level(List) when is_list(List) ->
     {Drv,Erl} =
 	lists:foldl(fun(verbose, {Drv,_Erl}) ->
 			    {Drv,1};
@@ -297,8 +311,11 @@ debug(List) when is_list(List) ->
 		       (driver, {_Drv,Erl}) ->
 			    {16, Erl}
 		    end, {0,0}, List),
-    debug(Drv + Erl);
-debug(Level) when is_integer(Level) ->
+    Drv + Erl;
+calc_level(Level) when is_integer(Level) ->
+    Level.
+
+set_debug(Level) when is_integer(Level) ->
     case get(?WXE_IDENTIFIER) of
 	undefined -> erlang:error({wxe,unknown_port});
 	#wx_env{debug=Old} when Old =:= Level -> ok;
@@ -315,7 +332,7 @@ debug(Level) when is_integer(Level) ->
     end.
 
 %% @doc Starts a wxErlang demo if examples directory exists and is compiled
--spec demo() -> ok | {error, atom()}.
+-spec demo() -> 'ok' | {'error', atom()}.
 demo() ->
     Priv = code:priv_dir(wx),
     Demo = filename:join([filename:dirname(Priv),examples,demo]),

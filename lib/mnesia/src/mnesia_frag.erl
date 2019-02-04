@@ -1,18 +1,19 @@
 %%%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1998-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1998-2018. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -57,9 +58,7 @@
 
 -include("mnesia.hrl").
 
--define(OLD_HASH_MOD, mnesia_frag_old_hash).
 -define(DEFAULT_HASH_MOD, mnesia_frag_hash).
-%%-define(DEFAULT_HASH_MOD, ?OLD_HASH_MOD). %%  BUGBUG: New should be default
 
 -record(frag_state,
 	{foreign_key,
@@ -79,7 +78,7 @@
 lock(ActivityId, Opaque, {table , Tab}, LockKind) ->
     case frag_names(Tab) of
 	[Tab] ->
-	    mnesia:lock(ActivityId, Opaque, {table, Tab}, LockKind);	    
+	    mnesia:lock(ActivityId, Opaque, {table, Tab}, LockKind);
 	Frags ->
 	    DeepNs = [mnesia:lock(ActivityId, Opaque, {table, F}, LockKind) ||
 			 F <- Frags],
@@ -182,6 +181,8 @@ table_info2(ActivityId, Opaque, Tab, Frag, Item) ->
 	    length(val({Tab, disc_copies}));
 	n_disc_only_copies ->
 	    length(val({Tab, disc_only_copies}));
+	n_external_copies ->
+	    length(val({Tab, external_copies}));
 
 	frag_names ->
 	    frag_names(Tab);
@@ -318,7 +319,7 @@ init_select(Tid,Opaque,Tab,Pat,Limit,LockKind) ->
 	{'EXIT', _} ->
 	    mnesia:select(Tid, Opaque, Tab, Pat, Limit,LockKind);
 	FH ->
-	    FragNumbers = verify_numbers(FH,Pat), 
+	    FragNumbers = verify_numbers(FH,Pat),
 	    Fun = fun(Num) ->
 			  Name = n_to_frag_name(Tab, Num),
 			  Node = val({Name, where_to_read}),
@@ -333,19 +334,19 @@ init_select(Tid,Opaque,Tab,Pat,Limit,LockKind) ->
     end.
 
 select_cont(_Tid,_,{frag_cont, '$end_of_table', [],_}) -> '$end_of_table';
-select_cont(Tid,Ts,{frag_cont, '$end_of_table', [{Tab,Node,Type}|Rest],Args}) -> 
+select_cont(Tid,Ts,{frag_cont, '$end_of_table', [{Tab,Node,Type}|Rest],Args}) ->
     {Spec,LockKind,Limit} = Args,
     InitFun = fun(FixedSpec) -> mnesia:dirty_sel_init(Node,Tab,FixedSpec,Limit,Type) end,
     Res = mnesia:fun_select(Tid,Ts,Tab,Spec,LockKind,Tab,InitFun,Limit,Node,Type),
     frag_sel_cont(Res, Rest, Args);
-select_cont(Tid,Ts,{frag_cont, Cont, TabL, Args}) -> 
+select_cont(Tid,Ts,{frag_cont, Cont, TabL, Args}) ->
     frag_sel_cont(mnesia:select_cont(Tid,Ts,Cont),TabL,Args);
 select_cont(Tid,Ts,Else) ->  %% Not a fragmented table
     mnesia:select_cont(Tid,Ts,Else).
 
 frag_sel_cont('$end_of_table', [],_) ->
     '$end_of_table';
-frag_sel_cont('$end_of_table', TabL,Args) -> 
+frag_sel_cont('$end_of_table', TabL,Args) ->
     {[], {frag_cont, '$end_of_table', TabL,Args}};
 frag_sel_cont({Recs,Cont}, TabL,Args) ->
     {Recs, {frag_cont, Cont, TabL,Args}}.
@@ -355,9 +356,9 @@ do_select(ActivityId, Opaque, Tab, MatchSpec, LockKind) ->
 	{'EXIT', _} ->
 	    mnesia:select(ActivityId, Opaque, Tab, MatchSpec, LockKind);
 	FH ->
-	    FragNumbers = verify_numbers(FH,MatchSpec), 
+	    FragNumbers = verify_numbers(FH,MatchSpec),
 	    Fun = fun(Num) ->
-			  Name = n_to_frag_name(Tab, Num),
+                          Name = n_to_frag_name(Tab, Num),
 			  Node = val({Name, where_to_read}),
 			  mnesia:lock(ActivityId, Opaque, {table, Name}, LockKind),
 			  {Name, Node}
@@ -395,7 +396,7 @@ do_select(ActivityId, Opaque, Tab, MatchSpec, LockKind) ->
 
 verify_numbers(FH,MatchSpec) ->
     HashState = FH#frag_state.hash_state,
-    FragNumbers = 
+    FragNumbers =
 	case FH#frag_state.hash_module of
 	    HashMod when HashMod == ?DEFAULT_HASH_MOD ->
 		?DEFAULT_HASH_MOD:match_spec_to_frag_numbers(HashState, MatchSpec);
@@ -406,10 +407,11 @@ verify_numbers(FH,MatchSpec) ->
     VerifyFun = fun(F) when is_integer(F), F >= 1, F =< N -> false;
 		   (_F) -> true
 		end,
-    case catch lists:filter(VerifyFun, FragNumbers) of
-	[] ->
-	    FragNumbers;
-	BadFrags ->
+    try
+	Frags = lists:filter(VerifyFun, FragNumbers),
+	Frags == [] orelse error(Frags),
+	FragNumbers
+    catch error:BadFrags ->
 	    mnesia:abort({"match_spec_to_frag_numbers: Fragment numbers out of range",
 			  BadFrags, {range, 1, N}})
     end.
@@ -430,14 +432,14 @@ local_select(ReplyTo, Ref, RemoteNameNodes, MatchSpec) ->
     end,
     unlink(ReplyTo),
     exit(normal).
-    
+
 remote_select(ReplyTo, Ref, NameNodes, MatchSpec) ->
     do_remote_select(ReplyTo, Ref, NameNodes, MatchSpec).
 
 do_remote_select(ReplyTo, Ref, [{Name, Node} | NameNodes], MatchSpec) ->
     if
 	Node == node() ->
-	    Res = (catch {ok, mnesia:dirty_select(Name, MatchSpec)}),
+	    Res = ?CATCH({ok, mnesia:dirty_select(Name, MatchSpec)}),
 	    ReplyTo ! {remote_select, Ref, Node, Res},
 	    do_remote_select(ReplyTo, Ref, NameNodes, MatchSpec);
 	true ->
@@ -496,13 +498,13 @@ expand_cstruct(Cs, Mode) ->
     %% Verify keys
     ValidKeys = [foreign_key, n_fragments, node_pool,
 		 n_ram_copies, n_disc_copies, n_disc_only_copies,
-		 hash_module, hash_state],
+                 n_external_copies, hash_module, hash_state],
     Keys = mnesia_schema:check_keys(Tab, Props, ValidKeys),
     mnesia_schema:check_duplicates(Tab, Keys),
 
     %% Pick fragmentation props
     ForeignKey = mnesia_schema:pick(Tab, foreign_key, Props, undefined),
-    {ForeignKey2, N, Pool, DefaultNR, DefaultND, DefaultNDO} =
+    {ForeignKey2, N, Pool, DefaultNR, DefaultND, DefaultNDO, DefaultNExt} =
 	pick_props(Tab, Cs, ForeignKey),
 
     %% Verify node_pool
@@ -516,6 +518,7 @@ expand_cstruct(Cs, Mode) ->
     NR  = mnesia_schema:pick(Tab, n_ram_copies, Props, 0),
     ND  = mnesia_schema:pick(Tab, n_disc_copies, Props, 0),
     NDO = mnesia_schema:pick(Tab, n_disc_only_copies, Props, 0),
+    NExt = mnesia_schema:pick(Tab, n_external_copies, Props, 0),
     
     PosInt = fun(I) when is_integer(I), I >= 0 -> true;
 		(_I) -> false
@@ -526,6 +529,8 @@ expand_cstruct(Cs, Mode) ->
 			 {bad_type, Tab, {n_disc_copies, ND}}),
     mnesia_schema:verify(true, PosInt(NDO),
 			 {bad_type, Tab, {n_disc_only_copies, NDO}}),
+    mnesia_schema:verify(true, PosInt(NExt),
+			 {bad_type, Tab, {n_external_copies, NDO}}),
     
     %% Verify n_fragments
     Cs2 = verify_n_fragments(N, Cs, Mode),
@@ -540,13 +545,13 @@ expand_cstruct(Cs, Mode) ->
 		     hash_module = HashMod,
 		     hash_state  = HashState2},
     if
-	NR == 0, ND == 0, NDO == 0 ->
-	    do_expand_cstruct(Cs2, FH, N, Pool, DefaultNR, DefaultND, DefaultNDO, Mode);
+	NR == 0, ND == 0, NDO == 0, NExt == 0 ->
+	    do_expand_cstruct(Cs2, FH, N, Pool, DefaultNR, DefaultND, DefaultNDO, DefaultNExt, Mode);
 	true ->
-	    do_expand_cstruct(Cs2, FH, N, Pool, NR, ND, NDO, Mode)
+	    do_expand_cstruct(Cs2, FH, N, Pool, NR, ND, NDO, NExt, Mode)
     end.
 	    
-do_expand_cstruct(Cs, FH, N, Pool, NR, ND, NDO, Mode) ->
+do_expand_cstruct(Cs, FH, N, Pool, NR, ND, NDO, NExt, Mode) ->
     Tab = Cs#cstruct.name,
     
     LC = Cs#cstruct.local_content,
@@ -560,14 +565,15 @@ do_expand_cstruct(Cs, FH, N, Pool, NR, ND, NDO, Mode) ->
     %% Add empty fragments
     CommonProps = [{base_table, Tab}],
     Cs2 = Cs#cstruct{frag_properties = lists:sort(CommonProps)},
-    expand_frag_cstructs(N, NR, ND, NDO, Cs2, Pool, Pool, FH, Mode).
+    expand_frag_cstructs(N, NR, ND, NDO, NExt, Cs2, Pool, Pool, FH, Mode).
 
 verify_n_fragments(N, Cs, Mode) when is_integer(N), N >= 1 ->
     case Mode of
 	create ->
 	    Cs#cstruct{ram_copies = [],
 		       disc_copies = [],
-		       disc_only_copies = []};
+		       disc_only_copies = [],
+		       external_copies = []};
 	activate  ->
 	    Reason = {combine_error, Cs#cstruct.name, {n_fragments, N}},
 	    mnesia_schema:verify(1, N, Reason),
@@ -605,7 +611,8 @@ pick_props(Tab, Cs, {ForeignTab, Attr}) ->
     DefaultNR = length(val({ForeignTab, ram_copies})), 
     DefaultND = length(val({ForeignTab, disc_copies})), 
     DefaultNDO = length(val({ForeignTab, disc_only_copies})),
-    {Key, N, Pool, DefaultNR, DefaultND, DefaultNDO};
+    DefaultNExt = length(val({ForeignTab, external_copies})),
+    {Key, N, Pool, DefaultNR, DefaultND, DefaultNDO, DefaultNExt};
 pick_props(Tab, Cs, undefined) ->
     Props = Cs#cstruct.frag_properties,
     DefaultN = 1,
@@ -615,22 +622,23 @@ pick_props(Tab, Cs, undefined) ->
     DefaultNR = 1,
     DefaultND = 0,
     DefaultNDO = 0,
-    {undefined, N, Pool, DefaultNR, DefaultND, DefaultNDO};
+    DefaultNExt = 0,
+    {undefined, N, Pool, DefaultNR, DefaultND, DefaultNDO, DefaultNExt};
 pick_props(Tab, _Cs, BadKey) ->
     mnesia:abort({bad_type, Tab, {foreign_key, BadKey}}).
 
-expand_frag_cstructs(N, NR, ND, NDO, CommonCs, Dist, Pool, FH, Mode)
+expand_frag_cstructs(N, NR, ND, NDO, NExt, CommonCs, Dist, Pool, FH, Mode)
   when N > 1, Mode == create ->
     Frag = n_to_frag_name(CommonCs#cstruct.name, N),
     Cs = CommonCs#cstruct{name = Frag},
-    {Cs2, RevModDist, RestDist} = set_frag_nodes(NR, ND, NDO, Cs, Dist, []),
+    {Cs2, RevModDist, RestDist} = set_frag_nodes(NR, ND, NDO, NExt, Cs, Dist, []),
     ModDist = lists:reverse(RevModDist),
     Dist2 = rearrange_dist(Cs, ModDist, RestDist, Pool),
     %% Adjusts backwards, but it doesn't matter.
     {FH2, _FromFrags, _AdditionalWriteFrags} = adjust_before_split(FH), 
-    CsList = expand_frag_cstructs(N - 1, NR, ND, NDO, CommonCs, Dist2, Pool, FH2, Mode),
+    CsList = expand_frag_cstructs(N - 1, NR, ND, NDO, NExt, CommonCs, Dist2, Pool, FH2, Mode),
     [Cs2 | CsList];
-expand_frag_cstructs(1, NR, ND, NDO, CommonCs, Dist, Pool, FH, Mode) ->
+expand_frag_cstructs(1, NR, ND, NDO, NExt, CommonCs, Dist, Pool, FH, Mode) ->
     BaseProps = CommonCs#cstruct.frag_properties ++  
 	[{foreign_key, FH#frag_state.foreign_key},
 	 {hash_module, FH#frag_state.hash_module},
@@ -643,25 +651,29 @@ expand_frag_cstructs(1, NR, ND, NDO, CommonCs, Dist, Pool, FH, Mode) ->
 	activate ->
 	    [BaseCs];
 	create ->
-	    {BaseCs2, _, _} = set_frag_nodes(NR, ND, NDO, BaseCs, Dist, []),
+	    {BaseCs2, _, _} = set_frag_nodes(NR, ND, NDO, NExt, BaseCs, Dist, []),
 	    [BaseCs2]
     end.
     
-set_frag_nodes(NR, ND, NDO, Cs, [Head | Tail], Acc) when NR > 0 ->
+set_frag_nodes(NR, ND, NDO, NExt, Cs, [Head | Tail], Acc) when NR > 0 ->
     Pos = #cstruct.ram_copies,
     {Cs2, Head2} = set_frag_node(Cs, Pos, Head),
-    set_frag_nodes(NR - 1, ND, NDO, Cs2, Tail, [Head2 | Acc]); 
-set_frag_nodes(NR, ND, NDO, Cs, [Head | Tail], Acc) when ND > 0 ->
+    set_frag_nodes(NR - 1, ND, NDO, NExt, Cs2, Tail, [Head2 | Acc]);
+set_frag_nodes(NR, ND, NDO, NExt, Cs, [Head | Tail], Acc) when ND > 0 ->
     Pos = #cstruct.disc_copies,
     {Cs2, Head2} = set_frag_node(Cs, Pos, Head),
-    set_frag_nodes(NR, ND - 1, NDO, Cs2, Tail, [Head2 | Acc]); 
-set_frag_nodes(NR, ND, NDO, Cs, [Head | Tail], Acc) when NDO > 0 ->
+    set_frag_nodes(NR, ND - 1, NDO, NExt, Cs2, Tail, [Head2 | Acc]);
+set_frag_nodes(NR, ND, NDO, NExt, Cs, [Head | Tail], Acc) when NDO > 0 ->
     Pos = #cstruct.disc_only_copies,
     {Cs2, Head2} = set_frag_node(Cs, Pos, Head),
-    set_frag_nodes(NR, ND, NDO - 1, Cs2, Tail, [Head2 | Acc]); 
-set_frag_nodes(0, 0, 0, Cs, RestDist, ModDist) ->
+    set_frag_nodes(NR, ND, NDO - 1, NExt, Cs2, Tail, [Head2 | Acc]);
+set_frag_nodes(NR, ND, NDO, NExt, Cs, [Head | Tail], Acc) when NExt > 0 ->
+    Pos = #cstruct.external_copies,
+    {Cs2, Head2} = set_frag_node(Cs, Pos, Head),
+    set_frag_nodes(NR, ND, NDO, NExt - 1, Cs2, Tail, [Head2 | Acc]);
+set_frag_nodes(0, 0, 0, 0, Cs, RestDist, ModDist) ->
     {Cs, ModDist, RestDist};
-set_frag_nodes(_, _, _, Cs, [], _) ->
+set_frag_nodes(_, _, _, _, Cs, [], _) ->
     mnesia:abort({combine_error,  Cs#cstruct.name, "Too few nodes in node_pool"}).
 
 set_frag_node(Cs, Pos, Head) ->
@@ -791,22 +803,22 @@ make_deactivate(Tab) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Add a fragment to a fragmented table  and fill it with half of
 %% the records from one of the old fragments
-    
+
 make_multi_add_frag(Tab, SortedNs) when is_list(SortedNs) ->
     verify_multi(Tab),
     Ops = make_add_frag(Tab, SortedNs),
 
     %% Propagate to foreigners
     MoreOps = [make_add_frag(T, SortedNs) || T <- lookup_foreigners(Tab)],
-    [Ops | MoreOps]; 
+    [Ops | MoreOps];
 make_multi_add_frag(Tab, SortedNs) ->
     mnesia:abort({bad_type, Tab, SortedNs}).
 
 verify_multi(Tab) ->
     FH = lookup_frag_hash(Tab),
     ForeignKey = FH#frag_state.foreign_key,
-    mnesia_schema:verify(undefined, ForeignKey, 
-			 {combine_error, Tab, 
+    mnesia_schema:verify(undefined, ForeignKey,
+			 {combine_error, Tab,
 			  "Op only allowed via foreign table",
 			  {foreign_key, ForeignKey}}).
 
@@ -825,7 +837,7 @@ make_frag_names_and_acquire_locks(Tab, N, FragIndecies, DoNotLockN) ->
 	  end,
     FragNames = erlang:make_tuple(N, undefined),
     lists:foldl(Fun, FragNames, FragIndecies).
-    
+
 make_add_frag(Tab, SortedNs) ->
     Cs = mnesia_schema:incr_version(val({Tab, cstruct})),
     mnesia_schema:ensure_active(Cs),
@@ -835,16 +847,18 @@ make_add_frag(Tab, SortedNs) ->
     FragNames = make_frag_names_and_acquire_locks(Tab, N, WriteIndecies, true),
     NewFrag = element(N, FragNames),
 
-    NR = length(Cs#cstruct.ram_copies), 
-    ND = length(Cs#cstruct.disc_copies), 
+    NR = length(Cs#cstruct.ram_copies),
+    ND = length(Cs#cstruct.disc_copies),
     NDO = length(Cs#cstruct.disc_only_copies),
+    NExt = length(Cs#cstruct.external_copies),
     NewCs = Cs#cstruct{name = NewFrag,
 		       frag_properties = [{base_table, Tab}],
 		       ram_copies = [],
 		       disc_copies = [],
-		       disc_only_copies = []},
-    
-    {NewCs2, _, _} = set_frag_nodes(NR, ND, NDO, NewCs, SortedNs, []),
+		       disc_only_copies = [],
+                       external_copies = []},
+
+    {NewCs2, _, _} = set_frag_nodes(NR, ND, NDO, NExt, NewCs, SortedNs, []),
     [NewOp] = mnesia_schema:make_create_table(NewCs2),
 
     SplitOps = split(Tab, FH2, FromIndecies, FragNames, []),
@@ -886,17 +900,19 @@ adjust_before_split(FH) ->
 		HashMod:add_frag(HashState)
 	end,
     N = FH#frag_state.n_fragments + 1,
-    FromFrags2 = (catch lists:sort(FromFrags)),
-    UnionFrags = (catch lists:merge(FromFrags2, lists:sort(AdditionalWriteFrags))),
     VerifyFun = fun(F) when is_integer(F), F >= 1, F =< N -> false;
 		   (_F) -> true
 		end,
-    case catch lists:filter(VerifyFun, UnionFrags) of
-	[] ->
-	    FH2 = FH#frag_state{n_fragments = N,
-				hash_state  = HashState2},
-	    {FH2, FromFrags2, UnionFrags};
-	BadFrags ->
+    try
+	FromFrags2 = lists:sort(FromFrags),
+	UnionFrags = lists:merge(FromFrags2, lists:sort(AdditionalWriteFrags)),
+
+	Frags = lists:filter(VerifyFun, UnionFrags),
+	Frags == [] orelse error(Frags),
+	FH2 = FH#frag_state{n_fragments = N,
+			    hash_state  = HashState2},
+	{FH2, FromFrags2, UnionFrags}
+    catch error:BadFrags ->
 	    mnesia:abort({"add_frag: Fragment numbers out of range",
 			  BadFrags, {range, 1, N}})
     end.
@@ -926,7 +942,7 @@ do_split(FH, OldN, FragNames, [Rec | Recs], Ops) ->
 		    Key = element(2, Rec),
 		    NewOid = {NewFrag, Key},
 		    OldOid = {OldFrag, Key},
-		    Ops2 = [{op, rec, unknown, {NewOid, [Rec], write}}, 
+		    Ops2 = [{op, rec, unknown, {NewOid, [Rec], write}},
 			    {op, rec, unknown, {OldOid, [OldOid], delete}} | Ops],
 		    do_split(FH, OldN, FragNames, Recs, Ops2);
 		_NewFrag ->
@@ -939,8 +955,8 @@ do_split(_FH, _OldN, _FragNames, [], Ops) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Delete a fragment from a fragmented table
-%% and merge its records with an other fragment
-    
+%% and merge its records with another fragment
+
 make_multi_del_frag(Tab) ->
     verify_multi(Tab),
     Ops = make_del_frag(Tab),
@@ -981,22 +997,24 @@ adjust_before_merge(FH) ->
 		HashMod:del_frag(HashState)
 	end,
     N = FH#frag_state.n_fragments,
-    FromFrags2 = (catch lists:sort(FromFrags)),
-    UnionFrags = (catch lists:merge(FromFrags2, lists:sort(AdditionalWriteFrags))),
     VerifyFun = fun(F) when is_integer(F), F >= 1, F =< N -> false;
 		   (_F) -> true
 		end,
-    case catch lists:filter(VerifyFun, UnionFrags) of
-	[] ->
-	    case lists:member(N, FromFrags2) of
-		true ->
-		    FH2 = FH#frag_state{n_fragments = N - 1,
-					hash_state  = HashState2},
-		    {FH2, FromFrags2, UnionFrags};
+    try
+	FromFrags2 = lists:sort(FromFrags),
+	UnionFrags = lists:merge(FromFrags2, lists:sort(AdditionalWriteFrags)),
+
+	Frags = lists:filter(VerifyFun, UnionFrags),
+	[] == Frags orelse error(Frags),
+	case lists:member(N, FromFrags2) of
+	    true ->
+		FH2 = FH#frag_state{n_fragments = N - 1,
+				    hash_state  = HashState2},
+		{FH2, FromFrags2, UnionFrags};
 		false ->
-		    mnesia:abort({"del_frag: Last fragment number not included", N})
-	    end;
-	BadFrags ->
+		mnesia:abort({"del_frag: Last fragment number not included", N})
+	end
+    catch error:BadFrags ->
 	    mnesia:abort({"del_frag: Fragment numbers out of range",
 			  BadFrags, {range, 1, N}})
     end.
@@ -1044,7 +1062,7 @@ do_merge(FH, OldN, FragNames, [Rec | Recs], Ops) ->
 		    Key = element(2, Rec),
 		    NewOid = {NewFrag, Key},
 		    OldOid = {OldFrag, Key},
-		    Ops2 = [{op, rec, unknown, {NewOid, [Rec], write}}, 
+		    Ops2 = [{op, rec, unknown, {NewOid, [Rec], write}},
 			    {op, rec, unknown, {OldOid, [OldOid], delete}} | Ops],
 		    do_merge(FH, OldN, FragNames, Recs, Ops2);
 		_NewFrag ->
@@ -1057,7 +1075,7 @@ do_merge(FH, OldN, FragNames, [Rec | Recs], Ops) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Add a node to the node pool of a fragmented table
-    
+
 make_multi_add_node(Tab, Node)  ->
     verify_multi(Tab),
     Ops = make_add_node(Tab, Node),
@@ -1065,7 +1083,7 @@ make_multi_add_node(Tab, Node)  ->
     %% Propagate to foreigners
     MoreOps = [make_add_node(T, Node) || T <- lookup_foreigners(Tab)],
     [Ops | MoreOps].
-    
+
 make_add_node(Tab, Node) when is_atom(Node)  ->
     Pool = lookup_prop(Tab, node_pool),
     case lists:member(Node, Pool) of
@@ -1094,7 +1112,7 @@ make_multi_del_node(Tab, Node)  ->
     %% Propagate to foreigners
     MoreOps = [make_del_node(T, Node) || T <- lookup_foreigners(Tab)],
     [Ops | MoreOps].
-    
+
 make_del_node(Tab, Node) when is_atom(Node) ->
     Cs = mnesia_schema:incr_version(val({Tab, cstruct})),
     mnesia_schema:ensure_active(Cs),
@@ -1127,8 +1145,8 @@ remove_node(Node, Cs) ->
 	    case lists:member(Node, Pool) of
 		true ->
 		    Pool2 = Pool -- [Node],
-		    Props = lists:keyreplace(node_pool, 1, 
-					     Cs#cstruct.frag_properties, 
+		    Props = lists:keyreplace(node_pool, 1,
+					     Cs#cstruct.frag_properties,
 					     {node_pool, Pool2}),
 		    {Cs#cstruct{frag_properties = Props}, true};
 		false ->
@@ -1139,10 +1157,11 @@ remove_node(Node, Cs) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Helpers
 
+%% Local function in order to avoid external function call
 val(Var) ->
-    case ?catch_val(Var) of
-	{'EXIT', Reason} -> mnesia_lib:other_val(Var, Reason); 
-	Value -> Value 
+    case ?catch_val_and_stack(Var) of
+	{'EXIT', Stacktrace} -> mnesia_lib:other_val(Var, Stacktrace);
+	Value -> Value
     end.
 
 set_frag_hash(Tab, Props) ->
@@ -1160,18 +1179,10 @@ props_to_frag_hash(Tab, Props) ->
 	T when T == Tab ->
 	    Foreign = mnesia_schema:pick(Tab, foreign_key, Props, must),
 	    N = mnesia_schema:pick(Tab, n_fragments, Props, must),
-	    
 	    case mnesia_schema:pick(Tab, hash_module, Props, undefined) of
 		undefined ->
-		    Split = mnesia_schema:pick(Tab, next_n_to_split, Props, must),
-		    Doubles = mnesia_schema:pick(Tab, n_doubles, Props, must),
-		    FH = {frag_hash, Foreign, N, Split, Doubles},
-		    HashState = ?OLD_HASH_MOD:init_state(Tab, FH),
-    		    #frag_state{foreign_key = Foreign,
-				n_fragments = N,
-				hash_module = ?OLD_HASH_MOD,
-				hash_state  = HashState};
-		HashMod ->
+                    no_hash;
+                HashMod ->
 		    HashState = mnesia_schema:pick(Tab, hash_state, Props, must),
 		    #frag_state{foreign_key = Foreign,
 				n_fragments = N,
@@ -1196,13 +1207,9 @@ lookup_frag_hash(Tab) ->
     case ?catch_val({Tab, frag_hash}) of
 	FH when is_record(FH, frag_state) ->
 	    FH;
-	{frag_hash, K, N, _S, _D} = FH ->
+	{frag_hash, _K, _N, _S, _D} ->
 	    %% Old style. Kept for backwards compatibility.
-	    HashState = ?OLD_HASH_MOD:init_state(Tab, FH),
-	    #frag_state{foreign_key = K, 
-			n_fragments = N, 
-			hash_module = ?OLD_HASH_MOD,
-			hash_state  = HashState};    
+	    mnesia:abort({no_hash, Tab, frag_properties, frag_hash});
 	{'EXIT', _} ->
 	    mnesia:abort({no_exists, Tab, frag_properties, frag_hash})
     end.
@@ -1229,10 +1236,10 @@ key_pos(FH) ->
     case FH#frag_state.foreign_key of
 	undefined ->
 	    2;
-	{_ForeignTab, Pos} -> 
+	{_ForeignTab, Pos} ->
 	    Pos
     end.
-    
+
 %% Returns name of fragment table
 key_to_frag_name({BaseTab, _} = Tab, Key) ->
     N = key_to_frag_number(Tab, Key),
@@ -1313,7 +1320,8 @@ count_frag([Frag | Frags], Dist) ->
     Dist2 =  incr_nodes(val({Frag, ram_copies}), Dist),
     Dist3 =  incr_nodes(val({Frag, disc_copies}), Dist2),
     Dist4 =  incr_nodes(val({Frag, disc_only_copies}), Dist3),
-    count_frag(Frags, Dist4);
+    Dist5 =  incr_nodes(val({Frag, external_copies}), Dist4),
+    count_frag(Frags, Dist5);
 count_frag([], Dist) ->
     Dist.
 

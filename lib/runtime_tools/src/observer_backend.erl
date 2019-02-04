@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2002-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2002-2018. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -22,7 +23,8 @@
 -export([vsn/0]).
 
 %% observer stuff
--export([sys_info/0, get_table/3, get_table_list/2, fetch_stats/2]).
+-export([sys_info/0, get_port_list/0, procs_info/1,
+	 get_table/3, get_table_list/2, fetch_stats/2]).
 
 %% etop stuff
 -export([etop_collect/1]).
@@ -34,6 +36,7 @@
 	 ttb_write_binary/2,
 	 ttb_stop/1,
 	 ttb_fetch/2,
+	 ttb_fetch/3,
          ttb_resume_trace/0,
 	 ttb_get_filenames/1]).
 -define(CHUNKSIZE,8191). % 8 kbytes - 1 byte
@@ -49,16 +52,29 @@ vsn() ->
 %% observer backend
 %%
 sys_info() ->
+    MemInfo = try erlang:memory() of
+		  Mem -> Mem
+	      catch _:_ -> []
+	      end,
+
+    SchedulersOnline = erlang:system_info(schedulers_online),
+    SchedulersAvailable = case erlang:system_info(multi_scheduling) of
+			      enabled -> SchedulersOnline;
+			      _ -> 1
+			  end,
+
     {{_,Input},{_,Output}} = erlang:statistics(io),
-    [{process_count, erlang:system_info(process_count)},
-     {process_limit, erlang:system_info(process_limit)},
-     {uptime, element(1, erlang:statistics(wall_clock))},
+    [{uptime, element(1, erlang:statistics(wall_clock))},
      {run_queue, erlang:statistics(run_queue)},
      {io_input, Input},
      {io_output,  Output},
+
      {logical_processors, erlang:system_info(logical_processors)},
-     {logical_processors_available, erlang:system_info(logical_processors_available)},
      {logical_processors_online, erlang:system_info(logical_processors_online)},
+     {logical_processors_available, erlang:system_info(logical_processors_available)},
+     {schedulers, erlang:system_info(schedulers)},
+     {schedulers_online, SchedulersOnline},
+     {schedulers_available, SchedulersAvailable},
 
      {otp_release, erlang:system_info(otp_release)},
      {version, erlang:system_info(version)},
@@ -68,9 +84,26 @@ sys_info() ->
      {threads, erlang:system_info(threads)},
      {thread_pool_size, erlang:system_info(thread_pool_size)},
      {wordsize_internal, erlang:system_info({wordsize, internal})},
-     {wordsize_external, erlang:system_info({wordsize, external})} |
-     erlang:memory()
-    ].
+     {wordsize_external, erlang:system_info({wordsize, external})},
+     {alloc_info, alloc_info()},
+     {process_count, erlang:system_info(process_count)},
+     {atom_limit,  erlang:system_info(atom_limit)},
+     {atom_count, erlang:system_info(atom_count)},
+     {process_limit, erlang:system_info(process_limit)},
+     {process_count, erlang:system_info(process_count)},
+     {port_limit, erlang:system_info(port_limit)},
+     {port_count, erlang:system_info(port_count)},
+     {ets_limit,  erlang:system_info(ets_limit)},
+     {ets_count, erlang:system_info(ets_count)},
+     {dist_buf_busy_limit, erlang:system_info(dist_buf_busy_limit)}
+     | MemInfo].
+
+alloc_info() ->
+    AlcuAllocs = erlang:system_info(alloc_util_allocators),
+    try erlang:system_info({allocator_sizes, AlcuAllocs}) of
+	Allocators -> Allocators
+    catch _:_ -> []
+    end.
 
 get_table(Parent, Table, Module) ->
     spawn(fun() ->
@@ -83,7 +116,7 @@ get_table2(Parent, Table, Type) ->
 	       ets -> ets:info(Table, size);
 	       mnesia -> mnesia:table_info(Table, size)
 	   end,
-    case Size > 0 of
+    case Size =/= undefined andalso Size > 0 of
 	false ->
 	    Parent ! {self(), '$end_of_table'},
 	    normal;
@@ -115,6 +148,60 @@ get_mnesia_loop(Parent, '$end_of_table') ->
 get_mnesia_loop(Parent, {Match, Cont}) ->
     Parent ! {self(), Match},
     get_mnesia_loop(Parent, mnesia:select(Cont)).
+
+get_port_list() ->
+    ExtraItems = [monitors,monitored_by,parallelism,locking,queue_size,memory],
+    [begin
+	 [{port_id,P}|erlang:port_info(P)] ++
+             port_info(P,ExtraItems) ++
+             inet_port_extra(erlang:port_info(P, name), P)
+     end || P <- erlang:ports()].
+
+port_info(P,[Item|Items]) ->
+    case erlang:port_info(P,Item) of
+        undefined -> port_info(P,Items);
+        Value -> [Value|port_info(P,Items)]
+    end;
+port_info(_,[]) ->
+    [].
+
+inet_port_extra({_,Type},Port) when Type =:= "udp_inet";
+                                    Type =:= "tcp_inet";
+                                    Type =:= "sctp_inet" ->
+    Data =
+        case inet:getstat(Port) of
+            {ok, Stats} -> [{statistics, Stats}];
+            _ -> []
+        end ++
+        case inet:peername(Port) of
+            {ok, {RAddr,RPort}} when is_tuple(RAddr), is_integer(RPort) ->
+                [{remote_address,RAddr},{remote_port,RPort}];
+            {ok, RAddr} ->
+                [{remote_address,RAddr}];
+            {error, _} ->  []
+        end ++
+        case inet:sockname(Port) of
+            {ok, {LAddr,LPort}} when is_tuple(LAddr), is_integer(LPort) ->
+                [{local_address,LAddr},{local_port,LPort}];
+            {ok, LAddr} ->
+                [{local_address,LAddr}];
+            {error, _} -> []
+        end ++
+        case inet:getopts(Port,
+                          [active, broadcast, buffer, bind_to_device,
+                           delay_send, deliver, dontroute, exit_on_close,
+                           header, high_msgq_watermark, high_watermark,
+                           ipv6_v6only, keepalive, linger, low_msgq_watermark,
+                           low_watermark, mode, netns, nodelay, packet,
+                           packet_size, priority, read_packets, recbuf,
+                           reuseaddr, send_timeout, send_timeout_close,
+                           show_econnreset, sndbuf, tos, tclass]) of
+            {ok, Opts} -> [{options, Opts}];
+            {error, _} -> []
+        end,
+    [{inet,Data}];
+inet_port_extra(_,_) ->
+    [].
 
 get_table_list(ets, Opts) ->
     HideUnread = proplists:get_value(unread_hidden, Opts, true),
@@ -192,41 +279,81 @@ get_table_list(mnesia, Opts) ->
 			     end,
 		       [Tab|Acc]
 		   catch _:_What ->
-			   %% io:format("Skipped ~p: ~p ~p ~n",[Id, _What, erlang:get_stacktrace()]),
+			   %% io:format("Skipped ~p: ~p ~p ~n",[Id, _What, Stacktrace]),
 			   Acc
 		   end
 	   end,
     lists:foldl(Info, [], mnesia:system_info(tables)).
 
 fetch_stats(Parent, Time) ->
-    erlang:system_flag(scheduler_wall_time, true),
     process_flag(trap_exit, true),
-    fetch_stats_loop(Parent, Time),
-    erlang:system_flag(scheduler_wall_time, false).
+    fetch_stats_loop(Parent, Time).
 
 fetch_stats_loop(Parent, Time) ->
+    erlang:system_flag(scheduler_wall_time, true),
     receive
-	_Msg -> normal
+	_Msg ->
+	    erlang:system_flag(scheduler_wall_time, false),
+	    ok
     after Time ->
 	    _M = Parent ! {stats, 1,
 			   erlang:statistics(scheduler_wall_time),
 			   erlang:statistics(io),
-			   erlang:memory()},
-	    fetch_stats(Parent, Time)
+			   try erlang:memory() catch _:_ -> [] end},
+	    fetch_stats_loop(Parent, Time)
     end.
+
+%%
+%% Chunk sending process info to etop/observer
+%%
+procs_info(Collector) ->
+    All = processes(),
+    Send = fun Send (Pids) ->
+                   try lists:split(10000, Pids) of
+                       {First, Rest} ->
+                           Collector ! {procs_info, self(), etop_collect(First, [])},
+                           Send(Rest)
+                   catch _:_ ->
+                           Collector ! {procs_info, self(), etop_collect(Pids, [])}
+                   end
+           end,
+    Send(All).
+
 %%
 %% etop backend
 %%
 etop_collect(Collector) ->
+    %% If this is the first time and the scheduler_wall_time flag is
+    %% false, SchedulerWallTime will be 'undefined' (and show 0 cpu
+    %% utilization in etop). Next time the flag will be true and then
+    %% there will be a measurement.
+    SchedulerWallTime = erlang:statistics(scheduler_wall_time),
     ProcInfo = etop_collect(processes(), []),
-    Collector ! {self(),#etop_info{now = now(),
+
+    Collector ! {self(),#etop_info{now = erlang:timestamp(),
 				   n_procs = length(ProcInfo),
 				   run_queue = erlang:statistics(run_queue),
-				   wall_clock = erlang:statistics(wall_clock),
-				   runtime = erlang:statistics(runtime),
+				   runtime = SchedulerWallTime,
 				   memi = etop_memi(),
 				   procinfo = ProcInfo
-				  }}.
+				  }},
+
+    case SchedulerWallTime of
+	undefined ->
+            spawn(fun() -> flag_holder_proc(Collector) end),
+            ok;
+	_ ->
+	    ok
+    end.
+
+flag_holder_proc(Collector) ->
+    erlang:system_flag(scheduler_wall_time,true),
+    Ref = erlang:monitor(process,Collector),
+    receive
+	{'DOWN',Ref,_,_,_} ->
+	    erlang:system_flag(scheduler_wall_time,false),
+	    ok
+    end.
 
 etop_memi() ->
     try
@@ -251,7 +378,7 @@ etop_collect([P|Ps], Acc) ->
 	[{registered_name,Reg},{initial_call,Initial},{memory,Mem},
 	 {reductions,Reds},{current_function,Current},{message_queue_len,Qlen}] ->
 	    Name = case Reg of
-		       [] -> Initial;
+		       [] -> initial_call(Initial, P);
 		       _ -> Reg
 		   end,
 	    Info = #etop_proc_info{pid=P,mem=Mem,reds=Reds,name=Name,
@@ -259,6 +386,11 @@ etop_collect([P|Ps], Acc) ->
 	    etop_collect(Ps, [Info|Acc])
     end;
 etop_collect([], Acc) -> Acc.
+
+initial_call({proc_lib, init_p, _}, Pid) ->
+    proc_lib:translate_initial_call(Pid);
+initial_call(Initial, _Pid) ->
+    Initial.
 
 %%
 %% ttb backend
@@ -283,8 +415,8 @@ ttb_init_node(MetaFile_0,PI,Traci) ->
     MetaPid ! {metadata,Traci},
     case PI of
 	true ->
-	    Proci = pnames(),
-	    MetaPid ! {metadata,Proci};
+	    MetaPid ! {metadata,pnames()},
+            ok;
 	false ->
 	    ok
     end,
@@ -303,7 +435,8 @@ ttb_meta_tracer(MetaFile,PI,Parent,SessionData) ->
 	    erlang:trace_pattern({erlang,spawn_link,3},ReturnMS,[meta]),
 	    erlang:trace_pattern({erlang,spawn_opt,1},ReturnMS,[meta]),
 	    erlang:trace_pattern({erlang,register,2},[],[meta]),
-	    erlang:trace_pattern({global,register_name,2},[],[meta]);
+	    erlang:trace_pattern({global,register_name,2},[],[meta]),
+            ok;
 	false ->
 	    ok
     end,
@@ -311,7 +444,8 @@ ttb_meta_tracer(MetaFile,PI,Parent,SessionData) ->
     case proplists:get_value(overload_check, SessionData) of
         {Ms, M, F} ->
             catch M:F(init),
-            erlang:send_after(Ms, self(), overload_check);
+            erlang:send_after(Ms, self(), overload_check),
+            ok;
         _ ->
             ok
     end,
@@ -320,10 +454,10 @@ ttb_meta_tracer(MetaFile,PI,Parent,SessionData) ->
 ttb_meta_tracer_loop(MetaFile,PI,Acc,State) ->
     receive
 	{trace_ts,_,call,{erlang,register,[Name,Pid]},_} ->
-	    ttb_store_meta({pid,{Pid,Name}},MetaFile),
+	    ok = ttb_store_meta({pid,{Pid,Name}},MetaFile),
 	    ttb_meta_tracer_loop(MetaFile,PI,Acc,State);
 	{trace_ts,_,call,{global,register_name,[Name,Pid]},_} ->
-	    ttb_store_meta({pid,{Pid,{global,Name}}},MetaFile),
+	    ok = ttb_store_meta({pid,{Pid,{global,Name}}},MetaFile),
 	    ttb_meta_tracer_loop(MetaFile,PI,Acc,State);
 	{trace_ts,CallingPid,call,{erlang,spawn_opt,[{M,F,Args,_}]},_} ->
 	    MFA = {M,F,length(Args)},
@@ -339,7 +473,7 @@ ttb_meta_tracer_loop(MetaFile,PI,Acc,State) ->
 	    NewAcc = 
 		dict:update(CallingPid,
 			    fun([H|T]) -> 
-				    ttb_store_meta({pid,{NewPid,H}},MetaFile),
+				    ok = ttb_store_meta({pid,{NewPid,H}},MetaFile),
 				    T 
 			    end,
 			    Acc),
@@ -357,22 +491,22 @@ ttb_meta_tracer_loop(MetaFile,PI,Acc,State) ->
 	    NewAcc = 
 		dict:update(CallingPid,
 			    fun([H|T]) -> 
-				    ttb_store_meta({pid,{NewPid,H}},MetaFile),
+				    ok = ttb_store_meta({pid,{NewPid,H}},MetaFile),
 				    T
 			    end,
 			    Acc),
 	    ttb_meta_tracer_loop(MetaFile,PI,NewAcc,State);
 
 	{metadata,Data} when is_list(Data) ->
-	    ttb_store_meta(Data,MetaFile),
+	    ok = ttb_store_meta(Data,MetaFile),
 	    ttb_meta_tracer_loop(MetaFile,PI,Acc,State);
 
 	{metadata,Key,Fun} when is_function(Fun) ->
-	    ttb_store_meta([{Key,Fun()}],MetaFile),
+	    ok = ttb_store_meta([{Key,Fun()}],MetaFile),
 	    ttb_meta_tracer_loop(MetaFile,PI,Acc,State);
 
 	{metadata,Key,What} ->
-	    ttb_store_meta([{Key,What}],MetaFile),
+	    ok = ttb_store_meta([{Key,What}],MetaFile),
 	    ttb_meta_tracer_loop(MetaFile,PI,Acc,State);
         overload_check ->
             {Ms, M, F} = proplists:get_value(overload_check, State),
@@ -388,7 +522,7 @@ ttb_meta_tracer_loop(MetaFile,PI,Acc,State) ->
                     ttb_meta_tracer_loop(MetaFile,PI,Acc, State)
             end;
      {'DOWN', _, _, _, _} ->
-            stop_seq_trace(),
+            _ = stop_seq_trace(),
             self() ! stop,
             ttb_meta_tracer_loop(MetaFile,PI,Acc, State);
      stop when PI=:=true ->
@@ -477,7 +611,7 @@ ttb_store_meta(Data,MetaFile) ->
     ttb_store_meta([Data],MetaFile).
 
 ttb_write_binary(Fd,[H|T]) ->
-    file:write(Fd,ttb_make_binary(H)),
+    ok = file:write(Fd,ttb_make_binary(H)),
     ttb_write_binary(Fd,T);
 ttb_write_binary(_Fd,[]) ->
     ok.
@@ -525,21 +659,41 @@ stop_seq_trace() ->
 
 %% Fetch ttb logs from remote node
 ttb_fetch(MetaFile,{Port,Host}) ->
+    ttb_fetch(MetaFile,{Port,Host},undefined).
+ttb_fetch(MetaFile,{Port,Host},MasterEnc) ->
     erlang:process_flag(priority,low),
     Files = ttb_get_filenames(MetaFile),
     {ok, Sock} = gen_tcp:connect(Host, Port, [binary, {packet, 2}]),
-    send_files({Sock,Host},Files),
+    send_files({Sock,Host},Files,MasterEnc,file:native_name_encoding()),
     ok = gen_tcp:close(Sock).
 
 
-send_files({Sock,Host},[File|Files]) ->
+send_files({Sock,Host},[File|Files],MasterEnc,MyEnc) ->
     {ok,Fd} = file:open(File,[raw,read,binary]),
-    gen_tcp:send(Sock,<<1,(list_to_binary(filename:basename(File)))/binary>>),
+    Basename = filename:basename(File),
+    {Code,FilenameBin} = encode_filename(Basename,MasterEnc,MyEnc),
+    ok = gen_tcp:send(Sock,<<Code,FilenameBin/binary>>),
     send_chunks(Sock,Fd),
-    file:delete(File),
-    send_files({Sock,Host},Files);
-send_files({_Sock,_Host},[]) ->
+    ok = file:delete(File),
+    send_files({Sock,Host},Files,MasterEnc,MyEnc);
+send_files({_Sock,_Host},[],_MasterEnc,_MyEnc) ->
     done.
+
+encode_filename(Basename,undefined,MyEnc) ->
+    %% Compatible with old version of ttb.erl, but no longer crashing
+    %% for code points > 255.
+    {1,unicode:characters_to_binary(Basename,MyEnc,MyEnc)};
+encode_filename(Basename,MasterEnc,MyEnc) ->
+    case unicode:characters_to_binary(Basename,MyEnc,MasterEnc) of
+        Bin when is_binary(Bin) ->
+            %% Encoding succeeded
+            {2,Bin};
+        _ ->
+            %% Can't convert Basename from my encoding to the master
+            %% node's encoding. Doing my best and hoping that master
+            %% node can fix it...
+            {3,unicode:characters_to_binary(Basename,MyEnc,MyEnc)}
+    end.
 
 send_chunks(Sock,Fd) ->
     case file:read(Fd,?CHUNKSIZE) of

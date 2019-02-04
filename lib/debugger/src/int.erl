@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1998-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1998-2017. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -265,9 +266,6 @@ first_lines(Clauses) ->
 
 first_line({clause,_L,_Vars,_,Exprs}) ->
     first_line(Exprs);
-%% Common Test adaptation
-first_line([{call_remote,0,ct_line,line,_As}|Exprs]) ->
-    first_line(Exprs);
 first_line([Expr|_Exprs]) -> % Expr = {Op, Line, ..varying no of args..}
     element(2, Expr).
 
@@ -354,10 +352,10 @@ start() -> dbg_iserver:start().
 stop() ->
     lists:foreach(
       fun(Mod) ->
-	      everywhere(distributed,
-			 fun() ->
+	      _ = everywhere(distributed,
+			     fun() ->
 				 erts_debug:breakpoint({Mod,'_','_'}, false)
-			 end)
+			     end)
       end,
       interpreted()),
     dbg_iserver:stop().
@@ -368,7 +366,7 @@ stop() ->
 %% function will receive the following messages:
 %%   {int, {interpret, Mod}}
 %%   {int, {no_interpret, Mod}}
-%%   {int, {new_process, Pid, Function, Status, Info}}
+%%   {int, {new_process, {Pid, Function, Status, Info}}}
 %%   {int, {new_status, Pid, Status, Info}}
 %%   {int, {new_break, {Point, Options}}}
 %%   {int, {delete_break, Point}}
@@ -517,7 +515,7 @@ int_mod(AbsMod, Dist) when is_atom(AbsMod); is_list(AbsMod) ->
 		      [App, AbsMod]),
 	    error;
 	_Error ->
-	    io:format("** Invalid beam file or no abstract code: ~p\n",
+	    io:format("** Invalid beam file or no abstract code: ~tp\n",
 		      [AbsMod]),
 	    error
     end.
@@ -526,21 +524,23 @@ check(Mod) when is_atom(Mod) -> catch check_module(Mod);
 check(File) when is_list(File) -> catch check_file(File).
 
 load({Mod, Src, Beam, BeamBin, Exp, Abst}, Dist) ->
-    everywhere(Dist,
-	       fun() ->
+    _ = everywhere(Dist,
+		   fun() ->
 		       code:purge(Mod),
 		       erts_debug:breakpoint({Mod,'_','_'}, false),
 		       {module,Mod} = code:load_binary(Mod, Beam, BeamBin)
-	       end),
+		   end),
     case erl_prim_loader:get_file(filename:absname(Src)) of
 	{ok, SrcBin, _} ->
 	    MD5 = code:module_md5(BeamBin),
-	    Bin = term_to_binary({interpreter_module,Exp,Abst,SrcBin,MD5}),
+            SrcBin1 = unicode:characters_to_binary(SrcBin, enc(SrcBin)),
+            true = is_binary(SrcBin1),
+	    Bin = term_to_binary({interpreter_module,Exp,Abst,SrcBin1,MD5}),
 	    {module, Mod} = dbg_iserver:safe_call({load, Mod, Src, Bin}),
-	    everywhere(Dist,
-		       fun() ->
+	    _ = everywhere(Dist,
+			   fun() ->
 			       true = erts_debug:breakpoint({Mod,'_','_'}, true) > 0
-		       end),
+			   end),
 	    {module, Mod};
 	error ->
 	    error
@@ -549,7 +549,7 @@ load({Mod, Src, Beam, BeamBin, Exp, Abst}, Dist) ->
 check_module(Mod) ->
     case code:which(Mod) of
 	Beam when is_list(Beam) ->
-	    case find_src(Beam) of
+	    case find_src(Mod, Beam) of
 		Src when is_list(Src) ->
 		    check_application(Src),
 		    case check_beam(Beam) of
@@ -610,7 +610,7 @@ check_application2("gs-"++_) -> throw({error,{app,gs}});
 check_application2("debugger-"++_) -> throw({error,{app,debugger}});
 check_application2(_) -> ok.
 
-find_src(Beam) ->
+find_src(Mod, Beam) ->
     Src0 = filename:rootname(Beam) ++ ".erl",
     case is_file(Src0) of
 	true -> Src0;
@@ -620,24 +620,35 @@ find_src(Beam) ->
 				 filename:basename(Src0)]),
 	    case is_file(Src) of
 		true -> Src;
-		false -> error
+		false -> find_src_from_module(Mod)
 	    end
+    end.
+
+find_src_from_module(Mod) ->
+    Compile = Mod:module_info(compile),
+    case lists:keyfind(source, 1, Compile) of
+	{source, Src} ->
+	    case is_file(Src) of
+		true -> Src;
+		false -> error
+	    end;
+	false ->
+	    error
     end.
 
 find_beam(Mod, Src) ->
     SrcDir = filename:dirname(Src),
-    BeamFile = packages:last(Mod) ++ code:objfile_extension(),
+    BeamFile = atom_to_list(Mod) ++ code:objfile_extension(),
     File = filename:join(SrcDir, BeamFile),
     case is_file(File) of
 	true -> File;
-	false -> find_beam_1(Mod, SrcDir)
+	false -> find_beam_1(BeamFile, SrcDir)
     end.
 
-find_beam_1(Mod, SrcDir) ->
-    RootDir = find_root_dir(SrcDir, packages:first(Mod)),
+find_beam_1(BeamFile, SrcDir) ->
+    RootDir = filename:dirname(SrcDir),
     EbinDir = filename:join(RootDir, "ebin"),
     CodePath = [EbinDir | code:get_path()],
-    BeamFile = to_path(Mod) ++ code:objfile_extension(),
     lists:foldl(fun(_, Beam) when is_list(Beam) -> Beam;
 		   (Dir, error) ->
 			File = filename:join(Dir, BeamFile),
@@ -648,14 +659,6 @@ find_beam_1(Mod, SrcDir) ->
 		end,
 		error,
 		CodePath).
-
-to_path(X) ->
-    filename:join(packages:split(X)).
-
-find_root_dir(Dir, [_|Ss]) ->
-    find_root_dir(filename:dirname(Dir), Ss);
-find_root_dir(Dir, []) ->
-    filename:dirname(Dir).
 
 check_beam(BeamBin) when is_binary(BeamBin) ->
     case beam_lib:chunks(BeamBin, [abstract_code,exports]) of
@@ -682,42 +685,51 @@ everywhere(local, Fun) ->
     Fun().
 
 scan_module_name(File) ->
-    case erl_prim_loader:get_file(filename:absname(File)) of
-	{ok, Bin, _FullPath} ->
-	    Chars = binary_to_list(Bin),
-	    R = (catch {ok, scan_module_name_1(Chars)}),
-	    case R of
-		{ok, A} when is_atom(A) -> A;
-		_ -> error
-	    end;
-	_ ->
-	    error
+    try
+        {ok, Bin, _FullPath} =
+            erl_prim_loader:get_file(filename:absname(File)),
+        scan_module_name_1([], <<>>, Bin, enc(Bin))
+    catch
+        _:_ ->
+            throw({error, no_beam})
     end.
 
-scan_module_name_1(Chars) ->
-    case erl_scan:tokens("", Chars, 1) of
-	{done, {ok, Ts, _}, Rest} ->
-	    scan_module_name_2(Ts, Rest);
-	_ ->
-	    error
+scan_module_name_1(Cont0, B0, Bin0, Enc) ->
+    N = min(100, byte_size(Bin0)),
+    {Bin1, Bin} = erlang:split_binary(Bin0, N),
+    {Chars, B1} =
+        case unicode:characters_to_list(list_to_binary([B0, Bin1]), Enc) of
+            {incomplete, List, Binary} ->
+                {List, Binary};
+            List when is_list(List), List =/= [] ->
+                {List, <<>>}
+        end,
+    scan_module_name_2(Cont0, Chars, B1, Bin, Enc).
+
+scan_module_name_2(Cont0, Chars, B1, Bin, Enc) ->
+    case erl_scan:tokens(Cont0, Chars, _AnyLine = 1) of
+        {done, {ok, Ts, _}, Rest} ->
+            scan_module_name_3(Ts, Rest, B1, Bin, Enc);
+        {more, Cont} ->
+            scan_module_name_1(Cont, B1, Bin, Enc)
     end.
 
-scan_module_name_2([{'-',_},{atom,_,module},{'(',_} | _]=Ts, _Chars) ->
-    scan_module_name_3(Ts);
-scan_module_name_2([{'-',_},{atom,_,_} | _], Chars) ->
-    scan_module_name_1(Chars);
-scan_module_name_2(_, _) ->
-    error.
+scan_module_name_3([{'-',_},{atom,_,module},{'(',_} | _]=Ts,
+                   _Chars, _B1, _Bin, _Enc) ->
+    scan_module_name_4(Ts);
+scan_module_name_3([{'-',_},{atom,_,_} | _], Chars, B1, Bin, Enc) ->
+    scan_module_name_2("", Chars, B1, Bin, Enc).
 
-scan_module_name_3(Ts) ->
-    case erl_parse:parse_form(Ts) of
-	{ok, {attribute,_,module,{M,_}}} -> module_atom(M);
-	{ok, {attribute,_,module,M}} -> module_atom(M);
-	_ -> error
+scan_module_name_4(Ts) ->
+    {ok, {attribute,_,module,M}} = erl_parse:parse_form(Ts),
+    true = is_atom(M),
+    M.
+
+enc(Bin) ->
+    case epp:read_encoding_from_binary(Bin) of
+        none -> epp:default_encoding();
+        Encoding -> Encoding
     end.
-
-module_atom(A) when is_atom(A) -> A;
-module_atom(L) when is_list(L) -> list_to_atom(packages:concat(L)).
 
 %%--Stop interpreting modules-----------------------------------------
 
@@ -728,9 +740,9 @@ del_mod(AbsMod, Dist) ->
 		  list_to_atom(filename:basename(AbsMod,".erl"))
 	  end,
     dbg_iserver:safe_cast({delete, Mod}),
-    everywhere(Dist,
-	       fun() ->
+    _ = everywhere(Dist,
+		   fun() ->
 		       erts_debug:breakpoint({Mod,'_','_'}, false),
 		       erlang:yield()
-	       end),
+		   end),
     ok.

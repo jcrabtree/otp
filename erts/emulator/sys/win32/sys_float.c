@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  * 
- * Copyright Ericsson AB 1997-2011. All Rights Reserved.
+ * Copyright Ericsson AB 1997-2016. All Rights Reserved.
  * 
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
- * 
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  * 
  * %CopyrightEnd%
  */
@@ -52,7 +53,7 @@ void erts_thread_disable_fpe(void)
 int 
 sys_chars_to_double(char *buf, double *fp)
 {
-    char *s = buf, *t, *dp;
+    unsigned char *s = buf, *t, *dp;
     
     /* Robert says that something like this is what he really wanted:
      * (The [.,] radix test is NOT what Robert wanted - it was added later)
@@ -114,31 +115,35 @@ sys_chars_to_double(char *buf, double *fp)
 
 /* 
 ** Convert a double to ascii format 0.dddde[+|-]ddd
-** return number of characters converted
+** return number of characters converted or -1 if error.
 */
 
 int
-sys_double_to_chars(double fp, char *buf)
+sys_double_to_chars_ext(double fp, char *buffer, size_t buffer_size, size_t decimals)
 {
-    char *s = buf;
-    
-    (void) sprintf(buf, "%.20e", fp);
+    unsigned char *s = buffer;
+
+    if (erts_snprintf(buffer, buffer_size, "%.*e", decimals, fp) >= buffer_size)
+        return -1;
     /* Search upto decimal point */
     if (*s == '+' || *s == '-') s++;
     while (isdigit(*s)) s++;
     if (*s == ',') *s++ = '.'; /* Replace ',' with '.' */
     /* Scan to end of string */
     while (*s) s++;
-    return s-buf; /* i.e strlen(buf) */
+    return s-buffer; /* i.e strlen(buffer) */
 }
+
+#ifdef USE_MATHERR
 
 int
 matherr(struct _exception *exc)
 {
-    erl_fp_exception = 1;
-    DEBUGF(("FP exception (matherr) (0x%x) (%d)\n", exc->type, erl_fp_exception));
+    DEBUGF(("FP exception (matherr) (0x%x)\n", exc->type));
     return 1;
 }
+
+#endif
 
 static void
 fpe_exception(int sig)

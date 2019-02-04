@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1996-2009. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2017. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -93,19 +94,21 @@ print(Date, Report, Device) ->
 					       [{header, Header}]),
 		    io:format(Device, Format, Args);
 		{Type, _GL, TypeReport} ->
-		    io:format(Device, "~nInfo type <~w> ~s~n",
+                    Modifier = misc_supp:modifier(Device),
+		    io:format(Device, "~nInfo type <~"++Modifier++"w> ~s~n",
 			      [Type, Date]),
-		    io:format(Device, "~p", [TypeReport]);
+		    io:format(Device, "~"++Modifier++"p", [TypeReport]);
 		_ -> 
+                    Modifier = misc_supp:modifier(Device),
 		    io:format("~nPrinting info of unknown type... ~s~n",
 			      [Date]),
-		    io:format(Device, "~p", [Report])
+		    io:format(Device, "~"++Modifier++"p", [Report])
 %	    end
     end.
 
 format_h(Line, Header, Pid, Date) ->
     NHeader = lists:flatten(io_lib:format("~s  ~w", [Header, Pid])), 
-    DateLen = length(Date),
+    DateLen = string:length(Date),
     HeaderLen = Line - DateLen,
     Format = lists:concat(["~-", HeaderLen, "s~", DateLen, "s"]),
     io_lib:format(Format, [NHeader, Date]).

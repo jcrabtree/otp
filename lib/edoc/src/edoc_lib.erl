@@ -1,18 +1,23 @@
 %% =====================================================================
-%% This library is free software; you can redistribute it and/or modify
-%% it under the terms of the GNU Lesser General Public License as
-%% published by the Free Software Foundation; either version 2 of the
-%% License, or (at your option) any later version.
+%% Licensed under the Apache License, Version 2.0 (the "License"); you may
+%% not use this file except in compliance with the License. You may obtain
+%% a copy of the License at <http://www.apache.org/licenses/LICENSE-2.0>
 %%
-%% This library is distributed in the hope that it will be useful, but
-%% WITHOUT ANY WARRANTY; without even the implied warranty of
-%% MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-%% Lesser General Public License for more details.
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
-%% You should have received a copy of the GNU Lesser General Public
-%% License along with this library; if not, write to the Free Software
-%% Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307
-%% USA
+%% Alternatively, you may use this file under the terms of the GNU Lesser
+%% General Public License (the "LGPL") as published by the Free Software
+%% Foundation; either version 2.1, or (at your option) any later version.
+%% If you wish to allow use of your version of this file only under the
+%% terms of the LGPL, you should delete the provisions above and replace
+%% them with the notice and other provisions required by the LGPL; see
+%% <http://www.gnu.org/licenses/>. If you do not delete the provisions
+%% above, a recipient may use your version of this file under the terms of
+%% either the Apache License or the LGPL.
 %%
 %% @copyright 2001-2003 Richard Carlsson
 %% @author Richard Carlsson <carlsson.richard@gmail.com>
@@ -29,11 +34,11 @@
 	 get_first_sentence/1, is_space/1, strip_space/1, parse_expr/2,
 	 parse_contact/2, escape_uri/1, join_uri/2, is_relative_uri/1,
 	 is_name/1, to_label/1, find_doc_dirs/0, find_sources/2,
-	 find_sources/3, find_file/3, try_subdir/2, unique/1,
-	 write_file/3, write_file/4, write_info_file/4,
-	 read_info_file/1, get_doc_env/1, get_doc_env/4, copy_file/2,
+	 find_file/2, try_subdir/2, unique/1,
+	 write_file/3, write_file/4, write_info_file/3,
+	 read_info_file/1, get_doc_env/1, get_doc_env/3, copy_file/2,
 	 uri_get/1, run_doclet/2, run_layout/2,
-	 simplify_path/1, timestr/1, datestr/1]).
+	 simplify_path/1, timestr/1, datestr/1, read_encoding/2]).
 
 -import(edoc_report, [report/2, warning/2]).
 
@@ -55,6 +60,13 @@ datestr({Y,M,D}) ->
     Ms = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep",
 	  "Oct", "Nov", "Dec"],
     lists:flatten(io_lib:fwrite("~s ~w ~w",[lists:nth(M, Ms),D,Y])).
+
+%% @private
+read_encoding(File, Options) ->
+    case epp:read_encoding(File, Options) of
+        none -> epp:default_encoding();
+        Encoding -> Encoding
+    end.
 
 %% @private
 count(X, Xs) ->
@@ -228,13 +240,13 @@ end_of_sentence_1(_, false, _) ->
 %% 173 - 176	{ - ~		punctuation
 %% 177		DEL		control
 %% 200 - 237			control
-%% 240 - 277	NBSP - ¿	punctuation
-%% 300 - 326	À - Ö		uppercase
-%% 327		×		punctuation
-%% 330 - 336	Ø - Þ		uppercase
-%% 337 - 366	ß - ö		lowercase
-%% 367		÷		punctuation
-%% 370 - 377	ø - ÿ		lowercase
+%% 240 - 277	NBSP - Â¿	punctuation
+%% 300 - 326	Ã€ - Ã–		uppercase
+%% 327		Ã—		punctuation
+%% 330 - 336	Ã˜ - Ãž		uppercase
+%% 337 - 366	ÃŸ - Ã¶		lowercase
+%% 367		Ã·		punctuation
+%% 370 - 377	Ã¸ - Ã¿		lowercase
 
 %% Names must begin with a lowercase letter and contain only
 %% alphanumerics and underscores.
@@ -259,9 +271,6 @@ is_name_1([$_ | Cs]) ->
 is_name_1([]) -> true;
 is_name_1(_) -> false.
 
-to_atom(A) when is_atom(A) -> A;
-to_atom(S) when is_list(S) -> list_to_atom(S).
-    
 %% @private
 unique([X | Xs]) -> [X | unique(Xs, X)];
 unique([]) -> [].
@@ -454,20 +463,20 @@ uri_get("file://localhost/" ++ Path) ->
     uri_get_file(Path);
 uri_get("file://" ++ Path) ->
     Msg = io_lib:format("cannot handle 'file:' scheme with "
-			"nonlocal network-path: 'file://~s'.",
+			"nonlocal network-path: 'file://~ts'.",
 			[Path]),
     {error, Msg};
 uri_get("file:/" ++ Path) ->
     uri_get_file(Path);
 uri_get("file:" ++ Path) ->
-    Msg = io_lib:format("ignoring malformed URI: 'file:~s'.", [Path]),
+    Msg = io_lib:format("ignoring malformed URI: 'file:~ts'.", [Path]),
     {error, Msg};
 uri_get("http:" ++ Path) ->
     uri_get_http("http:" ++ Path);
 uri_get("ftp:" ++ Path) ->
     uri_get_ftp("ftp:" ++ Path);
 uri_get("//" ++ Path) ->
-    Msg = io_lib:format("cannot access network-path: '//~s'.", [Path]),
+    Msg = io_lib:format("cannot access network-path: '//~ts'.", [Path]),
     {error, Msg};
 uri_get([C, $:, $/ | _]=Path) when C >= $A, C =< $Z; C >= $a, C =< $z ->
     uri_get_file(Path);  % special case for Windows
@@ -478,7 +487,7 @@ uri_get(URI) ->
 	true ->
 	    uri_get_file(URI);
 	false ->
-	    Msg = io_lib:format("cannot handle URI: '~s'.", [URI]),
+	    Msg = io_lib:format("cannot handle URI: '~ts'.", [URI]),
 	    {error, Msg}
     end.
 
@@ -532,23 +541,23 @@ uri_get_http_1(Result, URI) ->
 	    Reason = inet:format_error(R),
 	    {error, http_errmsg(Reason, URI)};
 	{ok, R} ->
-	    Reason = io_lib:format("bad return value ~P", [R, 5]),
+	    Reason = io_lib:format("bad return value ~tP", [R, 5]),
 	    {error, http_errmsg(Reason, URI)};
 	{'EXIT', R} ->
-	    Reason = io_lib:format("crashed with reason ~w", [R]),
+	    Reason = io_lib:format("crashed with reason ~tw", [R]),
 	    {error, http_errmsg(Reason, URI)};
 	R ->
-	    Reason = io_lib:format("uncaught throw: ~w", [R]),
+	    Reason = io_lib:format("uncaught throw: ~tw", [R]),
 	    {error, http_errmsg(Reason, URI)}
     end.
 
 http_errmsg(Reason, URI) ->
-    io_lib:format("http error: ~s: '~s'", [Reason, URI]).
+    io_lib:format("http error: ~ts: '~ts'", [Reason, URI]).
 
 %% TODO: implement ftp access method
 
 uri_get_ftp(URI) ->
-    Msg = io_lib:format("cannot access ftp scheme yet: '~s'.", [URI]),
+    Msg = io_lib:format("cannot access ftp scheme yet: '~ts'.", [URI]),
     {error, Msg}.
 
 %% @private
@@ -594,7 +603,7 @@ filename([]) ->
 filename(N) when is_atom(N) ->
     atom_to_list(N);
 filename(N) ->
-    report("bad filename: `~P'.", [N, 25]),
+    report("bad filename: `~tP'.", [N, 25]),
     exit(error).
 
 %% @private
@@ -603,7 +612,7 @@ copy_file(From, To) ->
 	{ok, _} -> ok;
 	{error, R} ->
 	    R1 = file:format_error(R),
-	    report("error copying '~s' to '~s': ~s.", [From, To, R1]),
+	    report("error copying '~ts' to '~ts': ~ts.", [From, To, R1]),
 	    exit(error)
     end.
 
@@ -619,7 +628,7 @@ list_dir(Dir, Error) ->
 			fun (S, As) -> warning(S, As), [] end
 		end,
 	    R1 = file:format_error(R),
-	    F("could not read directory '~s': ~s.", [filename(Dir), R1])
+	    F("could not read directory '~ts': ~ts.", [filename(Dir), R1])
     end.
 
 %% @private
@@ -655,7 +664,7 @@ simplify_path(P) ->
 %% 	ok -> ok;
 %% 	{error, R} ->
 %% 	    R1 = file:format_error(R),
-%% 	    report("cannot create directory '~s': ~s.", [Dir, R1]),
+%% 	    report("cannot create directory '~ts': ~ts.", [Dir, R1]),
 %% 	    exit(error)
 %%     end.
 
@@ -663,7 +672,7 @@ simplify_path(P) ->
 try_subdir(Dir, Subdir) ->
     D = filename:join(Dir, Subdir),
     case filelib:is_dir(D) of
-	true -> D; 
+	true -> D;
 	false -> Dir
     end.
 
@@ -675,38 +684,30 @@ try_subdir(Dir, Subdir) ->
 %% @private
 
 write_file(Text, Dir, Name) ->
-    write_file(Text, Dir, Name, '').
+    write_file(Text, Dir, Name, [{encoding,latin1}]).
 
-
-%% @spec (Text::deep_string(), Dir::edoc:filename(),
-%%        Name::edoc:filename(), Package::atom()|string()) -> ok
-%% @doc Like {@link write_file/3}, but adds path components to the target
-%% directory corresponding to the specified package.
-%% @private
-
-write_file(Text, Dir, Name, Package) ->
-    Dir1 = filename:join([Dir | packages:split(Package)]),
-    File = filename:join(Dir1, Name),
+write_file(Text, Dir, Name, Options) ->
+    File = filename:join([Dir, Name]),
     ok = filelib:ensure_dir(File),
-    case file:open(File, [write]) of
+    case file:open(File, [write] ++ Options) of
 	{ok, FD} ->
 	    io:put_chars(FD, Text),
 	    ok = file:close(FD);
 	{error, R} ->
 	    R1 = file:format_error(R),
-	    report("could not write file '~s': ~s.", [File, R1]),
+	    report("could not write file '~ts': ~ts.", [File, R1]),
 	    exit(error)
     end.
 
 %% @private
-write_info_file(App, Packages, Modules, Dir) ->
-    Ts = [{packages, Packages},
-	  {modules, Modules}],
+write_info_file(App, Modules, Dir) ->
+    Ts = [{modules, Modules}],
     Ts1 = if App =:= ?NO_APP -> Ts;
 	     true -> [{application, App} | Ts]
 	  end,
-    S = [io_lib:fwrite("~p.\n", [T]) || T <- Ts1],
-    write_file(S, Dir, ?INFO_FILE).
+    S0 = [io_lib:fwrite("~p.\n", [T]) || T <- Ts1],
+    S = ["%% encoding: UTF-8\n" | S0],
+    write_file(S, Dir, ?INFO_FILE, [{encoding,unicode}]).
 
 %% @spec (Name::edoc:filename()) -> {ok, string()} | {error, Reason}
 %%
@@ -714,7 +715,14 @@ write_info_file(App, Packages, Modules, Dir) ->
 
 read_file(File) ->
     case file:read_file(File) of
-	{ok, Bin} -> {ok, binary_to_list(Bin)};
+	{ok, Bin} ->
+            Enc = edoc_lib:read_encoding(File, []),
+            case catch unicode:characters_to_list(Bin, Enc) of
+                String when is_list(String) ->
+                    {ok, String};
+                _ ->
+                    {error, invalid_unicode}
+            end;
 	{error, Reason} -> {error, Reason}
     end.
 
@@ -724,9 +732,8 @@ read_file(File) ->
 
 info_file_data(Ts) ->
     App = proplists:get_value(application, Ts, ?NO_APP),
-    Ps = proplists:append_values(packages, Ts),
     Ms = proplists:append_values(modules, Ts),
-    {App, Ps, Ms}.
+    {App, Ms}.
 
 %% Local file access - don't complain if file does not exist.
 
@@ -740,11 +747,11 @@ read_info_file(Dir) ->
 		    parse_info_file(Text, File);
 		{error, R} ->
 		    R1 = file:format_error(R),
-		    warning("could not read '~s': ~s.", [File, R1]),
-		    {?NO_APP, [], []}
-	    end;	    
+		    warning("could not read '~ts': ~ts.", [File, R1]),
+		    {?NO_APP, []}
+	    end;
 	false ->
-	    {?NO_APP, [], []}
+	    {?NO_APP, []}
     end.
 
 %% URI access
@@ -755,8 +762,8 @@ uri_get_info_file(Base) ->
 	{ok, Text} ->
 	    parse_info_file(Text, URI);
 	{error, Msg} ->
-	    warning("could not read '~s': ~s.", [URI, Msg]),
-	    {?NO_APP, [], []}
+	    warning("could not read '~ts': ~ts.", [URI, Msg]),
+	    {?NO_APP, []}
     end.
 
 parse_info_file(Text, Name) ->
@@ -764,11 +771,11 @@ parse_info_file(Text, Name) ->
 	{ok, Vs} ->
 	    info_file_data(Vs);
 	{error, eof} ->
-	    warning("unexpected end of file in '~s'.", [Name]),
-	    {?NO_APP, [], []};
+	    warning("unexpected end of file in '~ts'.", [Name]),
+	    {?NO_APP, []};
 	{error, {_Line,Module,R}} ->
-	    warning("~s: ~s.", [Module:format_error(R), Name]),
-	    {?NO_APP, [], []}
+	    warning("~ts: ~ts.", [Module:format_error(R), Name]),
+	    {?NO_APP, []}
     end.
 
 parse_terms(Text) ->
@@ -795,79 +802,67 @@ parse_terms_1([], _As, _Vs) ->
 
 
 %% ---------------------------------------------------------------------
-%% Source files and packages
+%% Source files
 
+%% @doc See {@link edoc:run/2} for a description of the options
+%% `subpackages', `source_suffix'.
 %% @private
+
+%% NEW-OPTIONS: subpackages, source_suffix
+%% DEFER-OPTIONS: edoc:run/2
+
 find_sources(Path, Opts) ->
-    find_sources(Path, "", Opts).
-
-%% @doc See {@link edoc:run/3} for a description of the options
-%% `subpackages', `source_suffix' and `exclude_packages'.
-%% @private
-
-%% NEW-OPTIONS: subpackages, source_suffix, exclude_packages
-%% DEFER-OPTIONS: edoc:run/3
-
-find_sources(Path, Pkg, Opts) ->
     Rec = proplists:get_bool(subpackages, Opts),
     Ext = proplists:get_value(source_suffix, Opts, ?DEFAULT_SOURCE_SUFFIX),
-    find_sources(Path, Pkg, Rec, Ext, Opts).
+    find_sources(Path, Rec, Ext, Opts).
 
-find_sources(Path, Pkg, Rec, Ext, Opts) ->
-    Skip = proplists:get_value(exclude_packages, Opts, []),
-    lists:flatten(find_sources_1(Path, to_atom(Pkg), Rec, Ext, Skip)).
+find_sources(Path, Rec, Ext, _Opts) ->
+    lists:flatten(find_sources_1(Path, Rec, Ext)).
 
-find_sources_1([P | Ps], Pkg, Rec, Ext, Skip) ->
-    Dir = filename:join(P, filename:join(packages:split(Pkg))),
-    Fs1 = find_sources_1(Ps, Pkg, Rec, Ext, Skip),
+find_sources_1([P | Ps], Rec, Ext) ->
+    Dir = P,
+    Fs1 = find_sources_1(Ps, Rec, Ext),
     case filelib:is_dir(Dir) of
 	true ->
-	    [find_sources_2(Dir, Pkg, Rec, Ext, Skip) | Fs1];
+	    [find_sources_2(Dir, Rec, Ext) | Fs1];
 	false ->
 	    Fs1
     end;
-find_sources_1([], _Pkg, _Rec, _Ext, _Skip) ->
+find_sources_1([], _Rec, _Ext) ->
     [].
 
-find_sources_2(Dir, Pkg, Rec, Ext, Skip) ->
-    case lists:member(Pkg, Skip) of
-	false ->
-	    Es = list_dir(Dir, false),    % just warn if listing fails
-	    Es1 = [{Pkg, E, Dir} || E <- Es, is_source_file(E, Ext)],
-	    case Rec of
+find_sources_2(Dir, Rec, Ext) ->
+	Es = list_dir(Dir, false),    % just warn if listing fails
+	Es1 = [{E, Dir} || E <- Es, is_source_file(E, Ext)],
+	case Rec of
 		true ->
-		    [find_sources_3(Es, Dir, Pkg, Rec, Ext, Skip) | Es1];
+			[find_sources_3(Es, Dir, Rec, Ext) | Es1];
 		false ->
-		    Es1
-	    end;
-	true ->
-	    []
-    end.
+			Es1
+	end.
 
-find_sources_3(Es, Dir, Pkg, Rec, Ext, Skip) ->
+find_sources_3(Es, Dir, Rec, Ext) ->
     [find_sources_2(filename:join(Dir, E),
-		    to_atom(packages:concat(Pkg, E)), Rec, Ext, Skip)
-     || E <- Es, is_package_dir(E, Dir)].
+		    Rec, Ext)
+     || E <- Es, is_source_dir(E, Dir)].
 
 is_source_file(Name, Ext) ->
     (filename:extension(Name) == Ext)
 	andalso is_name(filename:rootname(Name, Ext)).
 
-is_package_dir(Name, Dir) ->
-    is_name(filename:rootname(filename:basename(Name)))
-	andalso filelib:is_dir(filename:join(Dir, Name)).
+is_source_dir(Name, Dir) ->
+    filelib:is_dir(filename:join(Dir, Name)).
 
 %% @private
-find_file([P | Ps], Pkg, Name) ->
-    Dir = filename:join(P, filename:join(packages:split(Pkg))),
-    File = filename:join(Dir, Name),
+find_file([P | Ps], Name) ->
+    File = filename:join(P, Name),
     case filelib:is_file(File) of
 	true ->
-	    File;    
+	    File;
 	false ->
-	    find_file(Ps, Pkg, Name)
-    end;    
-find_file([], _Pkg, _Name) ->
+	    find_file(Ps, Name)
+    end;
+find_file([], _Name) ->
     "".
 
 %% @private
@@ -886,7 +881,7 @@ find_doc_dirs([P0 | Ps]) ->
     File = filename:join(Dir, ?INFO_FILE),
     case filelib:is_file(File) of
 	true ->
-	    [Dir | find_doc_dirs(Ps)]; 
+	    [Dir | find_doc_dirs(Ps)];
 	false ->
 	    find_doc_dirs(Ps)
     end;
@@ -898,24 +893,23 @@ find_doc_dirs([]) ->
 %% implies that we use the default app-path.
 
 %% NEW-OPTIONS: doc_path
-%% DEFER-OPTIONS: get_doc_env/4
+%% DEFER-OPTIONS: get_doc_env/3
 
-get_doc_links(App, Packages, Modules, Opts) ->
+get_doc_links(App, Modules, Opts) ->
     Path = proplists:append_values(doc_path, Opts) ++ find_doc_dirs(),
     Ds = [{P, uri_get_info_file(P)} || P <- Path],
-    Ds1 = [{"", {App, Packages, Modules}} | Ds],
+    Ds1 = [{"", {App, Modules}} | Ds],
     D = dict:new(),
-    make_links(Ds1, D, D, D).
+    make_links(Ds1, D, D).
 
-make_links([{Dir, {App, Ps, Ms}} | Ds], A, P, M) ->
+make_links([{Dir, {App, Ms}} | Ds], A, M) ->
     A1 = if App == ?NO_APP -> A;
 	    true -> add_new(App, Dir, A)
 	 end,
     F = fun (K, D) -> add_new(K, Dir, D) end,
-    P1 = lists:foldl(F, P, Ps),
     M1 = lists:foldl(F, M, Ms),
-    make_links(Ds, A1, P1, M1);
-make_links([], A, P, M) ->
+    make_links(Ds, A1, M1);
+make_links([], A,  M) ->
     F = fun (D) ->
 		fun (K) ->
 			case dict:find(K, D) of
@@ -924,7 +918,7 @@ make_links([], A, P, M) ->
 			end
 		end
 	end,
-    {F(A), F(P), F(M)}.
+    {F(A), F(M)}.
 
 add_new(K, V, D) ->
     case dict:is_key(K, D) of
@@ -935,24 +929,23 @@ add_new(K, V, D) ->
     end.
 
 %% @spec (Options::proplist()) -> edoc_env()
-%% @equiv get_doc_env([], [], [], Opts)
+%% @equiv get_doc_env([], [], Opts)
 %% @private
 
 get_doc_env(Opts) ->
-    get_doc_env([], [], [], Opts).
+    get_doc_env([], [], Opts).
 
-%% @spec (App, Packages, Modules, Options::proplist()) -> edoc_env()
+%% @spec (App, Modules, Options::proplist()) -> edoc_env()
 %%     App = [] | atom()
-%%     Packages = [atom()]
 %%     Modules = [atom()]
 %%     proplist() = [term()]
 %%
-%% @type proplist() = proplists:property().
+%% @type proplist() = //stdlib/proplists:property().
 %% @type edoc_env(). Environment information needed by EDoc for
 %% generating references. The data representation is not documented.
 %%
 %% @doc Creates an environment data structure used by parts of EDoc for
-%% generating references, etc. See {@link edoc:run/3} for a description
+%% generating references, etc. See {@link edoc:run/2} for a description
 %% of the options `file_suffix', `app_default' and `doc_path'.
 %%
 %% @see edoc_extract:source/4
@@ -960,19 +953,17 @@ get_doc_env(Opts) ->
 
 %% NEW-OPTIONS: file_suffix, app_default
 %% INHERIT-OPTIONS: get_doc_links/4
-%% DEFER-OPTIONS: edoc:run/3
+%% DEFER-OPTIONS: edoc:run/2
 
-get_doc_env(App, Packages, Modules, Opts) ->
+get_doc_env(App, Modules, Opts) ->
     Suffix = proplists:get_value(file_suffix, Opts,
 				 ?DEFAULT_FILE_SUFFIX),
     AppDefault = proplists:get_value(app_default, Opts, ?APP_DEFAULT),
     Includes = proplists:append_values(includes, Opts),
 
-    {A, P, M} = get_doc_links(App, Packages, Modules, Opts),
+    {A, M} = get_doc_links(App, Modules, Opts),
     #env{file_suffix = Suffix,
-	 package_summary = ?PACKAGE_SUMMARY ++ Suffix,
 	 apps = A,
-	 packages = P,
 	 modules = M,
 	 app_default = AppDefault,
 	 includes = Includes
@@ -981,10 +972,10 @@ get_doc_env(App, Packages, Modules, Opts) ->
 %% ---------------------------------------------------------------------
 %% Plug-in modules
 
-%% @doc See {@link edoc:run/3} for a description of the `doclet' option.
+%% @doc See {@link edoc:run/2} for a description of the `doclet' option.
 
 %% NEW-OPTIONS: doclet
-%% DEFER-OPTIONS: edoc:run/3
+%% DEFER-OPTIONS: edoc:run/2
 
 %% @private
 run_doclet(Fun, Opts) ->
@@ -1009,7 +1000,7 @@ run_plugin(Name, Key, Default, Fun, Opts) when is_atom(Name) ->
 	{ok, Value} ->
 	    Value;
 	R ->
-	    report("error in ~s '~w': ~W.", [Name, Module, R, 20]),
+	    report("error in ~ts '~w': ~tP.", [Name, Module, R, 20]),
 	    exit(error)
     end.
 
@@ -1018,7 +1009,7 @@ get_plugin(Key, Default, Opts) ->
 	M when is_atom(M) ->
 	    M;
 	Other ->
-	    report("bad value for option '~w': ~P.", [Key, Other, 10]),
+	    report("bad value for option '~w': ~tP.", [Key, Other, 10]),
 	    exit(error)
     end.
 
@@ -1026,7 +1017,7 @@ get_plugin(Key, Default, Opts) ->
 %% ---------------------------------------------------------------------
 %% Error handling
 
--type line() :: erl_scan:line().
+-type line() :: erl_anno:line().
 -type err()  :: 'eof'
 	      | {'missing', char()}
 	      | {line(), atom(), string()}

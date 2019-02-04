@@ -1,22 +1,16 @@
 %% -*- erlang-indent-level: 2 -*-
-%%-----------------------------------------------------------------------
-%% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2010-2012. All Rights Reserved.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%%     http://www.apache.org/licenses/LICENSE-2.0
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
-%%
-%% %CopyrightEnd%
-%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
 %%%-------------------------------------------------------------------
 %%% File        : dialyzer_behaviours.erl
@@ -25,16 +19,12 @@
 %%%
 %%% Created     : 28 Oct 2009 by Stavros Aronis <aronisstav@gmail.com>
 %%%-------------------------------------------------------------------
-%%% NOTE: This module is currently experimental -- do NOT rely on it!
-%%%-------------------------------------------------------------------
 
 -module(dialyzer_behaviours).
 
--export([check_callbacks/5, get_behaviour_apis/1,
-	 translate_behaviour_api_call/5, translatable_behaviours/1,
-	 translate_callgraph/3]).
+-export([check_callbacks/5]).
 
--export_type([behaviour/0, behaviour_api_dict/0]).
+-export_type([behaviour/0]).
 
 %%--------------------------------------------------------------------
 
@@ -44,17 +34,19 @@
 
 -type behaviour() :: atom().
 
+-type rectab() :: erl_types:type_table().
+
 -record(state, {plt        :: dialyzer_plt:plt(),
 		codeserver :: dialyzer_codeserver:codeserver(),
 		filename   :: file:filename(),
 		behlines   :: [{behaviour(), non_neg_integer()}],
-		records    :: dict()}).
+		records    :: rectab()}).
 
 %%--------------------------------------------------------------------
 
--spec check_callbacks(module(), [{cerl:cerl(), cerl:cerl()}], dict(),
+-spec check_callbacks(module(), [{cerl:cerl(), cerl:cerl()}], rectab(),
 		      dialyzer_plt:plt(),
-		      dialyzer_codeserver:codeserver()) -> [dial_warning()].
+		      dialyzer_codeserver:codeserver()) -> [raw_warning()].
 
 check_callbacks(Module, Attrs, Records, Plt, Codeserver) ->
   {Behaviours, BehLines} = get_behaviours(Attrs),
@@ -63,11 +55,11 @@ check_callbacks(Module, Attrs, Records, Plt, Codeserver) ->
     _ ->
       MFA = {Module,module_info,0},
       {_Var,Code} = dialyzer_codeserver:lookup_mfa_code(MFA, Codeserver),
-      File = get_file(cerl:get_ann(Code)),
+      File = get_file(Codeserver, Module, cerl:get_ann(Code)),
       State = #state{plt = Plt, filename = File, behlines = BehLines,
-		     codeserver = Codeserver, records = Records},
+                     codeserver = Codeserver, records = Records},
       Warnings = get_warnings(Module, Behaviours, State),
-      [add_tag_file_line(Module, W, State) || W <- Warnings]
+      [add_tag_warning_info(Module, W, State) || W <- Warnings]
   end.
 
 %%--------------------------------------------------------------------
@@ -104,14 +96,18 @@ check_all_callbacks(Module, Behaviour, [Cb|Rest],
 		    #state{plt = Plt, codeserver = Codeserver,
 			   records = Records} = State, Acc) ->
   {{Behaviour, Function, Arity},
-   {{_BehFile, _BehLine}, Callback}} = Cb,
+   {{_BehFile, _BehLine}, Callback, Xtra}} = Cb,
   CbMFA = {Module, Function, Arity},
   CbReturnType = dialyzer_contracts:get_contract_return(Callback),
   CbArgTypes = dialyzer_contracts:get_contract_args(Callback),
   Acc0 = Acc,
   Acc1 = 
     case dialyzer_plt:lookup(Plt, CbMFA) of
-      'none' -> [{callback_missing, [Behaviour, Function, Arity]}|Acc0];
+      'none' ->
+        case lists:member(optional_callback, Xtra) of
+          true -> Acc0;
+          false -> [{callback_missing, [Behaviour, Function, Arity]}|Acc0]
+        end;
       {'value', RetArgTypes} ->
 	Acc00 = Acc0,
 	{ReturnType, ArgTypes} = RetArgTypes,
@@ -129,20 +125,17 @@ check_all_callbacks(Module, Behaviour, [Cb|Rest],
 		     erl_types:t_to_string(CbReturnType, Records)]}|Acc00]
 	      end
 	  end,
-	Acc02 =
-	  case erl_types:any_none(
-		 erl_types:t_inf_lists(ArgTypes, CbArgTypes)) of
-	    false -> Acc01;
-	    true ->
-	      find_mismatching_args(type, ArgTypes, CbArgTypes, Behaviour,
-				    Function, Arity, Records, 1, Acc01)
-	  end,
-	Acc02
+	case erl_types:any_none(erl_types:t_inf_lists(ArgTypes, CbArgTypes)) of
+	  false -> Acc01;
+	  true ->
+	    find_mismatching_args(type, ArgTypes, CbArgTypes, Behaviour,
+				  Function, Arity, Records, 1, Acc01)
+	end
     end,
   Acc2 =
     case dialyzer_codeserver:lookup_mfa_contract(CbMFA, Codeserver) of
       'error' -> Acc1;
-      {ok, {{File, Line}, Contract}} ->
+      {ok, {{File, Line}, Contract, _Xtra}} ->
 	Acc10 = Acc1,
 	SpecReturnType0 = dialyzer_contracts:get_contract_return(Contract),
 	SpecArgTypes0 = dialyzer_contracts:get_contract_args(Contract),
@@ -159,16 +152,14 @@ check_all_callbacks(Module, Behaviour, [Cb|Rest],
 		 erl_types:t_to_string(ExtraType, Records),
 		 erl_types:t_to_string(CbReturnType, Records)]}|Acc10]
 	  end,
-	Acc12 =
-	  case erl_types:any_none(
-		 erl_types:t_inf_lists(SpecArgTypes, CbArgTypes)) of
-	    false -> Acc11;
-	    true ->
-	      find_mismatching_args({spec, File, Line}, SpecArgTypes,
-				    CbArgTypes, Behaviour, Function,
-				    Arity, Records, 1, Acc11)
-	  end,
-	Acc12
+	case erl_types:any_none(
+	       erl_types:t_inf_lists(SpecArgTypes, CbArgTypes)) of
+	  false -> Acc11;
+	  true ->
+	    find_mismatching_args({spec, File, Line}, SpecArgTypes,
+				  CbArgTypes, Behaviour, Function,
+				  Arity, Records, 1, Acc11)
+	end
     end,
   NewAcc = Acc2,
   check_all_callbacks(Module, Behaviour, Rest, State, NewAcc).
@@ -196,7 +187,7 @@ find_mismatching_args(Kind, [Type|Rest], [CbType|CbRest], Behaviour,
 			    Arity, Records, N+1, NewAcc)
   end.
 
-add_tag_file_line(_Module, {Tag, [B|_R]} = Warn, State)
+add_tag_warning_info(Module, {Tag, [B|_R]} = Warn, State)
   when Tag =:= callback_missing;
        Tag =:= callback_info_missing ->
   {B, Line} = lists:keyfind(B, 1, State#state.behlines),
@@ -205,122 +196,25 @@ add_tag_file_line(_Module, {Tag, [B|_R]} = Warn, State)
       callback_missing -> ?WARN_BEHAVIOUR;
       callback_info_missing -> ?WARN_UNDEFINED_CALLBACK
     end,
-  {Category, {State#state.filename, Line}, Warn};
-add_tag_file_line(_Module, {Tag, [File, Line|R]}, _State)
+  {Category, {State#state.filename, Line, Module}, Warn};
+add_tag_warning_info(Module, {Tag, [File, Line|R]}, _State)
   when Tag =:= callback_spec_type_mismatch;
        Tag =:= callback_spec_arg_type_mismatch ->
-  {?WARN_BEHAVIOUR, {File, Line}, {Tag, R}};
-add_tag_file_line(Module, {_Tag, [_B, Fun, Arity|_R]} = Warn, State) ->
+  {?WARN_BEHAVIOUR, {File, Line, Module}, {Tag, R}};
+add_tag_warning_info(Module, {_Tag, [_B, Fun, Arity|_R]} = Warn, State) ->
   {_A, FunCode} =
     dialyzer_codeserver:lookup_mfa_code({Module, Fun, Arity},
 					State#state.codeserver),
   Anns = cerl:get_ann(FunCode),
-  FileLine = {get_file(Anns), get_line(Anns)},
-  {?WARN_BEHAVIOUR, FileLine, Warn}.
+  File = get_file(State#state.codeserver, Module, Anns),
+  WarningInfo = {File, get_line(Anns), {Module, Fun, Arity}},
+  {?WARN_BEHAVIOUR, WarningInfo, Warn}.
 
 get_line([Line|_]) when is_integer(Line) -> Line;
 get_line([_|Tail]) -> get_line(Tail);
 get_line([]) -> -1.
 
-get_file([{file, File}|_]) -> File;
-get_file([_|Tail]) -> get_file(Tail).
-
-%%-----------------------------------------------------------------------------
-
--spec translatable_behaviours(cerl:c_module()) -> behaviour_api_dict().
-
-translatable_behaviours(Tree) ->
-  Attrs = cerl:module_attrs(Tree),
-  {Behaviours, _BehLines} = get_behaviours(Attrs),
-  [{B, Calls} || B <- Behaviours, (Calls = behaviour_api_calls(B)) =/= []].
-
--spec get_behaviour_apis([behaviour()]) -> [mfa()].
-
-get_behaviour_apis(Behaviours) ->
-  get_behaviour_apis(Behaviours, []).
-
--spec translate_behaviour_api_call(dialyzer_callgraph:mfa_or_funlbl(),
-				   [erl_types:erl_type()],
-				   [dialyzer_races:core_vars()],
-				   module(),
-				   behaviour_api_dict()) ->
-				      {dialyzer_callgraph:mfa_or_funlbl(),
-				       [erl_types:erl_type()],
-				       [dialyzer_races:core_vars()]}
-					| 'plain_call'.
-
-translate_behaviour_api_call(_Fun, _ArgTypes, _Args, _Module, []) ->
-  plain_call;
-translate_behaviour_api_call({Module, Fun, Arity}, ArgTypes, Args,
-			     CallbackModule, BehApiInfo) ->
-  case lists:keyfind(Module, 1, BehApiInfo) of
-    false -> plain_call;
-    {Module, Calls} ->
-      case lists:keyfind({Fun, Arity}, 1, Calls) of
-	false -> plain_call;
-	{{Fun, Arity}, {CFun, CArity, COrder}} ->
-	  {{CallbackModule, CFun, CArity},
-	   [nth_or_0(N, ArgTypes, erl_types:t_any()) || N <-COrder],
-	   [nth_or_0(N, Args, bypassed) || N <-COrder]}
-      end
-  end;
-translate_behaviour_api_call(_Fun, _ArgTypes, _Args, _Module, _BehApiInfo) ->
-  plain_call.
-
--spec translate_callgraph(behaviour_api_dict(), atom(),
-			  dialyzer_callgraph:callgraph()) ->
-			     dialyzer_callgraph:callgraph().
-
-translate_callgraph([{Behaviour,_}|Behaviours], Module, Callgraph) ->
-  UsedCalls = [Call || {_From, {M, _F, _A}} = Call <-
-			 dialyzer_callgraph:get_behaviour_api_calls(Callgraph),
-		       M =:= Behaviour],
-  Calls = [{{Behaviour, API, Arity}, Callback} ||
-	    {{API, Arity}, Callback} <- behaviour_api_calls(Behaviour)],
-  DirectCalls = [{From, {Module, Fun, Arity}} ||
-		  {From, To} <- UsedCalls,{API, {Fun, Arity, _Ord}} <- Calls,
-		  To =:= API],
-  dialyzer_callgraph:add_edges(DirectCalls, Callgraph),
-  translate_callgraph(Behaviours, Module, Callgraph);
-translate_callgraph([], _Module, Callgraph) ->
-  Callgraph.
-
-get_behaviour_apis([], Acc) ->
-  Acc;
-get_behaviour_apis([Behaviour | Rest], Acc) ->
-  MFAs = [{Behaviour, Fun, Arity} ||
-	   {{Fun, Arity}, _} <- behaviour_api_calls(Behaviour)],
-  get_behaviour_apis(Rest, MFAs ++ Acc).
-
-%------------------------------------------------------------------------------
-
-nth_or_0(0, _List, Zero) ->
-  Zero;
-nth_or_0(N, List, _Zero) ->
-  lists:nth(N, List).
-
-%------------------------------------------------------------------------------
-
--type behaviour_api_dict()::[{behaviour(), behaviour_api_info()}].
--type behaviour_api_info()::[{original_fun(), replacement_fun()}].
--type original_fun()::{atom(), arity()}.
--type replacement_fun()::{atom(), arity(), arg_list()}.
--type arg_list()::[byte()].
-
--spec behaviour_api_calls(behaviour()) -> behaviour_api_info().
-
-behaviour_api_calls(gen_server) ->
-  [{{start_link, 3}, {init, 1, [2]}},
-   {{start_link, 4}, {init, 1, [3]}},
-   {{start, 3}, {init, 1, [2]}},
-   {{start, 4}, {init, 1, [3]}},
-   {{call, 2}, {handle_call, 3, [2, 0, 0]}},
-   {{call, 3}, {handle_call, 3, [2, 0, 0]}},
-   {{multi_call, 2}, {handle_call, 3, [2, 0, 0]}},
-   {{multi_call, 3}, {handle_call, 3, [3, 0, 0]}},
-   {{multi_call, 4}, {handle_call, 3, [3, 0, 0]}},
-   {{cast, 2}, {handle_cast, 2, [2, 0]}},
-   {{abcast, 2}, {handle_cast, 2, [2, 0]}},
-   {{abcast, 3}, {handle_cast, 2, [3, 0]}}];
-behaviour_api_calls(_Other) ->
-  [].
+get_file(Codeserver, Module, [{file, FakeFile}|_]) ->
+  dialyzer_codeserver:translate_fake_file(Codeserver, Module, FakeFile);
+get_file(Codeserver, Module, [_|Tail]) ->
+  get_file(Codeserver, Module, Tail).

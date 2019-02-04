@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2010-2011. All Rights Reserved.
+ * Copyright Ericsson AB 2010-2017. All Rights Reserved.
  *
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  * %CopyrightEnd%
  */
@@ -55,6 +56,7 @@ typedef struct {
     void *(*thr_func)(void *);
     void *arg;
     void *prep_func_res;
+    size_t stacksize;
 } ethr_thr_wrap_data__;
 
 #define ETHR_INVALID_TID_ID -1
@@ -93,6 +95,7 @@ static void thr_exit_cleanup(ethr_tid *tid, void *res)
 
 static unsigned __stdcall thr_wrapper(LPVOID vtwd)
 {
+    char c;
     ethr_tid my_tid;
     ethr_sint32_t result;
     void *res;
@@ -100,6 +103,8 @@ static unsigned __stdcall thr_wrapper(LPVOID vtwd)
     void *(*thr_func)(void *) = twd->thr_func;
     void *arg = twd->arg;
     ethr_ts_event *tsep = NULL;
+
+    ethr_set_stacklimit__(&c, twd->stacksize);
 
     result = (ethr_sint32_t) ethr_make_ts_event__(&tsep);
 
@@ -198,6 +203,8 @@ ethr_init(ethr_init_data *id)
     if (!ethr_not_inited__)
 	return EINVAL;
 
+    ethr_not_inited__ = 0;
+
 #ifdef _WIN32_WINNT
     os_version.dwOSVersionInfoSize = sizeof(OSVERSIONINFO);
     GetVersionEx(&os_version);
@@ -232,8 +239,6 @@ ethr_init(ethr_init_data *id)
     child_wait_spin_count = ETHR_CHILD_WAIT_SPIN_COUNT;
     if (erts_get_cpu_configured(ethr_cpu_info__) == 1)
 	child_wait_spin_count = 0;
-
-    ethr_not_inited__ = 0;
 
     return 0;
 
@@ -304,18 +309,21 @@ ethr_thr_create(ethr_tid *tid, void * (*func)(void *), void *arg,
 	tid->jdata->res = NULL;
     }
 
+    twd.stacksize = 0;
+
     if (use_stack_size >= 0) {
 	size_t suggested_stack_size = (size_t) use_stack_size;
 #ifdef ETHR_DEBUG
 	suggested_stack_size /= 2; /* Make sure we got margin */
 #endif
-	if (suggested_stack_size < ethr_min_stack_size__)
-	    stack_size = (unsigned) ETHR_KW2B(ethr_min_stack_size__);
-	else if (suggested_stack_size > ethr_max_stack_size__)
-	    stack_size = (unsigned) ETHR_KW2B(ethr_max_stack_size__);
-	else
-	    stack_size = (unsigned)
-	      ETHR_PAGE_ALIGN(ETHR_KW2B(suggested_stack_size));
+        stack_size = (unsigned) ETHR_PAGE_ALIGN(ETHR_KW2B(suggested_stack_size));
+
+	if (stack_size < (unsigned) ethr_min_stack_size__)
+	    stack_size = (unsigned) ethr_min_stack_size__;
+	else if (stack_size > (unsigned) ethr_max_stack_size__)
+	    stack_size = (unsigned) ethr_max_stack_size__;
+
+        twd.stacksize = stack_size;
     }
 
     ethr_atomic32_init(&twd.result, -1);
@@ -508,6 +516,19 @@ ethr_self(void)
     return *tid;
 }
 
+/* getname and setname are not available on windows */
+int
+ethr_getname(ethr_tid tid, char *buf, size_t len)
+{
+    return ENOSYS;
+}
+
+void
+ethr_setname(char *name)
+{
+    return;
+}
+
 int
 ethr_equal_tids(ethr_tid tid1, ethr_tid tid2)
 {
@@ -520,7 +541,7 @@ ethr_equal_tids(ethr_tid tid1, ethr_tid tid2)
  */
 
 int
-ethr_tsd_key_create(ethr_tsd_key *keyp)
+ethr_tsd_key_create(ethr_tsd_key *keyp, char *keyname)
 {
     DWORD key;
 #if ETHR_XCHK

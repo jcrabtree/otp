@@ -1,23 +1,24 @@
-<?xml version="1.0" encoding="latin1" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <!DOCTYPE erlref SYSTEM "erlref.dtd">
 
 <erlref>
   <header>
     <copyright>
-      <year>2004</year><year>2009</year>
+      <year>2004</year><year>2016</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
-      The contents of this file are subject to the Erlang Public License,
-      Version 1.1, (the "License"); you may not use this file except in
-      compliance with the License. You should have received a copy of the
-      Erlang Public License along with this software. If not, it can be
-      retrieved online at http://www.erlang.org/.
-    
-      Software distributed under the License is distributed on an "AS IS"
-      basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-      the License for the specific language governing rights and limitations
-      under the License.
+      Licensed under the Apache License, Version 2.0 (the "License");
+      you may not use this file except in compliance with the License.
+      You may obtain a copy of the License at
+ 
+          http://www.apache.org/licenses/LICENSE-2.0
+
+      Unless required by applicable law or agreed to in writing, software
+      distributed under the License is distributed on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+      See the License for the specific language governing permissions and
+      limitations under the License.
     
     </legalnotice>
 
@@ -31,7 +32,7 @@
     <rev></rev>
     <file>snmpa_network_interface.xml</file>
   </header>
-  <module>snmpa_network_interface</module>
+  <module since="">snmpa_network_interface</module>
   <modulesummary>Behaviour module for the SNMP agent network interface.</modulesummary>
   <description>
     <p>This module defines the behaviour of the agent network
@@ -67,7 +68,7 @@
 
   <funcs>
     <func>
-      <name>start_link(Prio, NoteStore, MasterAgent, Opts) -> {ok, Pid} | {error, Reason}</name>
+      <name since="">start_link(Prio, NoteStore, MasterAgent, Opts) -> {ok, Pid} | {error, Reason}</name>
       <fsummary>Start-link the network interface process</fsummary>
       <type>
         <v>Prio        = priority()</v>
@@ -92,7 +93,7 @@
     </func>
 
     <func>
-      <name>info(Pid) -> [{Key, Value}]</name>
+      <name since="">info(Pid) -> [{Key, Value}]</name>
       <fsummary>Return information about the running network interface process</fsummary>
       <type>
         <v>Pid = pid()</v>
@@ -111,7 +112,7 @@
     </func>
 
     <func>
-      <name>verbosity(Pid, Verbosity) -> void()</name>
+      <name since="">verbosity(Pid, Verbosity) -> void()</name>
       <fsummary>Change the verbosity of a running network interface process</fsummary>
       <type>
         <v>Pid       = pid()</v>
@@ -125,7 +126,7 @@
     </func>
 
     <func>
-      <name>get_log_type(Pid) -> {ok, LogType} | {error, Reason}</name>
+      <name since="">get_log_type(Pid) -> {ok, LogType} | {error, Reason}</name>
       <fsummary>Get the Audit Trail Log type</fsummary>
       <type>
         <v>Pid     = pid()</v>
@@ -146,7 +147,7 @@
     </func>
 
     <func>
-      <name>set_log_type(Pid, NewType) -> {ok, OldType} | {error, Reason}</name>
+      <name since="">set_log_type(Pid, NewType) -> {ok, OldType} | {error, Reason}</name>
       <fsummary>Change the Audit Trail Log type</fsummary>
       <type>
         <v>Pid     = pid()</v>

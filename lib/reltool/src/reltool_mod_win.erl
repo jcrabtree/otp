@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2009-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2009-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 
@@ -106,8 +107,8 @@ init(Parent, WxEnv, Xref, RelPid, C, ModName) ->
     try
 	do_init(Parent, WxEnv, Xref, RelPid, C, ModName)
     catch
-	error:Reason ->
-	    exit({Reason, erlang:get_stacktrace()})
+	error:Reason:Stacktrace ->
+	    exit({Reason, Stacktrace})
     end.
 
 do_init(Parent, WxEnv, Xref, RelPid, C, ModName) ->
@@ -130,7 +131,7 @@ do_init(Parent, WxEnv, Xref, RelPid, C, ModName) ->
 loop(#state{xref_pid = Xref, common = C, mod = Mod} = S) ->
     receive
 	Msg ->
-	    %% io:format("~s~p -> ~p\n", [S#state.name, self(), Msg]),
+	    %% io:format("~ts~w -> ~p\n", [S#state.name, self(), Msg]),
 	    case Msg of
 		{system, From, SysMsg} ->
 		    Dbg = C#common.sys_debug,
@@ -170,7 +171,7 @@ loop(#state{xref_pid = Xref, common = C, mod = Mod} = S) ->
 		    S2 = handle_event(S, Wx),
 		    ?MODULE:loop(S2);
 		_ ->
-		    error_logger:format("~p~p got unexpected message:\n\t~p\n",
+		    error_logger:format("~w~w got unexpected message:\n\t~tp\n",
 					[?MODULE, self(), Msg]),
 		    ?MODULE:loop(S)
 	    end
@@ -335,21 +336,35 @@ find_regular_bin(App, Mod) ->
     SrcDir = filename:join([ActiveDir, "src"]),
     ModStr = atom_to_list(Mod#mod.name),
     Base = "^" ++ ModStr ++ "\\.erl$",
-    Find = fun(F, _Acc) -> throw(file:read_file(F)) end,
+    Find = fun(F, _Acc) -> throw({file:read_file(F),epp:read_encoding(F)}) end,
     case catch filelib:fold_files(SrcDir, Base, true, Find, {error, enoent}) of
-	{ok, Bin} ->
-	    Bin;
+	{{ok, Bin},Encoding0} ->
+	    Encoding =
+		case Encoding0 of
+		    none -> epp:default_encoding();
+		    _ -> Encoding0
+		end,
+	    unicode:characters_to_binary(Bin,Encoding,utf8);
 	{error, enoent} ->
 	    %% Reconstructing the source code from debug info if possible
 	    BeamFile = filename:join([ActiveDir, "ebin", ModStr ++ ".beam"]),
-	    case beam_lib:chunks(BeamFile, [abstract_code]) of
-		{ok,{_,[{abstract_code,{_,AC}}]}} ->
-		    IoList = erl_prettypr:format(erl_syntax:form_list(AC)),
-		    list_to_binary(IoList);
-		_ ->
-		    list_to_binary(["%% Bad luck, cannot find any "
-				    "debug info in the file \"", BeamFile])
+	    case source_from_beam(BeamFile) of
+		{ok,Source} ->
+		    Source;
+		error ->
+		    unicode:characters_to_binary(
+		      ["%% Bad luck, cannot find any "
+		       "debug info in the file \"", BeamFile])
 	    end
+    end.
+
+source_from_beam(Beam) ->
+    case beam_lib:chunks(Beam, [abstract_code]) of
+	{ok,{_,[{abstract_code,{_,AC}}]}} ->
+	    IoList = [erl_pp:form(F,[{encoding,utf8}]) || F <- AC],
+	    {ok,unicode:characters_to_binary(IoList)};
+	_ ->
+	    error
     end.
 
 find_escript_bin(#app{active_dir = ActiveDir}, Mod) ->
@@ -366,16 +381,10 @@ find_escript_bin(#app{active_dir = ActiveDir}, Mod) ->
 				 case beam_lib:version(Bin) of
 				     {ok,{M, _}} when M =:= ModName;
 						      FullName =:= "." ->
-					 case beam_lib:chunks(Bin,
-							      [abstract_code]) of
-					     {ok,{_,[{abstract_code,{_,AC}}]}} ->
-						 Form =
-						     erl_syntax:form_list(AC),
-						 IoList =
-						     erl_prettypr:format(Form),
-						 {obj,
-						  list_to_binary(IoList)};
-					     _ ->
+					 case source_from_beam(Bin) of
+					     {ok,Source} ->
+						 {obj,Source};
+					     error ->
 						 Acc
 					 end;
 				     _ ->
@@ -396,12 +405,9 @@ find_escript_bin(#app{active_dir = ActiveDir}, Mod) ->
 			 case filename:split(FullName) of
 			     [_AppName, "ebin", F]
 			       when F =:= ObjFile, Acc =:= NotFound ->
-				 case beam_lib:chunks(GetBin(),
-						      [abstract_code]) of
-				     {ok,{_,[{abstract_code,{_,AC}}]}} ->
-					 Form = erl_syntax:form_list(AC),
-					 IoList = erl_prettypr:format(Form),
-					 {obj, list_to_binary(IoList)};
+				 case source_from_beam(GetBin()) of
+				     {ok,Source} ->
+					 {obj,Source};
 				     _ ->
 					 Acc
 				 end;
@@ -420,13 +426,15 @@ find_escript_bin(#app{active_dir = ActiveDir}, Mod) ->
 	    {ok, {obj, Bin}} ->
 		Bin;
 	    _ ->
-		list_to_binary(["%% Bad luck, cannot find the "
-				"code in the escript ", Escript, "."])
+		unicode:characters_to_binary(
+		  ["%% Bad luck, cannot find the "
+		   "code in the escript ", Escript, "."])
 	end
     catch
 	throw:Reason when is_list(Reason) ->
-	    list_to_binary(["%% Bad luck, cannot find the code "
-			    "in the escript ", Escript, ": ", Reason])
+	    unicode:characters_to_binary(
+	      ["%% Bad luck, cannot find the code "
+	       "in the escript ", Escript, ": ", Reason])
     end.
 
 create_config_page(S) ->
@@ -478,8 +486,8 @@ handle_event(#state{xref_pid = Xref} = S, Wx) ->
 	    wxWindow:setFocus(ObjRef),
 	    S;
 	_ ->
-            error_logger:format("~p~p got unexpected mod event from "
-				"wx:\n\t~p\n",
+            error_logger:format("~w~w got unexpected mod event from "
+				"wx:\n\t~tp\n",
                                 [?MODULE, self(), Wx]),
             S
     end.
@@ -659,7 +667,7 @@ goto_function(S, Editor) ->
 	    wxStyledTextCtrl:setSelection(Editor, Left2, Right2),
 	    Text = wxStyledTextCtrl:getSelectedText(Editor),
 	    S2 = add_pos_to_history(S, CurrentPos),
-	    do_goto_function(S2, string:tokens(Text, ":"));
+	    do_goto_function(S2, string:lexemes(Text, ":"));
 	_ ->
 	    %% No function call
 	    wxStyledTextCtrl:hideSelection(Editor, false),
@@ -825,7 +833,7 @@ load_code(Ed, Code) when is_binary(Code) ->
 
 keyWords() ->
     L = ["after","begin","case","try","cond","catch","andalso","orelse",
-	 "end","fun","if","let","of","query","receive","when","bnot","not",
+	 "end","fun","if","let","of","receive","when","bnot","not",
 	 "div","rem","band","and","bor","bxor","bsl","bsr","or","xor"],
     lists:flatten([K ++ " " || K <- L] ++ [0]).
 

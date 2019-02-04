@@ -1,20 +1,20 @@
-%% ``The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved via the world wide web at http://www.erlang.org/.
+%% ``Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% The Initial Developer of the Original Code is Ericsson Utvecklings AB.
 %% Portions created by Ericsson are Copyright 1999, Ericsson Utvecklings
 %% AB. All Rights Reserved.''
 %%
 %%     $Id: asn1ct_check.erl,v 1.1 2008/12/17 09:53:29 mikpe Exp $
-%%
 -module(asn1ct_check).
 
 %% Main Module for ASN.1 compile time functions
@@ -4028,7 +4028,7 @@ check_sequence(S,Type,Comps)  ->
 	    {CRelInf,NewComps2} = componentrelation_leadingattr(S,NewComps),
 %	    io:format("CRelInf: ~p~n",[CRelInf]),
 %	    io:format("NewComps2: ~p~n",[NewComps2]),
-	    %% CompListWithTblInf has got a lot unecessary info about
+	    %% CompListWithTblInf has got a lot unnecessary info about
 	    %% the involved class removed, as the class of the object
 	    %% set.
 	    CompListWithTblInf = get_tableconstraint_info(S,Type,NewComps2),
@@ -4599,7 +4599,7 @@ get_simple_table_info1(S,#'ComponentType'{typespec=TS},[],Path) ->
     %% o.w. the asn1 code is wrong.
     #type{def=OCFT,constraint=Cnstr} = TS,
     case Cnstr of
-	[{simpletable,_OSRef}] ->
+	[{simpletable,_OSRef}] ->
 	    #'ObjectClassFieldType'{classname=ClRef,
 				    class=ObjectClass,
 				    fieldname=FieldName} = OCFT,
@@ -4686,7 +4686,7 @@ any_component_relation(_,[],_,_,Acc) ->
 %% evaluate_atpath/4 finds out whether the at notation refers to the
 %% search level. The list of referenced names in the AtNot list shall
 %% begin with a name that exists on the level it refers to. If the
-%% found AtPath is refering to the same sub-branch as the simple table
+%% found AtPath is referring to the same sub-branch as the simple table
 %% has, then there shall not be any leading attribute info on this
 %% level.
 evaluate_atpath(_,[],Cnames,{innermost,AtPath=[Ref|_Refs]}) ->
@@ -4857,7 +4857,7 @@ innertype_comprel1(S,T = #type{def=Def,constraint=Cons,tablecinf=TCI},Path) ->
 	case Cons of
 	    [{componentrelation,{_,_,ObjectSet},AtList}|_Rest] ->
 		%% This AtList must have an "outermost" at sign to be
-		%% relevent here.
+		%% relevant here.
 		[{_,AL=[#'Externalvaluereference'{value=_Attr}|_R1]}|_R2]
 		    = AtList,
 %%		#'ObjectClassFieldType'{class=ClassDef} = Def,

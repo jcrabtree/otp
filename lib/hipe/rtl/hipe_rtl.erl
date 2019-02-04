@@ -1,21 +1,16 @@
 %% -*- erlang-indent-level: 2 -*-
 %%
-%% %CopyrightBegin%
-%% 
-%% Copyright Ericsson AB 2001-2011. All Rights Reserved.
-%% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
-%% 
-%% %CopyrightEnd%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% @doc
@@ -29,7 +24,7 @@
 %%   <li> {alu, Dst, Src1, Op, Src2} </li>
 %%   <li> {alub, Dst, Src1, Op, Src2, RelOp, TrueLabel, FalseLabel, P} </li>
 %%   <li> {branch, Src1, Src2, RelOp, TrueLabel, FalseLabel, P} </li>
-%%   <li> {call, DsListt, Fun, ArgList, Type, Continuation, FailContinuation}
+%%   <li> {call, DsListt, Fun, ArgList, Type, Continuation, FailContinuation, NormalContinuation}
 %%           Type is one of {local, remote, primop, closure} </li>
 %%   <li> {comment, Text} </li>
 %%   <li> {enter, Fun, ArgList, Type}
@@ -106,7 +101,7 @@
 	 %% rtl_data_update/2,
 	 %% rtl_var_range/1,
 	 %% rtl_var_range_update/2,
-	 %% rtl_label_range/1,
+	 rtl_label_range/1,
 	 %% rtl_label_range_update/2,
 	 rtl_info/1,
 	 rtl_info_update/2]).
@@ -186,18 +181,14 @@
 
 	 mk_branch/5,
 	 mk_branch/6,
-	 branch_src1/1,
-	 branch_src2/1,
-	 branch_cond/1,
-	 branch_true_label/1,
-	 branch_false_label/1,
-	 branch_pred/1,
+	 mk_branch/7,
 	 %% is_branch/1,
 	 %% branch_true_label_update/2,
 	 %% branch_false_label_update/2,
 
 	 mk_alub/7,
 	 mk_alub/8,
+	 alub_has_dst/1,
 	 alub_dst/1,
 	 alub_src1/1,
 	 alub_op/1,
@@ -226,6 +217,7 @@
 	 %% goto_label_update/2,
 
 	 mk_call/6,
+	 mk_call/7,
 	 call_fun/1,
 	 call_dstlist/1,
 	 call_dstlist_update/2,
@@ -233,8 +225,10 @@
 	 call_continuation/1,
 	 call_fail/1,
 	 call_type/1,
+	 call_normal/1,
+	 call_normal_update/2,
 	 %% call_continuation_update/2,
-	 %% call_fail_update/2,
+	 call_fail_update/2,
 	 is_call/1,
 
 	 mk_enter/3,
@@ -290,10 +284,13 @@
 	 %% fconv_src_update/2,
 	 %% is_fconv/1,
 
-	 %% mk_var/1,
+	 mk_var/1,
+	 mk_var/2,
 	 mk_new_var/0,
 	 is_var/1,
 	 var_index/1,
+	 var_liveness/1,
+	 var_liveness_update/2,
 
 	 %% change_vars_to_regs/1,
 	 
@@ -331,6 +328,7 @@
 	 defines/1,
 	 redirect_jmp/3,
 	 is_safe/1,
+	 reduce_unused/1,
 	 %% highest_var/1,
 	 pp/1,
 	 pp/2,
@@ -350,11 +348,16 @@
 	 %% move_dst_update/2,
 	 fixnumop_dst_update/2,
 	 pp_instr/2,
-         %% pp_arg/2,
+	 %% Uber hack!
+	 pp_var/2,
+	 pp_reg/2,
+	 pp_arg/2,
          phi_arglist_update/2,
          phi_redirect_pred/3]).
 
--export_type([alub_cond/0]).
+-export([subst_uses_llvm/2]).
+
+-export_type([alub_cond/0, rtl/0]).
 
 %%
 %% RTL
@@ -372,6 +375,7 @@
 	      label_range,  %% {Min,Max} First and last name used for labels
 	      info=[]       %% A keylist with arbitrary information.
 	     }).
+-opaque rtl() :: #rtl{}.
 
 mk_rtl(Fun, ArgList, Closure, Leaf, Code, Data, VarRange, LabelRange) ->
   #rtl{'fun'=Fun, arglist=ArgList, code=Code, 
@@ -387,7 +391,7 @@ rtl_data(#rtl{data=Data}) -> Data.
 %% rtl_data_update(Rtl, Data) -> Rtl#rtl{data=Data}.
 %% rtl_var_range(#rtl{var_range=VarRange}) -> VarRange.
 %% rtl_var_range_update(Rtl, VarRange) -> Rtl#rtl{var_range=VarRange}.
-%% rtl_label_range(#rtl{label_range=LabelRange}) -> LabelRange.
+rtl_label_range(#rtl{label_range=LabelRange}) -> LabelRange.
 %% rtl_label_range_update(Rtl, LabelRange) -> Rtl#rtl{label_range=LabelRange}.
 rtl_info(#rtl{info=Info}) -> Info.
 rtl_info_update(Rtl, Info) -> Rtl#rtl{info=Info}.
@@ -402,11 +406,13 @@ rtl_info_update(Rtl, Info) -> Rtl#rtl{info=Info}.
 %% move
 %%
 
-mk_move(Dst, Src) -> #move{dst=Dst, src=Src}.
+mk_move(Dst, Src) ->
+  false = is_fpreg(Dst), false = is_fpreg(Src),
+  #move{dst=Dst, src=Src}.
 move_dst(#move{dst=Dst}) -> Dst.
-move_dst_update(M, NewDst) -> M#move{dst=NewDst}.
+move_dst_update(M, NewDst) -> false = is_fpreg(NewDst), M#move{dst=NewDst}.
 move_src(#move{src=Src}) -> Src.
-move_src_update(M, NewSrc) -> M#move{src=NewSrc}.
+move_src_update(M, NewSrc) -> false = is_fpreg(NewSrc), M#move{src=NewSrc}.
 %% is_move(#move{}) -> true;
 %% is_move(_) -> false.
 
@@ -458,7 +464,11 @@ phi_remove_pred(Phi, Pred) ->
   case NewArgList of
     [Arg] -> %% the phi should be turned into a move instruction
       {_Label,Var} = Arg,
-      mk_move(phi_dst(Phi), Var);
+      Dst = phi_dst(Phi),
+      case {is_fpreg(Dst), is_fpreg(Var)} of
+	{true, true} -> mk_fmove(Dst, Var);
+	{false, false} -> mk_move(Dst, Var)
+      end;
   %%    io:format("~nPhi (~w) turned into move (~w) when removing pred ~w~n",[Phi,Move,Pred]),
     [_|_] ->
       Phi#phi{arglist=NewArgList}
@@ -569,37 +579,25 @@ is_label(#label{}) -> true;
 is_label(_) -> false.
 
 %%
-%% branch
-%%
-
-mk_branch(Src1, Op, Src2, True, False) ->
-  mk_branch(Src1, Op, Src2, True, False, 0.5).
-mk_branch(Src1, Op, Src2, True, False, P) ->
-  #branch{src1=Src1, 'cond'=Op, src2=Src2, true_label=True,
-	  false_label=False, p=P}.
-branch_src1(#branch{src1=Src1}) -> Src1.
-branch_src1_update(Br, NewSrc) -> Br#branch{src1=NewSrc}.
-branch_src2(#branch{src2=Src2}) -> Src2.
-branch_src2_update(Br, NewSrc) -> Br#branch{src2=NewSrc}.
-branch_cond(#branch{'cond'=Cond}) -> Cond.
-branch_true_label(#branch{true_label=TrueLbl}) -> TrueLbl.
-branch_true_label_update(Br, NewTrue) -> Br#branch{true_label=NewTrue}.
-branch_false_label(#branch{false_label=FalseLbl}) -> FalseLbl.
-branch_false_label_update(Br, NewFalse) -> Br#branch{false_label=NewFalse}.
-branch_pred(#branch{p=P}) -> P.
-
-%%
 %% alub
 %%
 
 -type alub_cond() :: 'eq' | 'ne' | 'ge' | 'geu' | 'gt' | 'gtu' | 'le'
                    | 'leu' | 'lt' | 'ltu' | 'overflow' | 'not_overflow'.
 
+mk_branch(Src1, Cond, Src2, True, False) ->
+  mk_branch(Src1, Cond, Src2, True, False, 0.5).
+mk_branch(Src1, Cond, Src2, True, False, P) ->
+  mk_branch(Src1, 'sub', Src2, Cond, True, False, P).
+mk_branch(Src1, Op, Src2, Cond, True, False, P) ->
+  mk_alub([], Src1, Op, Src2, Cond, True, False, P).
+
 mk_alub(Dst, Src1, Op, Src2, Cond, True, False) ->
   mk_alub(Dst, Src1, Op, Src2, Cond, True, False, 0.5).
 mk_alub(Dst, Src1, Op, Src2, Cond, True, False, P) ->
   #alub{dst=Dst, src1=Src1, op=Op, src2=Src2, 'cond'=Cond,
 	true_label=True, false_label=False, p=P}.
+alub_has_dst(#alub{dst=Dst}) -> Dst =/= [].
 alub_dst(#alub{dst=Dst}) -> Dst.
 alub_dst_update(A, NewDst) -> A#alub{dst=NewDst}.
 alub_src1(#alub{src1=Src1}) -> Src1.
@@ -643,6 +641,17 @@ is_goto(_) -> false.
 %% call
 %%
 
+%% LLVM: Call with normal continuation
+mk_call(DstList, Fun, ArgList, Continuation, FailContinuation,
+    NormalContinuation, Type) ->
+  case Type of
+    remote -> ok;
+    not_remote -> ok
+  end,
+  #call{dstlist=DstList, 'fun'=Fun, arglist=ArgList, type=Type,
+    continuation=Continuation, failcontinuation=FailContinuation,
+    normalcontinuation=NormalContinuation}.
+
 mk_call(DstList, Fun, ArgList, Continuation, FailContinuation, Type) ->
   case Type of
     remote -> ok;
@@ -651,6 +660,10 @@ mk_call(DstList, Fun, ArgList, Continuation, FailContinuation, Type) ->
   #call{dstlist=DstList, 'fun'=Fun, arglist=ArgList, type=Type,
 	continuation=Continuation,
 	failcontinuation=FailContinuation}.
+
+call_normal(#call{normalcontinuation=NormalContinuation}) -> NormalContinuation.
+call_normal_update(C, NewNormalContinuation) ->
+  C#call{normalcontinuation=NewNormalContinuation}.
 call_dstlist(#call{dstlist=DstList}) -> DstList.
 call_dstlist_update(C, NewDstList) -> C#call{dstlist=NewDstList}.
 call_fun(#call{'fun'=Fun}) -> Fun.
@@ -810,11 +823,11 @@ fp_unop_op(#fp_unop{op=Op}) -> Op.
 %% fmove
 %%
 
-mk_fmove(X, Y) -> #fmove{dst=X, src=Y}.
+mk_fmove(X, Y) -> true = is_fpreg(X), true = is_fpreg(Y), #fmove{dst=X, src=Y}.
 fmove_dst(#fmove{dst=Dst}) -> Dst.
-fmove_dst_update(M, NewDst) -> M#fmove{dst=NewDst}.
+fmove_dst_update(M, NewDst) -> true = is_fpreg(NewDst), M#fmove{dst=NewDst}.
 fmove_src(#fmove{src=Src}) -> Src.
-fmove_src_update(M, NewSrc) -> M#fmove{src=NewSrc}.
+fmove_src_update(M, NewSrc) -> true = is_fpreg(NewSrc), M#fmove{src=NewSrc}.
 
 %%
 %% fconv
@@ -853,11 +866,14 @@ reg_is_gcsafe(#rtl_reg{is_gc_safe=IsGcSafe}) -> IsGcSafe.
 is_reg(#rtl_reg{}) -> true;
 is_reg(_) -> false.
 
--record(rtl_var, {index :: non_neg_integer()}).
+-record(rtl_var, {index :: non_neg_integer(), liveness=live :: dead | live}).
 
 mk_var(Num) when is_integer(Num), Num >= 0 -> #rtl_var{index=Num}.
+mk_var(Num, Liveness) when is_integer(Num), Num>=0 -> #rtl_var{index=Num, liveness=Liveness}.
 mk_new_var() -> mk_var(hipe_gensym:get_next_var(rtl)).
 var_index(#rtl_var{index=Index}) -> Index.
+var_liveness(#rtl_var{liveness=Liveness}) -> Liveness.
+var_liveness_update(RtlVar, Liveness) -> RtlVar#rtl_var{liveness=Liveness}.
 is_var(#rtl_var{}) -> true;
 is_var(_) -> false.
 
@@ -906,8 +922,7 @@ args(I) ->
   case I of
     #alu{} -> [alu_src1(I), alu_src2(I)];
     #alub{} -> [alub_src1(I), alub_src2(I)];
-    #branch{} -> [branch_src1(I), branch_src2(I)];
-    #call{} -> 
+    #call{} ->
       Args = call_arglist(I) ++ hipe_rtl_arch:call_used(),
       case call_is_known(I) of
 	false -> [call_fun(I) | Args];
@@ -950,8 +965,8 @@ args(I) ->
 defines(Instr) ->
   Defs = case Instr of
 	   #alu{} -> [alu_dst(Instr)];
+	   #alub{dst=[]} -> [];
 	   #alub{} -> [alub_dst(Instr)];
-	   #branch{} -> [];
 	   #call{} -> call_dstlist(Instr) ++ hipe_rtl_arch:call_defined();
 	   #comment{} -> [];
 	   #enter{} -> [];
@@ -1005,9 +1020,6 @@ subst_uses(Subst, I) ->
     #alub{} ->
       I0 = alub_src1_update(I, subst1(Subst, alub_src1(I))),
       alub_src2_update(I0, subst1(Subst, alub_src2(I)));
-    #branch{} ->
-      I0 = branch_src1_update(I, subst1(Subst, branch_src1(I))),
-      branch_src2_update(I0, subst1(Subst, branch_src2(I)));
     #call{} ->
       case call_is_known(I) of
 	false ->
@@ -1077,14 +1089,134 @@ subst_uses(Subst, I) ->
       switch_src_update(I, subst1(Subst, switch_src(I)))
   end.
 
+subst_uses_llvm(Subst, I) ->
+  case I of
+    #alu{} ->
+      {NewSrc2, Subst1} = subst1_llvm(Subst, alu_src2(I)),
+      {NewSrc1, _ } = subst1_llvm(Subst1, alu_src1(I)),
+      I0 =  alu_src1_update(I, NewSrc1),
+      alu_src2_update(I0, NewSrc2);
+    #alub{} ->
+      {NewSrc2, Subst1} = subst1_llvm(Subst, alub_src2(I)),
+      {NewSrc1, _ } = subst1_llvm(Subst1, alub_src1(I)),
+      I0 =  alub_src1_update(I, NewSrc1),
+      alub_src2_update(I0, NewSrc2);
+    #call{} ->
+      case call_is_known(I) of
+        false ->
+          {NewFun, Subst1} = subst1_llvm(Subst, call_fun(I)),
+          {NewArgList, _} = subst_list_llvm(Subst1, call_arglist(I)),
+          I0 = call_fun_update(I, NewFun),
+          call_arglist_update(I0, NewArgList);
+        true ->
+          {NewArgList, _} = subst_list_llvm(Subst, call_arglist(I)),
+          call_arglist_update(I, NewArgList)
+      end;
+    #comment{} ->
+      I;
+    #enter{} ->
+      case enter_is_known(I) of
+        false ->
+          {NewFun, Subst1} = subst1_llvm(Subst, enter_fun(I)),
+          {NewArgList, _} = subst_list_llvm(Subst1, enter_arglist(I)),
+          I0 = enter_fun_update(I, NewFun),
+          enter_arglist_update(I0, NewArgList);
+        true ->
+          {NewArgList, _} = subst_list_llvm(Subst, enter_arglist(I)),
+          enter_arglist_update(I, NewArgList)
+      end;
+    #fconv{} ->
+      {NewSrc, _ } = subst1_llvm(Subst, fconv_src(I)),
+      fconv_src_update(I, NewSrc);
+    #fixnumop{} ->
+      {NewSrc, _ } = subst1_llvm(Subst, fixnumop_src(I)),
+      fixnumop_src_update(I, NewSrc);
+    #fload{} ->
+      {NewSrc, Subst1} = subst1_llvm(Subst, fload_src(I)),
+      {NewOffset, _ } = subst1_llvm(Subst1, fload_offset(I)),
+      I0 = fload_src_update(I, NewSrc),
+      fload_offset_update(I0, NewOffset);
+    #fmove{} ->
+      {NewSrc, _ } = subst1_llvm(Subst, fmove_src(I)),
+      fmove_src_update(I, NewSrc);
+    #fp{} ->
+      {NewSrc2, Subst1} = subst1_llvm(Subst, fp_src2(I)),
+      {NewSrc1, _ } = subst1_llvm(Subst1, fp_src1(I)),
+      I0 = fp_src1_update(I, NewSrc1),
+      fp_src2_update(I0, NewSrc2);
+    #fp_unop{} ->
+      {NewSrc, _ } = subst1_llvm(Subst, fp_unop_src(I)),
+      fp_unop_src_update(I, NewSrc);
+    #fstore{} ->
+      {NewSrc, Subst1} = subst1_llvm(Subst, fstore_src(I)),
+      {NewBase, Subst2} = subst1_llvm(Subst1, fstore_base(I)),
+      {NewOffset, _ } = subst1_llvm(Subst2, fstore_offset(I)),
+      I0 = fstore_src_update(I, NewSrc),
+      I1 = fstore_base_update(I0, NewBase),
+      fstore_offset_update(I1, NewOffset);
+    #goto{} ->
+      I;
+    #goto_index{} ->
+      I;
+    #gctest{} ->
+      {NewWords, _ } = subst1_llvm(Subst, gctest_words(I)),
+      gctest_words_update(I, NewWords);
+    #label{} ->
+      I;
+    #load{} ->
+      {NewSrc, Subst1} = subst1_llvm(Subst, load_src(I)),
+      {NewOffset, _ } = subst1_llvm(Subst1, load_offset(I)),
+      I0 = load_src_update(I, NewSrc),
+      load_offset_update(I0, NewOffset);
+    #load_address{} ->
+      I;
+    #load_atom{} ->
+      I;
+    #load_word_index{} ->
+      I;
+    #move{} ->
+      {NewSrc, _ } = subst1_llvm(Subst, move_src(I)),
+      move_src_update(I, NewSrc);
+    #multimove{} ->
+      {NewSrcList, _} = subst_list_llvm(Subst, multimove_srclist(I)),
+      multimove_srclist_update(I, NewSrcList);
+    #phi{} ->
+      phi_argvar_subst(I, Subst);
+    #return{} ->
+      {NewVarList, _} = subst_list_llvm(Subst, return_varlist(I)),
+      return_varlist_update(I, NewVarList);
+    #store{} ->
+      {NewSrc, Subst1} = subst1_llvm(Subst, store_src(I)),
+      {NewBase, Subst2} = subst1_llvm(Subst1, store_base(I)),
+      {NewOffset, _ } = subst1_llvm(Subst2, store_offset(I)),
+      I0 = store_src_update(I, NewSrc),
+      I1 = store_base_update(I0, NewBase),
+      store_offset_update(I1, NewOffset);
+    #switch{} ->
+      {NewSrc, _ } = subst1_llvm(Subst, switch_src(I)),
+      switch_src_update(I, NewSrc)
+  end.
+
+subst_list_llvm(S,X) -> subst_list_llvm(S, lists:reverse(X), []).
+subst_list_llvm(S, [], Acc) -> {Acc, S};
+subst_list_llvm(S, [X|Xs], Acc) ->
+  {NewX, RestS} = subst1_llvm(S, X),
+  subst_list_llvm(RestS, Xs, [NewX|Acc]).
+
+subst1_llvm(A,B) -> subst1_llvm(A,B,[]).
+
+subst1_llvm([], X, Acc) -> {X, Acc};
+subst1_llvm([{X,Y}|Rs], X, Acc) -> {Y, Acc++Rs};
+subst1_llvm([R|Xs], X, Acc) -> subst1_llvm(Xs,X,[R|Acc]).
+
 subst_defines(Subst, I)->
   case I of
     #alu{} ->
       alu_dst_update(I, subst1(Subst, alu_dst(I)));
+    #alub{dst=[]} ->
+      I;
     #alub{} ->
       alub_dst_update(I, subst1(Subst, alub_dst(I)));
-    #branch{} ->
-      I;
     #call{} ->
       call_dstlist_update(I, subst_list(Subst, call_dstlist(I)));
     #comment{} ->
@@ -1151,7 +1283,6 @@ is_safe(Instr) ->
   case Instr of
     #alu{} -> true;
     #alub{} -> false;
-    #branch{} -> false;
     #call{} -> false;
     #comment{} -> false;
     #enter{} -> false;
@@ -1176,6 +1307,24 @@ is_safe(Instr) ->
     #return{} -> false;
     #store{} -> false;
     #switch{} -> false %% Maybe this is safe...
+  end.
+
+%% @spec reduce_unused(rtl_instruction())
+%%           -> false | [rtl_instruction()].
+%%
+%% @doc Produces a simplified instruction sequence that is equivalent to [Instr]
+%% under the assumption that all results of Instr are unused, or 'false' if
+%% there is no such sequence (other than [Instr] itself).
+
+reduce_unused(Instr) ->
+  case Instr of
+    #alub{dst=Dst} when Dst =/= [] ->
+      [Instr#alub{dst=[]}];
+    _ ->
+      case is_safe(Instr) of
+	true -> [];
+	false -> false
+      end
   end.
 
 %%
@@ -1224,17 +1373,6 @@ redirect_jmp(Jmp, ToOld, ToNew) ->
   %% OBS: In a jmp instruction more than one labels may be identical
   %%      and thus need redirection!
   case Jmp of
-    #branch{} ->
-      TmpJmp = case branch_true_label(Jmp) of
-		 ToOld -> branch_true_label_update(Jmp, ToNew);
-		 _ -> Jmp
-	       end,
-      case branch_false_label(TmpJmp) of
-	ToOld ->
-	  branch_false_label_update(TmpJmp, ToNew);
-	_ ->
-	  TmpJmp
-      end;
     #switch{} ->
       NewLbls = [case Lbl =:= ToOld of
 		   true -> ToNew;
@@ -1429,13 +1567,6 @@ pp_instr(Dev, I) ->
       io:format(Dev, "~n", []);
     #label{} ->
       io:format(Dev, "L~w:~n", [label_name(I)]);
-    #branch{} ->
-      io:format(Dev, "    if (", []),
-      pp_arg(Dev, branch_src1(I)),
-      io:format(Dev, " ~w ", [branch_cond(I)]),
-      pp_arg(Dev, branch_src2(I)),
-      io:format(Dev, ") then L~w (~.2f) else L~w~n", 
-		[branch_true_label(I), branch_pred(I), branch_false_label(I)]);
     #switch{} ->
       io:format(Dev, "    switch (", []),
       pp_arg(Dev, switch_src(I)),
@@ -1444,7 +1575,10 @@ pp_instr(Dev, I) ->
       io:format(Dev, ">\n", []);
     #alub{} ->
       io:format(Dev, "    ", []),
-      pp_arg(Dev, alub_dst(I)),
+      case alub_has_dst(I) of
+	true -> pp_arg(Dev, alub_dst(I));
+	false -> io:format(Dev, "_", [])
+      end,
       io:format(Dev, " <- ", []),
       pp_arg(Dev, alub_src1(I)),
       io:format(Dev, " ~w ", [alub_op(I)]),
@@ -1606,7 +1740,10 @@ pp_reg(Dev, Arg) ->
     true ->
       pp_hard_reg(Dev, reg_index(Arg));
     false ->
-      io:format(Dev, "r~w", [reg_index(Arg)])
+      case reg_is_gcsafe(Arg) of
+        true -> io:format(Dev, "rs~w", [reg_index(Arg)]);
+        false -> io:format(Dev, "r~w", [reg_index(Arg)])
+      end
   end.
 
 pp_var(Dev, Arg) ->
@@ -1614,7 +1751,11 @@ pp_var(Dev, Arg) ->
     true ->
       pp_hard_reg(Dev, var_index(Arg));
     false ->
-      io:format(Dev, "v~w", [var_index(Arg)])
+      io:format(Dev, "v~w", [var_index(Arg)]),
+      case var_liveness(Arg) of
+        dead -> io:format(Dev, "(dead)", []);
+        _ -> ok
+      end
   end.
 
 pp_arg(Dev, A) ->

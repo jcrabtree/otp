@@ -1,24 +1,25 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2008-2010. All Rights Reserved.
+%% Copyright Ericsson AB 2008-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
 %%
 %%----------------------------------------------------------------------
-%% Purpose: The top supervisor for ssh servers hangs under 
+%% Purpose: The top supervisor for ssh servers hangs under
 %%          ssh_sup.
 %%----------------------------------------------------------------------
 
@@ -26,86 +27,79 @@
 
 -behaviour(supervisor).
 
--export([start_link/1, start_child/1, stop_child/1,
-	 stop_child/2, system_name/1]).
+-include("ssh.hrl").
+
+-export([start_link/0,
+         start_child/4,
+         stop_child/1,
+	 stop_child/3
+]).
 
 %% Supervisor callback
 -export([init/1]).
 
+-define(SSHD_SUP, ?MODULE).
+
 %%%=========================================================================
 %%%  API
 %%%=========================================================================
-start_link(Servers) ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, [Servers]).
+start_link() ->
+    %% No children are start now. We wait until the user calls ssh:daemon
+    %% and uses start_child/4 to create the children
+    supervisor:start_link({local,?SSHD_SUP}, ?MODULE, []).
 
-start_child(ServerOpts) ->
-    Address = proplists:get_value(address, ServerOpts),
-    Port = proplists:get_value(port, ServerOpts),
-    case ssh_system_sup:system_supervisor(Address, Port) of
+start_child(Address, Port, Profile, Options) ->
+    case ssh_system_sup:system_supervisor(Address, Port, Profile) of
        undefined ->
-	    Spec =  child_spec(Address, Port, ServerOpts),    
-	    case supervisor:start_child(?MODULE, Spec) of
-		{error, already_present} ->
-		    Name = id(Address, Port),
-		    supervisor:delete_child(?MODULE, Name),
-		    supervisor:start_child(?MODULE, Spec);
-		Reply ->
-		    Reply
-	    end;
+            %% Here we start listening on a new Host/Port/Profile
+	    Spec = child_spec(Address, Port, Profile, Options),
+            supervisor:start_child(?SSHD_SUP, Spec);
 	Pid ->
+            %% Here we resume listening on a new Host/Port/Profile after
+            %% haveing stopped listening to he same with ssh:stop_listen(Pid)
 	    AccPid = ssh_system_sup:acceptor_supervisor(Pid),
-	    ssh_acceptor_sup:start_child(AccPid, ServerOpts)
+            ssh_acceptor_sup:start_child(AccPid, Address, Port, Profile, Options),
+            {ok,Pid}
     end.
 
-stop_child(Name) ->
-    case supervisor:terminate_child(?MODULE, Name) of
-        ok ->
-            supervisor:delete_child(?MODULE, Name);
-        Error ->
-            Error
-    end.
+stop_child(ChildId) when is_tuple(ChildId) ->
+    supervisor:terminate_child(?SSHD_SUP, ChildId);
+stop_child(ChildPid) when is_pid(ChildPid)->
+    stop_child(system_name(ChildPid)).
 
-stop_child(Address, Port) ->
-    Name = id(Address, Port),
-    stop_child(Name).
 
-system_name(SysSup) ->
-    Children = supervisor:which_children(sshd_sup),
-    system_name(SysSup, Children).
+stop_child(Address, Port, Profile) ->
+    Id = id(Address, Port, Profile),
+    stop_child(Id).
 
 %%%=========================================================================
 %%%  Supervisor callback
 %%%=========================================================================
-init([Servers]) ->
-    RestartStrategy = one_for_one,
-    MaxR = 10,
-    MaxT = 3600,
-    Fun = fun(ServerOpts) -> 
-		  Address = proplists:get_value(address, ServerOpts),
-		  Port = proplists:get_value(port, ServerOpts),
-		  child_spec(Address, Port, ServerOpts) 
-	  end,
-    Children = lists:map(Fun, Servers),
-    {ok, {{RestartStrategy, MaxR, MaxT}, Children}}.
+init(_) ->
+    SupFlags = #{strategy  => one_for_one,
+                 intensity =>   10,
+                 period    => 3600
+                },
+    ChildSpecs = [
+                 ],
+    {ok, {SupFlags,ChildSpecs}}.
 
 %%%=========================================================================
 %%%  Internal functions
 %%%=========================================================================
-child_spec(Address, Port, ServerOpts) ->
-    Name = id(Address, Port),
-    StartFunc = {ssh_system_sup, start_link, [ServerOpts]},
-    Restart = transient, 
-    Shutdown = infinity,
-    Modules = [ssh_system_sup],
-    Type = supervisor,
-    {Name, StartFunc, Restart, Shutdown, Type, Modules}.
+child_spec(Address, Port, Profile, Options) ->
+    #{id       => id(Address, Port, Profile),
+      start    => {ssh_system_sup, start_link, [Address, Port, Profile, Options]},
+      restart  => temporary, 
+      type     => supervisor
+     }.
 
-id(Address, Port) ->
-    {server, ssh_system_sup, Address, Port}.
+id(Address, Port, Profile) ->
+    {server, ssh_system_sup, Address, Port, Profile}.
 
-system_name([], _ ) ->
-    undefined;
-system_name(SysSup, [{Name, SysSup, _, _} | _]) ->
-    Name;
-system_name(SysSup, [_ | Rest]) ->
-    system_name(SysSup, Rest).
+system_name(SysSup) ->
+    case lists:keyfind(SysSup, 2, supervisor:which_children(?SSHD_SUP)) of
+        {Name, SysSup, _, _} -> Name;
+        false -> undefind
+    end.
+

@@ -1,23 +1,24 @@
-<?xml version="1.0" encoding="latin1" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <!DOCTYPE erlref SYSTEM "erlref.dtd">
 
 <erlref>
   <header>
     <copyright>
-      <year>2002</year><year>2010</year>
+      <year>2002</year><year>2016</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
-      The contents of this file are subject to the Erlang Public License,
-      Version 1.1, (the "License"); you may not use this file except in
-      compliance with the License. You should have received a copy of the
-      Erlang Public License along with this software. If not, it can be
-      retrieved online at http://www.erlang.org/.
+      Licensed under the Apache License, Version 2.0 (the "License");
+      you may not use this file except in compliance with the License.
+      You may obtain a copy of the License at
+ 
+          http://www.apache.org/licenses/LICENSE-2.0
 
-      Software distributed under the License is distributed on an "AS IS"
-      basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-      the License for the specific language governing rights and limitations
-      under the License.
+      Unless required by applicable law or agreed to in writing, software
+      distributed under the License is distributed on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+      See the License for the specific language governing permissions and
+      limitations under the License.
 
     </legalnotice>
 
@@ -31,14 +32,14 @@
     <rev>%VSN%</rev>
     <file>et_viewer.xml</file>
   </header>
-  <module>et_viewer</module>
+  <module since="">et_viewer</module>
   <modulesummary>Displays a sequence chart for trace events (messages/actions)</modulesummary>
   <description>
     <p></p>
   </description>
   <funcs>
     <func>
-      <name>file(FileName) -> {ok, ViewerPid} | {error, Reason}</name>
+      <name since="">file(FileName) -> {ok, ViewerPid} | {error, Reason}</name>
       <fsummary>Start a new event viewer and a corresponding collector and load them with trace events from a trace file.</fsummary>
       <type>
         <v>FileName() = string()</v>
@@ -51,7 +52,7 @@
       </desc>
     </func>
     <func>
-      <name>start() -> ok</name>
+      <name since="">start() -> ok</name>
       <fsummary>Simplified start of a sequence chart viewer with global tracing activated.</fsummary>
       <desc>
         <p>Simplified start of a sequence chart viewer with
@@ -61,7 +62,7 @@
       </desc>
     </func>
     <func>
-      <name>start(Options) -> ok</name>
+      <name since="">start(Options) -> ok</name>
       <fsummary>Start of a sequence chart viewer without linking to the parent process.</fsummary>
       <desc>
         <p>Start of a sequence chart viewer without linking
@@ -69,7 +70,7 @@
       </desc>
     </func>
     <func>
-      <name>start_link(Options) -> {ok, ViewerPid} | {error, Reason}</name>
+      <name since="">start_link(Options) -> {ok, ViewerPid} | {error, Reason}</name>
       <fsummary>Start a sequence chart viewer for trace events (messages/actions)</fsummary>
       <type>
         <v>Options = [option() | collector_option()]</v>
@@ -124,7 +125,7 @@
       </desc>
     </func>
     <func>
-      <name>get_collector_pid(ViewerPid) -> CollectorPid</name>
+      <name since="">get_collector_pid(ViewerPid) -> CollectorPid</name>
       <fsummary>Returns the identifier of the collector process</fsummary>
       <type>
         <v>ViewerPid = pid()</v>
@@ -135,7 +136,7 @@
       </desc>
     </func>
     <func>
-      <name>stop(ViewerPid) -> ok</name>
+      <name since="">stop(ViewerPid) -> ok</name>
       <fsummary>Stops a viewer</fsummary>
       <type>
         <v>ViewerPid = pid()</v>

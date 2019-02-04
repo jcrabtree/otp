@@ -1,24 +1,25 @@
-<?xml version="1.0" encoding="ISO-8859-1" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <!DOCTYPE chapter SYSTEM "chapter.dtd">
 
 <chapter>
   <header>
     <copyright>
       <year>2009</year>
-      <year>2011</year>
+      <year>2016</year>
       <holder>Ericsson AB, All Rights Reserved</holder>
     </copyright>
     <legalnotice>
-  The contents of this file are subject to the Erlang Public License,
-  Version 1.1, (the "License"); you may not use this file except in
-  compliance with the License. You should have received a copy of the
-  Erlang Public License along with this software. If not, it can be
-  retrieved online at http://www.erlang.org/.
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+ 
+      http://www.apache.org/licenses/LICENSE-2.0
 
-  Software distributed under the License is distributed on an "AS IS"
-  basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-  the License for the specific language governing rights and limitations
-  under the License.
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
 
   The Initial Developer of the Original Code is Ericsson AB.
     </legalnotice>
@@ -257,6 +258,11 @@
     policy</c> part of the page. By default the latest version of the
     application is selected, but it is possible to override this by
     explicitly selecting another version.</p>
+
+    <p>Note that in order for reltool to sort application versions and
+    thereby be able to select the latest, it is required that the
+    version id for the application consits of integers and dots only,
+    for example <c>1</c>, <c>2.0</c> or <c>3.17.1</c>.</p>
     
     <p>By default the <c>Application inclusion policy</c> on system
     level is used for all applications. Set the value to
@@ -335,7 +341,7 @@
 
     <p>There are two categories of modules on the <c>Module
     dependencies</c> page. If the module is used by other modules,
-    these are listed under <c>Modules used by others</c>. If the
+    these are listed under <c>Modules using this</c>. If the
     module uses other modules, these are listed under <c>Used
     modules</c>.</p>
 
@@ -365,7 +371,7 @@
 
     <p>There are two categories of modules on the <c>Dependencies</c>
     page. If the module is used by other modules, these are listed
-    under <c>Modules used by others</c>. If the module uses other
+    under <c>Modules using this</c>. If the module uses other
     modules, these are listed under <c>Used modules</c>.</p>
 
     <p>Double click on an module name to launch a module window.</p>

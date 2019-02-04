@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  * 
- * Copyright Ericsson AB 2008-2009. All Rights Reserved.
+ * Copyright Ericsson AB 2008-2018. All Rights Reserved.
  * 
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
- * 
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  * 
  * %CopyrightEnd%
  */
@@ -25,13 +26,9 @@
 #ifndef __SAFE_HASH_H__
 #define __SAFE_HASH_H__
 
-
-#ifndef __SYS_H__
 #include "sys.h"
-#endif
-
 #include "erl_alloc.h"
-
+#include "erl_lock_flags.h"
 
 typedef unsigned long SafeHashValue;
 
@@ -76,11 +73,11 @@ typedef struct
     int size_mask;	      /* (RW) Number of slots - 1 */
     SafeHashBucket** tab;     /* (RW) Vector of bucket pointers (objects) */
     int grow_limit;           /* (RW) Threshold for growing table */
-    erts_smp_atomic_t nitems;       /* (A) Number of items in table */
-    erts_smp_atomic_t is_rehashing; /* (A) Table rehashing in progress */
+    erts_atomic_t nitems;       /* (A) Number of items in table */
+    erts_atomic_t is_rehashing; /* (A) Table rehashing in progress */
 
     union {
-	erts_smp_mtx_t mtx;
+	erts_mtx_t mtx;
 	byte __cache_line__[64];
     }lock_vec[SAFE_HASH_LOCK_CNT];
 
@@ -89,7 +86,7 @@ typedef struct
     /* A: Lockless atomics */
 } SafeHash;
 
-SafeHash* safe_hash_init(ErtsAlcType_t, SafeHash*, char*, int, SafeHashFunctions);
+SafeHash* safe_hash_init(ErtsAlcType_t, SafeHash*, char*, erts_lock_flags_t, int, SafeHashFunctions);
 
 void  safe_hash_get_info(SafeHashInfo*, SafeHash*);
 int   safe_hash_table_sz(SafeHash *);
@@ -98,7 +95,11 @@ void* safe_hash_get(SafeHash*, void*);
 void* safe_hash_put(SafeHash*, void*);
 void* safe_hash_erase(SafeHash*, void*);
 
-void  safe_hash_for_each(SafeHash*, void (*func)(void *, void *), void *);
+void  safe_hash_for_each(SafeHash*, void (*func)(void *, void *, void *), void *, void *);
+
+#ifdef ERTS_ENABLE_LOCK_COUNT
+void erts_lcnt_enable_hash_lock_count(SafeHash*, erts_lock_flags_t, int);
+#endif
 
 #endif /* __SAFE_HASH_H__ */
 

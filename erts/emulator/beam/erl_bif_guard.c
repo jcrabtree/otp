@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2006-2011. All Rights Reserved.
+ * Copyright Ericsson AB 2006-2017. All Rights Reserved.
  *
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  * %CopyrightEnd%
  */
@@ -33,6 +34,7 @@
 #include "bif.h"
 #include "big.h"
 #include "erl_binary.h"
+#include "erl_map.h"
 
 static Eterm gc_double_to_integer(Process* p, double x, Eterm* reg, Uint live);
 
@@ -139,6 +141,39 @@ BIF_RETTYPE trunc_1(BIF_ALIST_1)
     BIF_RET(res);
 }
 
+BIF_RETTYPE floor_1(BIF_ALIST_1)
+{
+    Eterm res;
+    FloatDef f;
+
+    if (is_not_float(BIF_ARG_1)) {
+	if (is_integer(BIF_ARG_1))
+	    BIF_RET(BIF_ARG_1);
+	BIF_ERROR(BIF_P, BADARG);
+    }
+    GET_DOUBLE(BIF_ARG_1, f);
+    res = double_to_integer(BIF_P, floor(f.fd));
+    BIF_RET(res);
+}
+
+BIF_RETTYPE ceil_1(BIF_ALIST_1)
+{
+    Eterm res;
+    FloatDef f;
+
+    /* check arg */
+    if (is_not_float(BIF_ARG_1)) {
+	if (is_integer(BIF_ARG_1))
+	    BIF_RET(BIF_ARG_1);
+	BIF_ERROR(BIF_P, BADARG);
+    }
+    /* get the float */
+    GET_DOUBLE(BIF_ARG_1, f);
+
+    res = double_to_integer(BIF_P, ceil(f.fd));
+    BIF_RET(res);
+}
+
 BIF_RETTYPE round_1(BIF_ALIST_1)
 {
     Eterm res;
@@ -155,7 +190,7 @@ BIF_RETTYPE round_1(BIF_ALIST_1)
     GET_DOUBLE(BIF_ARG_1, f);
 
     /* round it and return the resultant integer */
-    res = double_to_integer(BIF_P, (f.fd > 0.0) ? f.fd + 0.5 : f.fd - 0.5);
+    res = double_to_integer(BIF_P, round(f.fd));
     BIF_RET(res);
 }
 
@@ -455,6 +490,30 @@ Eterm erts_gc_byte_size_1(Process* p, Eterm* reg, Uint live)
     }
 }
 
+Eterm erts_gc_map_size_1(Process* p, Eterm* reg, Uint live)
+{
+    Eterm arg = reg[live];
+    if (is_flatmap(arg)) {
+	flatmap_t *mp = (flatmap_t*)flatmap_val(arg);
+        return make_small(flatmap_get_size(mp));
+    } else if (is_hashmap(arg)) {
+        Eterm* hp;
+        Uint size;
+	size = hashmap_size(arg);
+        if (IS_USMALL(0, size)) {
+            return make_small(size);
+        }
+        if (ERTS_NEED_GC(p, BIG_UINT_HEAP_SIZE)) {
+            erts_garbage_collect(p, BIG_UINT_HEAP_SIZE, reg, live);
+        }
+        hp = p->htop;
+        p->htop += BIG_UINT_HEAP_SIZE;
+        return uint_to_big(size, hp);
+    }
+    p->fvalue = arg;
+    BIF_ERROR(p, BADMAP);
+}
+
 Eterm erts_gc_abs_1(Process* p, Eterm* reg, Uint live)
 {
     Eterm arg;
@@ -571,8 +630,7 @@ Eterm erts_gc_round_1(Process* p, Eterm* reg, Uint live)
     }
     GET_DOUBLE(arg, f);
 
-    return gc_double_to_integer(p, (f.fd > 0.0) ? f.fd + 0.5 : f.fd - 0.5,
-				reg, live);
+    return gc_double_to_integer(p, round(f.fd), reg, live);
 }
 
 Eterm erts_gc_trunc_1(Process* p, Eterm* reg, Uint live)
@@ -593,6 +651,38 @@ Eterm erts_gc_trunc_1(Process* p, Eterm* reg, Uint live)
     /* truncate it and return the resultant integer */
     return gc_double_to_integer(p, (f.fd >= 0.0) ? floor(f.fd) : ceil(f.fd),
 				reg, live);
+}
+
+Eterm erts_gc_floor_1(Process* p, Eterm* reg, Uint live)
+{
+    Eterm arg;
+    FloatDef f;
+
+    arg = reg[live];
+    if (is_not_float(arg)) {
+	if (is_integer(arg))  {
+	    return arg;
+	}
+	BIF_ERROR(p, BADARG);
+    }
+    GET_DOUBLE(arg, f);
+    return gc_double_to_integer(p, floor(f.fd), reg, live);
+}
+
+Eterm erts_gc_ceil_1(Process* p, Eterm* reg, Uint live)
+{
+    Eterm arg;
+    FloatDef f;
+
+    arg = reg[live];
+    if (is_not_float(arg)) {
+	if (is_integer(arg))  {
+	    return arg;
+	}
+	BIF_ERROR(p, BADARG);
+    }
+    GET_DOUBLE(arg, f);
+    return gc_double_to_integer(p, ceil(f.fd), reg, live);
 }
 
 static Eterm

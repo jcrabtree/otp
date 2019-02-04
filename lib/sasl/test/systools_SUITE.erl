@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2012. All Rights Reserved.
+%% Copyright Ericsson AB 2012-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -28,6 +29,8 @@
 
 -module(systools_SUITE).
 
+-compile(export_all).
+
 %%-define(debug, true).
 
 -include_lib("common_test/include/ct.hrl").
@@ -37,27 +40,6 @@
 -define(copydir, ?config(copy_dir, Config)).
 
 -include_lib("kernel/include/file.hrl").
-
--export([all/0,suite/0,groups/0,init_per_group/2,end_per_group/2]).
-
--export([script_options/1, normal_script/1, no_mod_vsn_script/1,
-	 wildcard_script/1, variable_script/1, no_sasl_script/1,
-	 abnormal_script/1, src_tests_script/1, crazy_script/1,
-	 included_script/1, included_override_script/1,
-	 included_fail_script/1, included_bug_script/1, exref_script/1,
-	 otp_3065_circular_dependenies/1, included_and_used_sort_script/1]).
--export([tar_options/1, normal_tar/1, no_mod_vsn_tar/1, system_files_tar/1,
-	 system_files_tar/2, invalid_system_files_tar/1,
-	 invalid_system_files_tar/2, variable_tar/1,
-	 src_tests_tar/1, var_tar/1, exref_tar/1, link_tar/1,
-	 otp_9507_path_ebin/1]).
--export([normal_relup/1, restart_relup/1, abnormal_relup/1, no_sasl_relup/1,
-	 no_appup_relup/1, bad_appup_relup/1, app_start_type_relup/1,
-	 regexp_relup/1]).
--export([normal_hybrid/1,hybrid_no_old_sasl/1,hybrid_no_new_sasl/1]).
--export([otp_6226_outdir/1]).
--export([init_per_suite/1, end_per_suite/1, 
-	 init_per_testcase/2, end_per_testcase/2]).
 
 -import(lists, [foldl/3]).
 
@@ -75,22 +57,25 @@ all() ->
 
 groups() -> 
     [{script, [],
-      [script_options, normal_script, no_mod_vsn_script,
+      [script_options, normal_script, unicode_script, no_mod_vsn_script,
        wildcard_script, variable_script, abnormal_script,
-       no_sasl_script, src_tests_script, crazy_script,
+       no_sasl_script, no_dot_erlang_script,
+       src_tests_script, crazy_script,
        included_script, included_override_script,
        included_fail_script, included_bug_script, exref_script,
+       duplicate_modules_script,
        otp_3065_circular_dependenies, included_and_used_sort_script]},
      {tar, [],
       [tar_options, normal_tar, no_mod_vsn_tar, system_files_tar,
-       invalid_system_files_tar, variable_tar,
-       src_tests_tar, var_tar, exref_tar, link_tar, otp_9507_path_ebin]},
+       system_src_file_tar, invalid_system_files_tar, variable_tar,
+       src_tests_tar, var_tar, exref_tar, link_tar, no_sasl_tar,
+       otp_9507_path_ebin]},
      {relup, [],
       [normal_relup, restart_relup, abnormal_relup, no_sasl_relup,
        no_appup_relup, bad_appup_relup, app_start_type_relup, regexp_relup
       ]},
      {hybrid, [], [normal_hybrid,hybrid_no_old_sasl,hybrid_no_new_sasl]},
-     {options, [], [otp_6226_outdir]}].
+     {options, [], [otp_6226_outdir,app_file_defaults]}].
 
 init_per_group(_GroupName, Config) ->
     Config.
@@ -102,24 +87,24 @@ end_per_group(_GroupName, Config) ->
 
 
 init_per_suite(Config) when is_list(Config) ->
+    %% To use in end_per_testcase
+    Path = code:get_path(),
+    {ok,Cwd} = file:get_cwd(),
+
     %% Make of copy of the data directory.
     DataDir = ?datadir,
     PrivDir = ?privdir,
     CopyDir = fname(PrivDir, "datacopy"),
+    ok = file:make_dir(CopyDir),
     TarFile = fname(PrivDir, "datacopy.tgz"),
-    {ok, Tar} = erl_tar:open(TarFile, [write, compressed]),
-    ok = erl_tar:add(Tar, DataDir, CopyDir, [compressed]),
-    ok = erl_tar:close(Tar),
-    ok = erl_tar:extract(TarFile, [compressed]),
+    ok = file:set_cwd(DataDir),
+    ok = erl_tar:create(TarFile, ["."], [compressed]),
+    ok = erl_tar:extract(TarFile, [compressed, {cwd,CopyDir}]),
     ok = file:delete(TarFile),
 
     %% Compile source files in the copy directory.
     Sources = filelib:wildcard(fname([CopyDir,'*','*','*','*','*.erl'])),
     lists:foreach(fun compile_source/1, Sources),
-
-    %% To use in end_per_testcase
-    Path = code:get_path(),
-    {ok,Cwd} = file:get_cwd(),
 
     [{copy_dir, CopyDir}, {cwd,Cwd}, {path,Path} | Config].
 
@@ -136,9 +121,9 @@ compile_source(File) ->
     ok = file:write_file(OutFileTemp, Code),
     file:rename(OutFileTemp, OutFile).
 
-end_per_suite(Conf) when is_list(Conf) ->
-    %% Nothing.
-    Conf.
+end_per_suite(Config) when is_list(Config) ->
+    rh_test_lib:clean_dir(?privdir),
+    Config.
 
 init_per_testcase(link_tar, Config) ->
     case os:type() of
@@ -231,6 +216,7 @@ normal_script(Config) when is_list(Config) ->
 
     %% Check the same but w. silent flag
     {ok, _, []} = systools:make_script(LatestName, [silent]),
+    {ok, _, []} = systools:make_script(LatestName, [silent,warnings_as_errors]),
 
     %% Use the local option
     ok = systools:make_script(LatestName, [local]),
@@ -247,6 +233,67 @@ normal_script(Config) when is_list(Config) ->
 
     ok = file:set_cwd(OldDir),
     code:set_path(PSAVE),			% Restore path
+    ok.
+
+
+%% make_script: Test make_script with unicode .app file
+unicode_script(Config) when is_list(Config) ->
+    UnicodeStr = [945,946], % alhpa beta in greek letters
+
+    {LatestDir, LatestName} = create_script({unicode,UnicodeStr},Config),
+
+    DataDir = filename:absname(?copydir),
+    UnicodeApp = fname([DataDir, "d_unicode", "lib", "ua-1.0"]),
+    TarFile = fname(?privdir, "unicode_app.tgz"),
+    {ok, Tar} = erl_tar:open(TarFile, [write, compressed]),
+    ok = erl_tar:add(Tar, UnicodeApp, "ua-1.0", [compressed]),
+    ok = erl_tar:close(Tar),
+
+    UnicodeLibDir = fname([DataDir, "d_unicode", UnicodeStr]),
+    P1 = fname([UnicodeLibDir, "ua-1.0", "ebin"]),
+
+    %% Need to do this on a separate node to make sure it has unicode
+    %% filename mode (+fnu*)
+    {ok,HostStr} = inet:gethostname(),
+    Host = list_to_atom(HostStr),
+    {ok,Node} = ct_slave:start(Host,unicode_script_node,[{erl_flags,"+fnui"}]),
+
+    ok = rpc:call(Node,erl_tar,extract,
+		  [TarFile, [{cwd,UnicodeLibDir},compressed]]),
+
+    true = rpc:call(Node,code,add_patha,[P1]),
+
+    ok = rpc:call(Node,file,set_cwd,[LatestDir]),
+
+    ok = rpc:call(Node,systools,make_script,[filename:basename(LatestName),
+					     [local]]),
+
+    {ok, Script} = rpc:call(Node,file,consult,[LatestName++".script"]),
+
+    %% For debug purpose - print script to log
+    io:format("~tp~n",[Script]),
+
+    %% check that script contains unicode strings in
+    %% 1. release version (set in ?MODULE:do_create_script)
+    [{script,{"Test release",UnicodeStr},Instr}] = Script,
+
+    %% 2. application description (set in ua.app in data dir)
+    [AppInfo] = [X || {apply,{application,load,[{application,ua,X}]}} <- Instr],
+    {description,UnicodeStr} = lists:keyfind(description,1,AppInfo),
+
+    %% 3. path (directory name where unicode_app.tgz is extracted)
+    true = lists:member({path,[P1]},Instr),
+
+    %% If all is good, delete the unicode dir to avoid lingering files
+    %% on windows.
+    rpc:call(Node,code,add_pathz,[filename:dirname(code:which(?MODULE))]),
+    rpc:call(Node,?MODULE,delete_tree,[UnicodeLibDir]),
+
+    ok.
+
+unicode_script(cleanup,Config) ->
+    _ = ct_slave:stop(unicode_script_node),
+    file:delete(fname(?privdir, "unicode_app.tgz")),
     ok.
 
 
@@ -388,8 +435,43 @@ no_sasl_script(Config) when is_list(Config) ->
     {ok, _ , [{warning,missing_sasl}]} =
 	systools:make_script(LatestName,[{path, P},silent]),
 
+    {error, systools_make, {warnings_treated_as_errors,[missing_sasl]}} =
+	systools:make_script(LatestName,[{path, P},silent,warnings_as_errors]),
+
     {ok, _ , []} =
 	systools:make_script(LatestName,[{path, P},silent, no_warn_sasl]),
+
+    {ok, _ , []} =
+	systools:make_script(LatestName,[{path, P},silent, no_warn_sasl,
+                                         warnings_as_errors]),
+
+    ok = file:set_cwd(OldDir),
+    ok.
+
+%% make_script: Create script with no_dot_erlang. Check script contents.
+no_dot_erlang_script(Config) when is_list(Config) ->
+    {ok, OldDir} = file:get_cwd(),
+
+    {LatestDir, LatestName} = create_script(latest1_no_sasl,Config),
+
+    DataDir = filename:absname(?copydir),
+    LibDir = [fname([DataDir, d_normal, lib])],
+    P = [fname([LibDir, '*', ebin]),
+	 fname([DataDir, lib, kernel, ebin]),
+	 fname([DataDir, lib, stdlib, ebin]),
+	 fname([DataDir, lib, sasl, ebin])],
+
+    ok = file:set_cwd(LatestDir),
+
+    {ok, _ , []} =
+	systools:make_script(LatestName,[{path, P},silent, no_warn_sasl]),
+    {ok, [{_, _, LoadDotErlang}]} = read_script_file(LatestName),
+    [erlangrc] = [E || {apply, {c, E, []}} <- LoadDotErlang],
+
+    {ok, _ , []} =
+	systools:make_script(LatestName,[{path, P},silent, no_warn_sasl, no_dot_erlang]),
+    {ok, [{_, _, DoNotLoadDotErlang}]} = read_script_file(LatestName),
+    [] = [E || {apply, {c, E, []}} <- DoNotLoadDotErlang],
 
     ok = file:set_cwd(OldDir),
     ok.
@@ -429,7 +511,9 @@ src_tests_script(Config) when is_list(Config) ->
     ok = file:delete(BootFile),
     false = filelib:is_regular(BootFile),
     %% With warnings_as_errors and src_tests option, an error should be issued
-    error =
+    {error, systools_make,
+     {warnings_treated_as_errors, [{obj_out_of_date,_},
+                                   {source_not_found,_}]}} =
 	systools:make_script(LatestName, [silent, {path, N}, src_tests,
 					  warnings_as_errors]),
     error =
@@ -649,7 +733,7 @@ exref_script(Config) when is_list(Config) ->
 
     ok = file:set_cwd(LatestDir),
 
-    {ok, _, _} = systools:make_script(LatestName, [{path,P}, silent]),
+    {ok, _, []} = systools:make_script(LatestName, [{path,P}, silent]),
 
     %% Complete exref
     {ok, _, W1} =
@@ -729,6 +813,33 @@ no_hipe({ok, Value}) ->
 	    {ok, Value}
     end.
 
+%% duplicate_modules_script: Check that make_script rejects two
+%% applications providing the same module.
+duplicate_modules_script(Config) when is_list(Config) ->
+    {ok, OldDir} = file:get_cwd(),
+
+    {LatestDir, LatestName} = create_script(duplicate_modules,Config),
+
+    DataDir = filename:absname(?copydir),
+
+    ok = file:set_cwd(LatestDir),
+    LibDir = fname([DataDir, d_duplicate_modules, lib]),
+    P = [fname([LibDir, 'app1-1.0', ebin]),
+	 fname([LibDir, 'app2-1.0', ebin])],
+
+    %% Check wrong app vsn
+    error = systools:make_script(LatestName, [{path, P}]),
+    {error,
+      systools_make,
+      {duplicate_modules, [
+          {{myapp,app1,_}, {myapp,app2,_}}
+        ]
+      }
+    } = systools:make_script(LatestName, [silent, {path, P}]),
+
+    ok = file:set_cwd(OldDir),
+    ok.
+
 %% tar_options: Check illegal tar options.
 tar_options(Config) when is_list(Config) ->
     {'EXIT',{{badarg,[{path,["Path",12,"Another"]}]}, _}} =
@@ -771,10 +882,10 @@ normal_tar(Config) when is_list(Config) ->
 
     ok = file:set_cwd(LatestDir),
 
-    {ok, _, _} = systools:make_script(LatestName, [silent, {path, P}]),
+    {ok, _, []} = systools:make_script(LatestName, [silent, {path, P}]),
     ok = systools:make_tar(LatestName, [{path, P}]),
     ok = check_tar(fname([lib,'db-2.1',ebin,'db.app']), LatestName),
-    {ok, _, _} = systools:make_tar(LatestName, [{path, P}, silent]),
+    {ok, _, []} = systools:make_tar(LatestName, [{path, P}, silent]),
     ok = check_tar(fname([lib,'fe-3.1',ebin,'fe.app']), LatestName),
 
     ok = file:set_cwd(OldDir),
@@ -795,10 +906,10 @@ no_mod_vsn_tar(Config) when is_list(Config) ->
 
     ok = file:set_cwd(LatestDir),
 
-    {ok, _, _} = systools:make_script(LatestName, [silent, {path, P}]),
+    {ok, _, []} = systools:make_script(LatestName, [silent, {path, P}]),
     ok = systools:make_tar(LatestName, [{path, P}]),
     ok = check_tar(fname([lib,'db-3.1',ebin,'db.app']), LatestName),
-    {ok, _, _} = systools:make_tar(LatestName, [{path, P}, silent]),
+    {ok, _, []} = systools:make_tar(LatestName, [{path, P}, silent]),
     ok = check_tar(fname([lib,'fe-3.1',ebin,'fe.app']), LatestName),
 
     ok = file:set_cwd(OldDir),
@@ -822,11 +933,11 @@ system_files_tar(Config) ->
     ok = file:write_file("sys.config","[].\n"),
     ok = file:write_file("relup","{\"LATEST\",[],[]}.\n"),
 
-    {ok, _, _} = systools:make_script(LatestName, [silent, {path, P}]),
+    {ok, _, []} = systools:make_script(LatestName, [silent, {path, P}]),
     ok = systools:make_tar(LatestName, [{path, P}]),
     ok = check_tar(fname(["releases","LATEST","sys.config"]), LatestName),
     ok = check_tar(fname(["releases","LATEST","relup"]), LatestName),
-    {ok, _, _} = systools:make_tar(LatestName, [{path, P}, silent]),
+    {ok, _, []} = systools:make_tar(LatestName, [{path, P}, silent]),
     ok = check_tar(fname(["releases","LATEST","sys.config"]), LatestName),
     ok = check_tar(fname(["releases","LATEST","relup"]), LatestName),
 
@@ -834,12 +945,47 @@ system_files_tar(Config) ->
 
     ok.
 
+
 system_files_tar(cleanup,Config) ->
     Dir = ?privdir,
     file:delete(filename:join(Dir,"sys.config")),
     file:delete(filename:join(Dir,"relup")),
     ok.
 
+%% make_tar: Check that sys.config.src and not sys.config is included
+system_src_file_tar(Config) ->
+    {ok, OldDir} = file:get_cwd(),
+
+    {LatestDir, LatestName} = create_script(latest,Config),
+
+    DataDir = filename:absname(?copydir),
+    LibDir = fname([DataDir, d_normal, lib]),
+    P = [fname([LibDir, 'db-2.1', ebin]),
+         fname([LibDir, 'fe-3.1', ebin])],
+
+    ok = file:set_cwd(LatestDir),
+
+    %% Add dummy sys.config and sys.config.src
+    ok = file:write_file("sys.config.src","[${SOMETHING}].\n"),
+    ok = file:write_file("sys.config","[].\n"),
+
+    {ok, _, _} = systools:make_script(LatestName, [silent, {path, P}]),
+    ok = systools:make_tar(LatestName, [{path, P}]),
+    ok = check_tar(fname(["releases","LATEST","sys.config.src"]), LatestName),
+    {error, _} = check_tar(fname(["releases","LATEST","sys.config"]), LatestName),
+    {ok, _, _} = systools:make_tar(LatestName, [{path, P}, silent]),
+    ok = check_tar(fname(["releases","LATEST","sys.config.src"]), LatestName),
+    {error, _} = check_tar(fname(["releases","LATEST","sys.config"]), LatestName),
+
+    ok = file:set_cwd(OldDir),
+
+    ok.
+
+system_src_file_tar(cleanup,Config) ->
+    Dir = ?privdir,
+    file:delete(filename:join(Dir,"sys.config")),
+    file:delete(filename:join(Dir,"sys.config.src")),
+    ok.
 
 %% make_tar: Check that make_tar fails if relup or sys.config exist
 %% but do not have valid content
@@ -855,7 +1001,7 @@ invalid_system_files_tar(Config) ->
 
     ok = file:set_cwd(LatestDir),
 
-    {ok, _, _} = systools:make_script(LatestName, [silent, {path, P}]),
+    {ok, _, []} = systools:make_script(LatestName, [silent, {path, P}]),
 
     %% Add dummy relup and sys.config - faulty sys.config
     ok = file:write_file("sys.config","[]\n"), %!!! syntax error - missing '.'
@@ -913,7 +1059,7 @@ variable_tar(Config) when is_list(Config) ->
 
     ok = file:set_cwd(LatestDir),
 
-    {ok, _, _} = systools:make_script(LatestName,
+    {ok, _, []} = systools:make_script(LatestName,
 				      [silent,
 				       {path, P},
 				       {variables,[{"TEST", LibDir}]}]),
@@ -922,7 +1068,7 @@ variable_tar(Config) when is_list(Config) ->
 					{variables,[{"TEST", LibDir}]}]),
     ok = check_var_tar("TEST", LatestName),
 
-    {ok, _, _} = systools:make_tar(LatestName,
+    {ok, _, []} = systools:make_tar(LatestName,
 				   [{path, P}, silent,
 				    {variables,[{"TEST", LibDir}]}]),
     ok = check_var_tar("TEST", LatestName),
@@ -1051,7 +1197,7 @@ var_tar(Config) when is_list(Config) ->
 
     ok = file:set_cwd(LatestDir),
 
-    {ok, _, _} = systools:make_script(LatestName,
+    {ok, _, []} = systools:make_script(LatestName,
 				      [silent,
 				       {path, P},
 				       {variables,[{"TEST", LibDir}]}]),
@@ -1095,7 +1241,7 @@ exref_tar(Config) when is_list(Config) ->
 
     ok = file:set_cwd(LatestDir),
 
-    {ok, _, _} = systools:make_script(LatestName, [silent, {path, P}]),
+    {ok, _, []} = systools:make_script(LatestName, [silent, {path, P}]),
 
     %% Complete exref
     {ok, _, W1} =
@@ -1125,7 +1271,41 @@ exref_tar(Config) when is_list(Config) ->
     ok = file:set_cwd(OldDir),
     ok.
 
+%% make_tar:  Create tar without sasl appl. Check warning.
+no_sasl_tar(Config) when is_list(Config) ->
+    {ok, OldDir} = file:get_cwd(),
 
+    {LatestDir, LatestName} = create_script(latest1_no_sasl,Config),
+
+    DataDir = filename:absname(?copydir),
+    LibDir = fname([DataDir, d_normal, lib]),
+    P = [fname([LibDir, '*', ebin]),
+	 fname([DataDir, lib, kernel, ebin]),
+	 fname([DataDir, lib, stdlib, ebin]),
+	 fname([DataDir, lib, sasl, ebin])],
+
+    ok = file:set_cwd(LatestDir),
+
+    {ok, _, _} = systools:make_script(LatestName, [silent, {path, P}]),
+    ok = systools:make_tar(LatestName, [{path, P}]),
+    {ok, _, [{warning,missing_sasl}]} =
+        systools:make_tar(LatestName, [{path, P}, silent]),
+    {ok, _, []} =
+        systools:make_tar(LatestName, [{path, P}, silent, no_warn_sasl]),
+    {ok, _, []} =
+        systools:make_tar(LatestName, [{path, P}, silent, no_warn_sasl,
+                                       warnings_as_errors]),
+    TarFile = LatestName ++ ".tar.gz",
+    true = filelib:is_regular(TarFile),
+    ok = file:delete(TarFile),
+    {error, systools_make, {warnings_treated_as_errors,[missing_sasl]}} =
+        systools:make_tar(LatestName, [{path, P}, silent, warnings_as_errors]),
+    error =
+        systools:make_tar(LatestName, [{path, P}, warnings_as_errors]),
+    false = filelib:is_regular(TarFile),
+
+    ok = file:set_cwd(OldDir),
+    ok.
 
 %% make_tar: OTP-9507 - make_tar failed when path given as just 'ebin'.
 otp_9507_path_ebin(Config) when is_list(Config) ->
@@ -1145,7 +1325,7 @@ otp_9507_path_ebin(Config) when is_list(Config) ->
 	  fname([DataDir, lib, kernel, ebin]),
 	  fname([DataDir, lib, stdlib, ebin]),
 	  fname([DataDir, lib, sasl, ebin])],
-    {ok, _, _} = systools:make_script(RelName, [silent, {path, P1}]),
+    {ok, _, []} = systools:make_script(RelName, [silent, {path, P1}]),
     ok = systools:make_tar(RelName, [{path, P1}]),
     Content1 = tar_contents(RelName),
 
@@ -1186,7 +1366,7 @@ normal_relup(Config) when is_list(Config) ->
     ok = systools:make_relup(LatestName, [LatestName1], [LatestName1],
 			     [{path, P}]),
     ok = check_relup([{db, "2.1"}], [{db, "1.0"}]),
-    {ok, _, _, []} =
+    {ok, Relup, _, []} =
 	systools:make_relup(LatestName, [LatestName1], [LatestName1],
 			    [{path, P}, silent]),
     ok = check_relup([{db, "2.1"}], [{db, "1.0"}]),
@@ -1199,7 +1379,9 @@ normal_relup(Config) when is_list(Config) ->
     error =
 	systools:make_relup(LatestName, [LatestName2], [LatestName1],
 			    [{path, P}, warnings_as_errors]),
-    error =
+    {error, systools_relup,
+     {warnings_treated_as_errors,[pre_R15_emulator_upgrade,
+                                  {erts_vsn_changed, _}]}} =
 	systools:make_relup(LatestName, [LatestName2], [LatestName1],
 			    [{path, P}, silent, warnings_as_errors]),
 
@@ -1217,6 +1399,14 @@ normal_relup(Config) when is_list(Config) ->
 
     %% relup file should exist now
     true = filelib:is_regular("relup"),
+
+    %% file should not be written if noexec option is used.
+    %% delete before running tests.
+    ok = file:delete("relup"),
+    {ok,Relup,_,[]} =
+        systools:make_relup(LatestName, [LatestName1], [LatestName1],
+                            [{path, P}, noexec]),
+    false = filelib:is_regular("relup"),
 
     ok = file:set_cwd(OldDir),
     ok.
@@ -1493,9 +1683,19 @@ no_sasl_relup(Config) when is_list(Config) ->
 
 %% make_relup: Check that application start type is used in relup
 app_start_type_relup(Config) when is_list(Config) ->
+    %% This might fail if some applications are not available, if so
+    %% skip the test case.
+    try create_script(latest_app_start_type2,Config) of
+	{Dir2,Name2} ->
+	    app_start_type_relup(Dir2,Name2,Config)
+    catch throw:{error,Reason} ->
+	    {skip,Reason}
+    end.
+
+app_start_type_relup(Dir2,Name2,Config) ->
     PrivDir = ?config(priv_dir, Config),
     {Dir1,Name1} = create_script(latest_app_start_type1,Config),
-    {Dir2,Name2} = create_script(latest_app_start_type2,Config),
+
     Release1 = filename:join(Dir1,Name1),
     Release2 = filename:join(Dir2,Name2),
 
@@ -1507,25 +1707,21 @@ app_start_type_relup(Config) when is_list(Config) ->
     %% ?t:format("Dn: ~p",[DownInstructions]),
     [{load_object_code, {mnesia, _, _}},
      {load_object_code, {runtime_tools, _, _}},
-     {load_object_code, {webtool, _, _}},
      {load_object_code, {snmp, _, _}},
      {load_object_code, {xmerl, _, _}},
      point_of_no_return
      | UpInstructionsT] = UpInstructions,
     true = lists:member({apply,{application,start,[mnesia,permanent]}}, UpInstructionsT),
     true = lists:member({apply,{application,start,[runtime_tools,transient]}}, UpInstructionsT),
-    true = lists:member({apply,{application,start,[webtool,temporary]}}, UpInstructionsT),
     true = lists:member({apply,{application,load,[snmp]}}, UpInstructionsT),
     false = lists:any(fun({apply,{application,_,[xmerl|_]}}) -> true; (_) -> false end, UpInstructionsT),
     [point_of_no_return | DownInstructionsT] = DownInstructions,
     true = lists:member({apply,{application,stop,[mnesia]}}, DownInstructionsT),
     true = lists:member({apply,{application,stop,[runtime_tools]}}, DownInstructionsT),
-    true = lists:member({apply,{application,stop,[webtool]}}, DownInstructionsT),
     true = lists:member({apply,{application,stop,[snmp]}}, DownInstructionsT),
     true = lists:member({apply,{application,stop,[xmerl]}}, DownInstructionsT),
     true = lists:member({apply,{application,unload,[mnesia]}}, DownInstructionsT),
     true = lists:member({apply,{application,unload,[runtime_tools]}}, DownInstructionsT),
-    true = lists:member({apply,{application,unload,[webtool]}}, DownInstructionsT),
     true = lists:member({apply,{application,unload,[snmp]}}, DownInstructionsT),
     true = lists:member({apply,{application,unload,[xmerl]}}, DownInstructionsT),
     ok.
@@ -1599,27 +1795,28 @@ normal_hybrid(Config) ->
 
     ok = file:set_cwd(OldDir),
 
-    BasePaths = {"testkernelpath","teststdlibpath","testsaslpath"},
     {ok,Hybrid} = systools_make:make_hybrid_boot("tmp_vsn",Boot1,Boot2,
-						 BasePaths, [dummy,args]),
+                                                 [dummy,args]),
 
     {script,{"Test release","tmp_vsn"},Script} = binary_to_term(Hybrid),
     ct:log("~p.~n",[Script]),
 
     %% Check that all paths to base apps are replaced by paths from BaseLib
     Boot1Str = io_lib:format("~p~n",[binary_to_term(Boot1)]),
+    Boot2Str = io_lib:format("~p~n",[binary_to_term(Boot2)]),
     HybridStr = io_lib:format("~p~n",[binary_to_term(Hybrid)]),
     ReOpts = [global,{capture,first,list},unicode],
     {match,OldKernelMatch} = re:run(Boot1Str,"kernel-[0-9\.]+",ReOpts),
     {match,OldStdlibMatch} = re:run(Boot1Str,"stdlib-[0-9\.]+",ReOpts),
     {match,OldSaslMatch} = re:run(Boot1Str,"sasl-[0-9\.]+",ReOpts),
 
-    nomatch = re:run(HybridStr,"kernel-[0-9\.]+",ReOpts),
-    nomatch = re:run(HybridStr,"stdlib-[0-9\.]+",ReOpts),
-    nomatch = re:run(HybridStr,"sasl-[0-9\.]+",ReOpts),
-    {match,NewKernelMatch} = re:run(HybridStr,"testkernelpath",ReOpts),
-    {match,NewStdlibMatch} = re:run(HybridStr,"teststdlibpath",ReOpts),
-    {match,NewSaslMatch} = re:run(HybridStr,"testsaslpath",ReOpts),
+    {match,NewKernelMatch} = re:run(Boot2Str,"kernel-[0-9\.]+",ReOpts),
+    {match,NewStdlibMatch} = re:run(Boot2Str,"stdlib-[0-9\.]+",ReOpts),
+    {match,NewSaslMatch} = re:run(Boot2Str,"sasl-[0-9\.]+",ReOpts),
+
+    {match,NewKernelMatch} = re:run(HybridStr,"kernel-[0-9\.]+",ReOpts),
+    {match,NewStdlibMatch} = re:run(HybridStr,"stdlib-[0-9\.]+",ReOpts),
+    {match,NewSaslMatch} = re:run(HybridStr,"sasl-[0-9\.]+",ReOpts),
 
     NewKernelN = length(NewKernelMatch),
     NewKernelN = length(OldKernelMatch),
@@ -1627,6 +1824,11 @@ normal_hybrid(Config) ->
     NewStdlibN = length(OldStdlibMatch),
     NewSaslN = length(NewSaslMatch),
     NewSaslN = length(OldSaslMatch),
+
+    %% Check that kernelProcesses are taken from new boot script
+    {script,_,Script2} = binary_to_term(Boot2),
+    NewKernelProcs = [KP || KP={kernelProcess,_,_} <- Script2],
+    NewKernelProcs = [KP || KP={kernelProcess,_,_} <- Script],
 
     %% Check that application load instruction has correct versions
     Apps = application:loaded_applications(),
@@ -1698,10 +1900,8 @@ hybrid_no_old_sasl(Config) ->
     {ok,Boot1} = file:read_file(Name1 ++ ".boot"),
     {ok,Boot2} = file:read_file(Name2 ++ ".boot"),
 
-    BasePaths = {"testkernelpath","teststdlibpath","testsaslpath"},
     {error,{app_not_replaced,sasl}} =
-	systools_make:make_hybrid_boot("tmp_vsn",Boot1,Boot2,
-				       BasePaths,[dummy,args]),
+	systools_make:make_hybrid_boot("tmp_vsn",Boot1,Boot2,[dummy,args]),
 
     ok = file:set_cwd(OldDir),
     ok.
@@ -1731,10 +1931,8 @@ hybrid_no_new_sasl(Config) ->
     {ok,Boot1} = file:read_file(Name1 ++ ".boot"),
     {ok,Boot2} = file:read_file(Name2 ++ ".boot"),
 
-    BasePaths = {"testkernelpath","teststdlibpath","testsaslpath"},
     {error,{app_not_found,sasl}} =
-	systools_make:make_hybrid_boot("tmp_vsn",Boot1,Boot2,
-				       BasePaths,[dummy,args]),
+	systools_make:make_hybrid_boot("tmp_vsn",Boot1,Boot2,[dummy,args]),
 
     ok = file:set_cwd(OldDir),
     ok.
@@ -1867,12 +2065,12 @@ otp_6226_outdir(Config) when is_list(Config) ->
     ok = file:delete(Relup),
 
     %% d) absolute but incorrect path
-    {error,_,{file_problem,{"relup",enoent}}} =
+    {error,_,{file_problem,{"relup",{open,enoent}}}} =
 	systools:make_relup(LatestName,[LatestName1],[LatestName1],
 			    [{outdir,Outdir2},{path,P},silent]),
 
     %% e) relative but incorrect path
-    {error,_,{file_problem,{"relup",enoent}}} =
+    {error,_,{file_problem,{"relup",{open,enoent}}}} =
 	systools:make_relup(LatestName,[LatestName1],[LatestName1],
 			    [{outdir,"./outdir2"},{path,P},silent]),
 
@@ -1884,6 +2082,37 @@ otp_6226_outdir(Config) when is_list(Config) ->
     ok = file:set_cwd(OldDir),
     ok.
 
+
+%% Test that all default values can be used as values in the .app file
+app_file_defaults(Config) ->
+    PrivDir = ?config(priv_dir,Config),
+    Name = app1,
+    NameStr = atom_to_list(Name),
+    Vsn = "1.0",
+    AppSpec = app_spec(Name,#{vsn=>"1.0"}),
+    ok = file:write_file(filename:join(PrivDir,NameStr ++ ".app"),
+			 io_lib:format("~p.~n",[AppSpec])),
+    {ok,_} = systools_make:read_application(NameStr,Vsn,[PrivDir],[]),
+    ok.
+
+app_spec(Name,New) ->
+    {application,Name,app_spec(New)}.
+
+app_spec(New) ->
+    Default = #{description => "",
+		id => "",
+		vsn => "",
+		modules => [],
+		maxP => infinity,
+		maxT => infinity,
+		registered => [],
+		included_applications => [],
+		applications => [],
+		env => [],
+		mod => [],
+		start_phases => undefined,
+		runtime_dependencies => []},
+    maps:to_list(maps:merge(Default,New)).
 
 %%%%%%
 %%%%%% Utilities
@@ -2074,7 +2303,6 @@ create_script(latest_app_start_type1,Config) ->
 create_script(latest_app_start_type2,Config) ->
     OtherApps = [{mnesia,current,permanent},
 		 {runtime_tools,current,transient},
-		 {webtool,current,temporary},
 		 {snmp,current,load},
 		 {xmerl,current,none}],
     Apps = core_apps(current) ++ OtherApps,
@@ -2090,15 +2318,23 @@ create_script(current_all_future_erts,Config) ->
     do_create_script(current_all_future_erts,Config,"99.99",Apps);
 create_script(current_all_future_sasl,Config) ->
     Apps = [{kernel,current},{stdlib,current},{sasl,"9.9"},{db,"2.1"},{fe,"3.1"}],
-    do_create_script(current_all_future_sasl,Config,current,Apps).
+    do_create_script(current_all_future_sasl,Config,current,Apps);
+create_script({unicode,RelVsn},Config) ->
+    Apps = core_apps(current) ++ [{ua,"1.0"}],
+    do_create_script(unicode,RelVsn,Config,current,Apps);
+create_script(duplicate_modules,Config) ->
+    Apps = core_apps(current) ++ [{app1,"1.0"},{app2,"1.0"}],
+    do_create_script(duplicate_modules,Config,current,Apps).
 
 
 do_create_script(Id,Config,ErtsVsn,AppVsns) ->
+    do_create_script(Id,string:to_upper(atom_to_list(Id)),Config,ErtsVsn,AppVsns).
+do_create_script(Id,RelVsn,Config,ErtsVsn,AppVsns) ->
     PrivDir = ?privdir,
     Name = fname(PrivDir, Id),
     {ok,Fd} = file:open(Name++".rel",write),
     RelfileContent =
-	{release,{"Test release", string:to_upper(atom_to_list(Id))},
+	{release,{"Test release", RelVsn},
 	 {erts,erts_vsn(ErtsVsn)},
 	 app_vsns(AppVsns)},
     io:format(Fd,"~p.~n",[RelfileContent]),
@@ -2112,9 +2348,13 @@ app_vsns(AppVsns) ->
     [{App,app_vsn(App,Vsn)} || {App,Vsn} <- AppVsns] ++
 	[{App,app_vsn(App,Vsn),Type} || {App,Vsn,Type} <- AppVsns].
 app_vsn(App,current) ->
-    application:load(App),
-    {ok,Vsn} = application:get_key(App,vsn),
-    Vsn;
+    case application:load(App) of
+	Ok when Ok==ok; Ok=={error,{already_loaded,App}} ->
+	    {ok,Vsn} = application:get_key(App,vsn),
+	    Vsn;
+	Error ->
+	    throw(Error)
+    end;
 app_vsn(_App,Vsn) ->
     Vsn.
 

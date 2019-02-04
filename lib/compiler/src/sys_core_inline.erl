@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2000-2010. All Rights Reserved.
+%% Copyright Ericsson AB 2000-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -142,7 +143,7 @@ inline_inline(#ifun{body=B,weight=Iw}=If, Is) ->
 		     case find_inl(F, A, Is) of
 			 #ifun{vars=Vs,body=B2,weight=W} when W < Iw ->
 			     #c_let{vars=Vs,
-				     arg=core_lib:make_values(As),
+				     arg=kill_id_anns(core_lib:make_values(As)),
 				    body=kill_id_anns(B2)};
 			 _Other -> Call
 		     end;
@@ -159,7 +160,7 @@ inline_func(#fstat{def={Name,F0}}=Fstat, Is) ->
 		     case find_inl(F, A, Is) of
 			 #ifun{vars=Vs,body=B} ->
 			     {#c_let{vars=Vs,
-				     arg=core_lib:make_values(As),
+				     arg=kill_id_anns(core_lib:make_values(As)),
 				     body=kill_id_anns(B)},
 			      true};			%Have modified
 			 _Other -> {Call,Mod}
@@ -195,10 +196,10 @@ kill_id_anns(Body) ->
 			   A = kill_id_anns_1(A0),
 			   CFun#c_fun{anno=A};
 		      (Expr) ->
-			   %% Mark everything as compiler generated to suppress
-			   %% bogus warnings.
-			   A = compiler_generated(core_lib:get_anno(Expr)),
-			   core_lib:set_anno(Expr, A)
+			   %% Mark everything as compiler generated to
+			   %% suppress bogus warnings.
+			   A = compiler_generated(cerl:get_ann(Expr)),
+			   cerl:set_ann(Expr, A)
 		   end, Body).
 
 kill_id_anns_1([{'id',_}|As]) ->

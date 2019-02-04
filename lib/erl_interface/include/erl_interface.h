@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  * 
- * Copyright Ericsson AB 1996-2009. All Rights Reserved.
+ * Copyright Ericsson AB 1996-2016. All Rights Reserved.
  * 
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
- * 
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  * 
  * %CopyrightEnd%
  */
@@ -95,19 +96,24 @@
 
 #define ERL_FLOAT_VALUE(x) ((x)->uval.fval.f)
 
-#define ERL_ATOM_PTR(x) ((x)->uval.aval.a)
-#define ERL_ATOM_SIZE(x) ((x)->uval.aval.len)
+#define ERL_ATOM_PTR(x) erl_atom_ptr_latin1((Erl_Atom_data*) &(x)->uval.aval.d)
+#define ERL_ATOM_PTR_UTF8(x) erl_atom_ptr_utf8((Erl_Atom_data*) &(x)->uval.aval.d)
+#define ERL_ATOM_SIZE(x) erl_atom_size_latin1((Erl_Atom_data*) &(x)->uval.aval.d)
+#define ERL_ATOM_SIZE_UTF8(x) erl_atom_size_utf8((Erl_Atom_data*) &(x)->uval.aval.d)
 
-#define ERL_PID_NODE(x) ((x)->uval.pidval.node)
+#define ERL_PID_NODE(x) erl_atom_ptr_latin1((Erl_Atom_data*) &(x)->uval.pidval.node)
+#define ERL_PID_NODE_UTF8(x) erl_atom_ptr_utf8((Erl_Atom_data*) &(x)->uval.pidval.node)
 #define ERL_PID_NUMBER(x) ((x)->uval.pidval.number)
 #define ERL_PID_SERIAL(x) ((x)->uval.pidval.serial)
 #define ERL_PID_CREATION(x) ((x)->uval.pidval.creation)
 
-#define ERL_PORT_NODE(x) ((x)->uval.portval.node)
+#define ERL_PORT_NODE(x) erl_atom_ptr_latin1((Erl_Atom_data*) &(x)->uval.portval.node)
+#define ERL_PORT_NODE_UTF8(x) erl_atom_ptr_utf8((Erl_Atom_data*) &(x)->uval.portval.node)
 #define ERL_PORT_NUMBER(x) ((x)->uval.portval.number)
 #define ERL_PORT_CREATION(x) ((x)->uval.portval.creation)
 
-#define ERL_REF_NODE(x) ((x)->uval.refval.node)
+#define ERL_REF_NODE(x) erl_atom_ptr_latin1((Erl_Atom_data*) &(x)->uval.refval.node)
+#define ERL_REF_NODE_UTF8(x) erl_atom_ptr_utf8((Erl_Atom_data*) &(x)->uval.refval.node)
 #define ERL_REF_NUMBER(x) ((x)->uval.refval.n[0])
 #define ERL_REF_NUMBERS(x) ((x)->uval.refval.n)
 #define ERL_REF_LEN(x) ((x)->uval.refval.len)
@@ -183,32 +189,44 @@ typedef struct {
 } Erl_Float;
 
 typedef struct {
+  char *utf8;
+  int lenU;
+  char *latin1;
+  int lenL;
+} Erl_Atom_data;
+
+char* erl_atom_ptr_latin1(Erl_Atom_data*);
+char* erl_atom_ptr_utf8(Erl_Atom_data*);
+int erl_atom_size_latin1(Erl_Atom_data*);
+int erl_atom_size_utf8(Erl_Atom_data*);
+char* erl_atom_init_latin1(Erl_Atom_data*, const char*);
+
+typedef struct {
   Erl_Header h;
-  int len;
-  char *a;
+  Erl_Atom_data d;
 } Erl_Atom;
 
 typedef struct {
   Erl_Header h;
-  char * node;
+  Erl_Atom_data node;
   unsigned int number;
   unsigned int serial;
-  unsigned char creation;
+  unsigned int creation;
 } Erl_Pid;
 
 typedef struct {    
   Erl_Header h;
-  char * node;
+  Erl_Atom_data node;
   unsigned int number;
-  unsigned char creation;
+  unsigned int creation;
 } Erl_Port;
 
 typedef struct {
   Erl_Header h;
-  char * node;
+  Erl_Atom_data node;
   int len;
   unsigned int n[3];
-  unsigned char creation;
+  unsigned int creation;
 } Erl_Ref;
 
 typedef struct {
@@ -289,7 +307,7 @@ typedef struct _eterm {
 } ETERM;
 
 
-#define MAXREGLEN 255  /* max length of registered (atom) name */
+#define MAXREGLEN (255*4)  /* max length of registered (atom) name */
 
 typedef struct {
   int type;   /* one of the message type constants in eiext.h */
@@ -409,6 +427,7 @@ unsigned char erl_ext_type(unsigned char*); /* Note: returned 'char' before R9C 
 unsigned char *erl_peek_ext(unsigned char*,int);
 int    erl_term_len(ETERM*);
 
+int cmp_latin1_vs_utf8(const char* sL, int lenL, const char* sU, int lenU);
 
 /* -------------------------------------------------------------------- */
 /*                      Wrappers around ei functions                    */

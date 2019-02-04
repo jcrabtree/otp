@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2000-2009. All Rights Reserved.
+%% Copyright Ericsson AB 2000-2017. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -31,16 +32,16 @@
 %% 173 - 176	{ - ~		punctuation
 %% 177		DEL		control
 %% 200 - 237			control
-%% 240 - 277	NBSP - ¿	punctuation
-%% 300 - 326	À - Ö		uppercase
-%% 327		×		punctuation
-%% 330 - 336	Ø - Þ		uppercase
-%% 337 - 366	ß - ö		lowercase
-%% 367		÷		punctuation
-%% 370 - 377	ø - ÿ		lowercase
+%% 240 - 277	NBSP - Â¿	punctuation
+%% 300 - 326	Ã€ - Ã–		uppercase
+%% 327		Ã—		punctuation
+%% 330 - 336	Ã˜ - Ãž		uppercase
+%% 337 - 366	ÃŸ - Ã¶		lowercase
+%% 367		Ã·		punctuation
+%% 370 - 377	Ã¸ - Ã¿		lowercase
 %%
 %% Many punctuation characters region have special meaning.  Must
-%% watch using × \327, bvery close to x \170
+%% watch using Ã— \327, bvery close to x \170
 
 -module(core_scan).
 
@@ -48,12 +49,36 @@
 
 -import(lists, [reverse/1]).
 
+-type location() :: integer().
+-type category() :: atom().
+-type symbol() :: atom() | float() | integer() | string().
+-type token() :: {category(), Anno :: location(), symbol()}
+               | {category(), Anno :: location()}.
+-type tokens() :: [token()].
+-type error_description() :: term().
+-type error_info() :: {erl_anno:location(), module(), error_description()}.
+
 %% string([Char]) ->
 %% string([Char], StartPos) ->
 %%    {ok, [Tok], EndPos} |
 %%    {error, {Pos,core_scan,What}, EndPos}
 
+-spec string(String) -> Return when
+      String :: string(),
+      Return :: {'ok', Tokens :: tokens(), EndLocation}
+              | {'error', ErrorInfo :: error_info(), ErrorLocation},
+      EndLocation :: location(),
+      ErrorLocation :: location().
+
 string(Cs) -> string(Cs, 1).
+
+-spec string(String, StartLocation) -> Return when
+      String :: string(),
+      Return :: {'ok', Tokens :: tokens(), EndLocation}
+              | {'error', ErrorInfo :: error_info(), ErrorLocation},
+      StartLocation :: location(),
+      EndLocation :: location(),
+      ErrorLocation :: location().
 
 string(Cs, Sp) ->
     %% Add an 'eof' to always get correct handling.
@@ -95,7 +120,7 @@ format_error(Other) -> io_lib:write(Other).
 
 string_thing($') -> "atom";    %' stupid emacs
 string_thing($") -> "string".  %" stupid emacs
-
+
 %% Re-entrant pre-scanner.
 %%
 %% If the input list of characters is insufficient to build a term the
@@ -175,8 +200,8 @@ pre_string(eof, Q, _, Sp, SoFar, Pos) ->
     pre_string_error(Q, Sp, SoFar, Pos).
 
 pre_string_error(Q, Sp, SoFar, Pos) ->
-    S = reverse(string:substr(SoFar, 1, string:chr(SoFar, Q)-1)),
-    pre_error({string,Q,string:substr(S, 1, 16)}, Sp, Pos).
+    [S,_] = string:split(SoFar, [Q]),
+    pre_error({string,Q,string:slice(string:reverse(S), 0, 16)}, Sp, Pos).
 
 pre_char([C|Cs], SoFar) -> pre_char(C, Cs, SoFar);
 pre_char([], _) -> more;
@@ -213,7 +238,7 @@ pre_comment(eof, Sofar, Pos) ->
 
 pre_error(E, Epos, Pos) ->
     {error,{Epos,core_scan,E}, Pos}.
-
+
 %% scan(CharList, StartPos)
 %%  This takes a list of characters and tries to tokenise them.
 %%
@@ -239,11 +264,11 @@ scan1([C|Cs], Toks, Pos) when C >= $\200, C =< $\240 ->
     scan1(Cs, Toks, Pos);
 scan1([C|Cs], Toks, Pos) when C >= $a, C =< $z ->	%Keywords
     scan_key_word(C, Cs, Toks, Pos);
-scan1([C|Cs], Toks, Pos) when C >= $ß, C =< $ÿ, C /= $÷ ->
+scan1([C|Cs], Toks, Pos) when C >= $ÃŸ, C =< $Ã¿, C /= $Ã· ->
     scan_key_word(C, Cs, Toks, Pos);
 scan1([C|Cs], Toks, Pos) when C >= $A, C =< $Z ->	%Variables
     scan_variable(C, Cs, Toks, Pos);
-scan1([C|Cs], Toks, Pos) when C >= $À, C =< $Þ, C /= $× ->
+scan1([C|Cs], Toks, Pos) when C >= $Ã€, C =< $Ãž, C /= $Ã— ->
     scan_variable(C, Cs, Toks, Pos);
 scan1([C|Cs], Toks, Pos) when C >= $0, C =< $9 ->	%Numbers
     scan_number(C, Cs, Toks, Pos);
@@ -258,10 +283,12 @@ scan1([$$|Cs0], Toks, Pos) ->				%Character constant
     scan1(Cs, [{char,Pos,C}|Toks], Pos1);
 scan1([$'|Cs0], Toks, Pos) ->				%Atom (always quoted)
     {S,Cs1,Pos1} = scan_string(Cs0, $', Pos),
-    case catch list_to_atom(S) of
+    try binary_to_atom(list_to_binary(S), utf8) of
 	A when is_atom(A) ->
-	    scan1(Cs1, [{atom,Pos,A}|Toks], Pos1);
-	_Error -> scan_error({illegal,atom}, Pos)
+	    scan1(Cs1, [{atom,Pos,A}|Toks], Pos1)
+    catch
+        error:_ ->
+            scan_error({illegal,atom}, Pos)
     end;
 scan1([$"|Cs0], Toks, Pos) ->				%String
     {S,Cs1,Pos1} = scan_string(Cs0, $", Pos),
@@ -271,6 +298,10 @@ scan1("->" ++ Cs, Toks, Pos) ->
     scan1(Cs, [{'->',Pos}|Toks], Pos);
 scan1("-|" ++ Cs, Toks, Pos) ->
     scan1(Cs, [{'-|',Pos}|Toks], Pos);
+scan1(":=" ++ Cs, Toks, Pos) ->
+    scan1(Cs, [{':=',Pos}|Toks], Pos);
+scan1("=>" ++ Cs, Toks, Pos) ->
+    scan1(Cs, [{'=>',Pos}|Toks], Pos);
 scan1([C|Cs], Toks, Pos) ->				%Punctuation character
     P = list_to_atom([C]),
     scan1(Cs, [{P,Pos}|Toks], Pos);
@@ -308,9 +339,9 @@ scan_name([], Ncs) ->
     {Ncs,[]}.
 
 name_char(C) when C >= $a, C =< $z -> true;
-name_char(C) when C >= $ß, C =< $ÿ, C /= $÷ -> true;
+name_char(C) when C >= $ÃŸ, C =< $Ã¿, C /= $Ã· -> true;
 name_char(C) when C >= $A, C =< $Z -> true;
-name_char(C) when C >= $À, C =< $Þ, C /= $× -> true;
+name_char(C) when C >= $Ã€, C =< $Ãž, C /= $Ã— -> true;
 name_char(C) when C >= $0, C =< $9 -> true;
 name_char($_) -> true;
 name_char($@) -> true;

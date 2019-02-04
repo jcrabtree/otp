@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2000-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2000-2018. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -23,7 +24,10 @@
 -export([module/2]).
 -export([bs_clean_saves/1]).
 -export([clean_labels/1]).
--import(lists, [map/2,foldl/3,reverse/1,filter/2]).
+-import(lists, [foldl/3,reverse/1]).
+
+-spec module(beam_utils:module_code(), [compile:option()]) ->
+                    {'ok',beam_utils:module_code()}.
 
 module({Mod,Exp,Attr,Fs0,_}, Opts) ->
     Order = [Lbl || {function,_,_,Lbl,_} <- Fs0],
@@ -38,6 +42,10 @@ module({Mod,Exp,Attr,Fs0,_}, Opts) ->
     {ok,{Mod,Exp,Attr,Fs,Lc}}.
 
 %% Remove all bs_save2/2 instructions not referenced by a bs_restore2/2.
+
+-spec bs_clean_saves([beam_utils:instruction()]) ->
+                            [beam_utils:instruction()].
+
 bs_clean_saves(Is) ->
     Needed = bs_restores(Is, []),
     bs_clean_saves_1(Is, gb_sets:from_list(Needed), []).
@@ -74,10 +82,6 @@ find_all_used([], _All, Used) -> Used.
 
 update_work_list([{call,_,{f,L}}|Is], Sets) ->
     update_work_list(Is, add_to_work_list(L, Sets));
-update_work_list([{call_last,_,{f,L},_}|Is], Sets) ->
-    update_work_list(Is, add_to_work_list(L, Sets));
-update_work_list([{call_only,_,{f,L}}|Is], Sets) ->
-    update_work_list(Is, add_to_work_list(L, Sets));
 update_work_list([{make_fun2,{f,L},_,_,_}|Is], Sets) ->
     update_work_list(Is, add_to_work_list(L, Sets));
 update_work_list([_|Is], Sets) ->
@@ -90,7 +94,7 @@ add_to_work_list(F, {Fs,Used}=Sets) ->
 	false -> {[F|Fs],sets:add_element(F, Used)}
     end.
 
-
+
 %%%
 %%% Coalesce adjacent labels. Renumber all labels to eliminate gaps.
 %%% This cleanup will slightly reduce file size and slightly speed up loading.
@@ -101,15 +105,20 @@ add_to_work_list(F, {Fs,Used}=Sets) ->
 %%% want to see the expanded code in a .S file.
 %%%
 
--record(st, {lmap,				%Translation tables for labels.
-	     entry,				%Number of entry label.
-	     lc					%Label counter
+-type label() :: beam_asm:label().
+
+-record(st, {lmap :: [{label(),label()}], %Translation tables for labels.
+	     entry :: beam_asm:label(),   %Number of entry label.
+	     lc :: non_neg_integer()      %Label counter
 	     }).
 
+-spec clean_labels([beam_utils:instruction()]) ->
+                          {[beam_utils:instruction()],pos_integer()}.
+
 clean_labels(Fs0) ->
-    St0 = #st{lmap=[],lc=1},
+    St0 = #st{lmap=[],entry=1,lc=1},
     {Fs1,#st{lmap=Lmap0,lc=Lc}} = function_renumber(Fs0, St0, []),
-    Lmap = gb_trees:from_orddict(ordsets:from_list(Lmap0)),
+    Lmap = maps:from_list(Lmap0),
     Fs = function_replace(Fs1, Lmap, []),
     {Fs,Lc}.
 
@@ -144,7 +153,7 @@ renumber_labels([{bif,is_record,{f,_},
     renumber_labels(Is, Acc, St);
 renumber_labels([{test,is_record,{f,_}=Fail,
 		  [Term,{atom,Tag}=TagAtom,{integer,Arity}]}|Is0], Acc, St) ->
-    Tmp = {x,1023},
+    Tmp = {x,1022},
     Is = case is_record_tuple(Term, Tag, Arity) of
 	     yes ->
 		 Is0;
@@ -178,7 +187,8 @@ is_record_tuple(_, _, _) -> no.
 
 function_replace([{function,Name,Arity,Entry,Asm0}|Fs], Dict, Acc) ->
     Asm = try
-	      replace(Asm0, [], Dict)
+              Fb = fun(Old) -> throw({error,{undefined_label,Old}}) end,
+              beam_utils:replace_labels(Asm0, [], Dict, Fb)
 	  catch
 	      throw:{error,{undefined_label,Lbl}=Reason} ->
 		  io:format("Function ~s/~w refers to undefined label ~w\n",
@@ -187,101 +197,6 @@ function_replace([{function,Name,Arity,Entry,Asm0}|Fs], Dict, Acc) ->
 	  end,
     function_replace(Fs, Dict, [{function,Name,Arity,Entry,Asm}|Acc]);
 function_replace([], _, Acc) -> Acc.
-
-replace([{test,bs_match_string=Op,{f,Lbl},[Ctx,Bin0]}|Is], Acc, D) ->
-    Bits = bit_size(Bin0),
-    Bin = case Bits rem 8 of
-	      0 -> Bin0;
-	      Rem -> <<Bin0/bitstring,0:(8-Rem)>>
-	  end,
-    I = {test,Op,{f,label(Lbl, D)},[Ctx,Bits,{string,binary_to_list(Bin)}]},
-    replace(Is, [I|Acc], D);
-replace([{test,Test,{f,Lbl},Ops}|Is], Acc, D) ->
-    replace(Is, [{test,Test,{f,label(Lbl, D)},Ops}|Acc], D);
-replace([{test,Test,{f,Lbl},Live,Ops,Dst}|Is], Acc, D) ->
-    replace(Is, [{test,Test,{f,label(Lbl, D)},Live,Ops,Dst}|Acc], D);
-replace([{select_val,R,{f,Fail0},{list,Vls0}}|Is], Acc, D) ->
-    Vls1 = map(fun ({f,L}) -> {f,label(L, D)};
-		   (Other) -> Other end, Vls0),
-    Fail = label(Fail0, D),
-    case redundant_values(Vls1, Fail, []) of
-	[] ->
-	    %% Oops, no choices left. The loader will not accept that.
-	    %% Convert to a plain jump.
-	    replace(Is, [{jump,{f,Fail}}|Acc], D);
-	Vls ->
-	    replace(Is, [{select_val,R,{f,Fail},{list,Vls}}|Acc], D)
-    end;
-replace([{select_tuple_arity,R,{f,Fail},{list,Vls0}}|Is], Acc, D) ->
-    Vls = map(fun ({f,L}) -> {f,label(L, D)};
-		  (Other) -> Other end, Vls0),
-    replace(Is, [{select_tuple_arity,R,{f,label(Fail, D)},{list,Vls}}|Acc], D);
-replace([{'try',R,{f,Lbl}}|Is], Acc, D) ->
-    replace(Is, [{'try',R,{f,label(Lbl, D)}}|Acc], D);
-replace([{'catch',R,{f,Lbl}}|Is], Acc, D) ->
-    replace(Is, [{'catch',R,{f,label(Lbl, D)}}|Acc], D);
-replace([{jump,{f,Lbl}}|Is], Acc, D) ->
-    replace(Is, [{jump,{f,label(Lbl, D)}}|Acc], D);
-replace([{loop_rec,{f,Lbl},R}|Is], Acc, D) ->
-    replace(Is, [{loop_rec,{f,label(Lbl, D)},R}|Acc], D);
-replace([{loop_rec_end,{f,Lbl}}|Is], Acc, D) ->
-    replace(Is, [{loop_rec_end,{f,label(Lbl, D)}}|Acc], D);
-replace([{wait,{f,Lbl}}|Is], Acc, D) ->
-    replace(Is, [{wait,{f,label(Lbl, D)}}|Acc], D);
-replace([{wait_timeout,{f,Lbl},To}|Is], Acc, D) ->
-    replace(Is, [{wait_timeout,{f,label(Lbl, D)},To}|Acc], D);
-replace([{bif,Name,{f,Lbl},As,R}|Is], Acc, D) when Lbl =/= 0 ->
-    replace(Is, [{bif,Name,{f,label(Lbl, D)},As,R}|Acc], D);
-replace([{gc_bif,Name,{f,Lbl},Live,As,R}|Is], Acc, D) when Lbl =/= 0 ->
-    replace(Is, [{gc_bif,Name,{f,label(Lbl, D)},Live,As,R}|Acc], D);
-replace([{call,Ar,{f,Lbl}}|Is], Acc, D) ->
-    replace(Is, [{call,Ar,{f,label(Lbl,D)}}|Acc], D);
-replace([{call_last,Ar,{f,Lbl},N}|Is], Acc, D) ->
-    replace(Is, [{call_last,Ar,{f,label(Lbl,D)},N}|Acc], D);
-replace([{call_only,Ar,{f,Lbl}}|Is], Acc, D) ->
-    replace(Is, [{call_only,Ar,{f,label(Lbl, D)}}|Acc], D);
-replace([{make_fun2,{f,Lbl},U1,U2,U3}|Is], Acc, D) ->
-    replace(Is, [{make_fun2,{f,label(Lbl, D)},U1,U2,U3}|Acc], D);
-replace([{bs_init2,{f,Lbl},Sz,Words,R,F,Dst}|Is], Acc, D) when Lbl =/= 0 ->
-    replace(Is, [{bs_init2,{f,label(Lbl, D)},Sz,Words,R,F,Dst}|Acc], D);
-replace([{bs_init_bits,{f,Lbl},Sz,Words,R,F,Dst}|Is], Acc, D) when Lbl =/= 0 ->
-    replace(Is, [{bs_init_bits,{f,label(Lbl, D)},Sz,Words,R,F,Dst}|Acc], D);
-replace([{bs_put_integer,{f,Lbl},Bits,Unit,Fl,Val}|Is], Acc, D) when Lbl =/= 0 ->
-    replace(Is, [{bs_put_integer,{f,label(Lbl, D)},Bits,Unit,Fl,Val}|Acc], D);
-replace([{bs_put_utf8=I,{f,Lbl},Fl,Val}|Is], Acc, D) when Lbl =/= 0 ->
-    replace(Is, [{I,{f,label(Lbl, D)},Fl,Val}|Acc], D);
-replace([{bs_put_utf16=I,{f,Lbl},Fl,Val}|Is], Acc, D) when Lbl =/= 0 ->
-    replace(Is, [{I,{f,label(Lbl, D)},Fl,Val}|Acc], D);
-replace([{bs_put_utf32=I,{f,Lbl},Fl,Val}|Is], Acc, D) when Lbl =/= 0 ->
-    replace(Is, [{I,{f,label(Lbl, D)},Fl,Val}|Acc], D);
-replace([{bs_put_binary,{f,Lbl},Bits,Unit,Fl,Val}|Is], Acc, D) when Lbl =/= 0 ->
-    replace(Is, [{bs_put_binary,{f,label(Lbl, D)},Bits,Unit,Fl,Val}|Acc], D);
-replace([{bs_put_float,{f,Lbl},Bits,Unit,Fl,Val}|Is], Acc, D) when Lbl =/= 0 ->
-    replace(Is, [{bs_put_float,{f,label(Lbl, D)},Bits,Unit,Fl,Val}|Acc], D);
-replace([{bs_add,{f,Lbl},Src,Dst}|Is], Acc, D) when Lbl =/= 0 ->
-    replace(Is, [{bs_add,{f,label(Lbl, D)},Src,Dst}|Acc], D);
-replace([{bs_append,{f,Lbl},_,_,_,_,_,_,_}=I0|Is], Acc, D) when Lbl =/= 0 ->
-    I = setelement(2, I0, {f,label(Lbl, D)}),
-    replace(Is, [I|Acc], D);
-replace([{bs_utf8_size=I,{f,Lbl},Src,Dst}|Is], Acc, D) when Lbl =/= 0 ->
-    replace(Is, [{I,{f,label(Lbl, D)},Src,Dst}|Acc], D);
-replace([{bs_utf16_size=I,{f,Lbl},Src,Dst}|Is], Acc, D) when Lbl =/= 0 ->
-    replace(Is, [{I,{f,label(Lbl, D)},Src,Dst}|Acc], D);
-replace([I|Is], Acc, D) ->
-    replace(Is, [I|Acc], D);
-replace([], Acc, _) -> Acc.
-
-label(Old, D) ->
-    case gb_trees:lookup(Old, D) of
-	{value,Val} -> Val;
-	none -> throw({error,{undefined_label,Old}})
-    end.
-	    
-redundant_values([_,{f,Fail}|Vls], Fail, Acc) ->
-    redundant_values(Vls, Fail, Acc);
-redundant_values([Val,Lbl|Vls], Fail, Acc) ->
-    redundant_values(Vls, Fail, [Lbl,Val|Acc]);
-redundant_values([], _, Acc) -> reverse(Acc).
 
 %%%
 %%% Final fixup of bs_start_match2/5,bs_save2/bs_restore2 instructions for
@@ -339,7 +254,7 @@ bs_restores([_|Is], Dict) ->
 bs_restores([], Dict) -> Dict.
     
 %% Pass 2.
-bs_replace([{test,bs_start_match2,F,Live,[Src,Ctx],CtxR}|T], Dict, Acc) when is_atom(Ctx) ->
+bs_replace([{test,bs_start_match2,F,Live,[Src,{context,Ctx}],CtxR}|T], Dict, Acc) ->
     Slots = case gb_trees:lookup(Ctx, Dict) of
 		{value,Slots0} -> Slots0;
 		none -> 0
@@ -388,8 +303,21 @@ maybe_remove_lines(Fs, Opts) ->
     end.
 
 remove_lines([{function,N,A,Lbl,Is0}|T]) ->
-    Is = filter(fun({line,_}) -> false;
-		   (_)  -> true
-		end, Is0),
+    Is = remove_lines_fun(Is0),
     [{function,N,A,Lbl,Is}|remove_lines(T)];
 remove_lines([]) -> [].
+
+remove_lines_fun([{line,_}|Is]) ->
+    remove_lines_fun(Is);
+remove_lines_fun([{block,Bl0}|Is]) ->
+    Bl = remove_lines_block(Bl0),
+    [{block,Bl}|remove_lines_fun(Is)];
+remove_lines_fun([I|Is]) ->
+    [I|remove_lines_fun(Is)];
+remove_lines_fun([]) -> [].
+
+remove_lines_block([{set,_,_,{line,_}}|Is]) ->
+    remove_lines_block(Is);
+remove_lines_block([I|Is]) ->
+    [I|remove_lines_block(Is)];
+remove_lines_block([]) -> [].

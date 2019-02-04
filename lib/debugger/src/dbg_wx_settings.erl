@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2008-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2008-2016. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -49,31 +50,29 @@ save(Win, Pos, SFile) ->
 
 open_win(Win, Pos, SFile, Str, What) ->
     {SDir, SFileName} =
-	if
-	    %% If settings are saved for the first time, and to
-	    %% the default directory HOME/erlang.tools/debugger,
-	    %% make sure the directory exists, or create it if
-	    %% desired and possible
-	    SFile==default -> {default_settings_dir(Win), "NoName.state"};
-	    true -> {filename:dirname(SFile), filename:basename(SFile)}
-	end,
-		    
+        if
+            %% If settings are saved for the first time, and to
+            %% the default directory HOME/erlang.tools/debugger,
+            %% make sure the directory exists, or create it if
+            %% desired and possible
+            SFile==default -> {default_settings_dir(Win), "NoName.state"};
+            true -> {filename:dirname(SFile), filename:basename(SFile)}
+        end,
+
     FD = wxFileDialog:new(Win, [{message,Str},{pos, Pos},
-				{defaultDir,SDir},
-				{defaultFile,SFileName},
-				{wildCard, "*.state"},
-				{style,What}]),
+                                {defaultDir,SDir},
+                                {defaultFile,SFileName},
+                                {wildCard, "*.state"},
+                                {style,What}]),
     case wxFileDialog:showModal(FD) of
-	?wxID_OK ->
-	    File = wxFileDialog:getFilename(FD),
-	    Dir = wxFileDialog:getDirectory(FD),
-	    wxFileDialog:destroy(FD),
-	    {ok, filename:join(Dir,File)};
-	_ ->
-	    wxFileDialog:destroy(FD),
-	    cancel
+        ?wxID_OK ->
+            NewFile = wxFileDialog:getPath(FD),
+	    {ok, NewFile};
+        _ ->
+            wxFileDialog:destroy(FD),
+            cancel
     end.
-   
+
 default_settings_dir(Win) ->
     {ok, [[Home]]} = init:get_argument(home),
     DefDir = filename:join([Home, ".erlang_tools", "debugger"]),

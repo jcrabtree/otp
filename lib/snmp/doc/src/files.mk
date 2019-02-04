@@ -1,20 +1,21 @@
 #-*-makefile-*-   ; force emacs to enter makefile-mode
 
 # %CopyrightBegin%
-# 
-# Copyright Ericsson AB 2001-2011. All Rights Reserved.
-# 
-# The contents of this file are subject to the Erlang Public License,
-# Version 1.1, (the "License"); you may not use this file except in
-# compliance with the License. You should have received a copy of the
-# Erlang Public License along with this software. If not, it can be
-# retrieved online at http://www.erlang.org/.
-# 
-# Software distributed under the License is distributed on an "AS IS"
-# basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-# the License for the specific language governing rights and limitations
-# under the License.
-# 
+#
+# Copyright Ericsson AB 2001-2017. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
 # %CopyrightEnd%
 
 XML_APPLICATION_FILES = \
@@ -41,6 +42,8 @@ XML_AGENT_REF3_FILES = \
 	snmpa_error_io.xml \
 	snmpa_error_logger.xml \
 	snmpa_local_db.xml \
+	snmpa_mib_data.xml \
+	snmpa_mib_storage.xml \
 	snmpa_mpd.xml \
 	snmpa_network_interface.xml \
 	snmpa_network_interface_filter.xml \
@@ -78,9 +81,7 @@ XML_REF3_FILES = \
 XML_REF6_FILES = snmp_app.xml
 
 XML_PART_FILES =  \
-	part.xml \
-	part_notes.xml \
-	part_notes_history.xml
+	part.xml
 
 XML_CHAPTER_FILES = \
 	snmp_intro.xml \
@@ -112,23 +113,16 @@ XML_FILES = $(BOOK_FILES)        \
             $(XML_REF6_FILES)    \
             $(XML_APPLICATION_FILES)
 
-GIF_FILES = book.gif \
+GIF_FILES = \
 	getnext1.gif \
 	getnext2.gif \
 	getnext3.gif \
 	getnext4.gif \
 	snmp_agent_netif_1.gif \
 	snmp_manager_netif_1.gif \
-	min_head.gif \
-	note.gif \
-	notes.gif \
-	ref_man.gif \
 	snmp-um-1-image-1.gif \
 	snmp-um-1-image-2.gif \
 	snmp-um-1-image-3.gif \
-	snmp.gif \
-	user_guide.gif \
-	warning.gif \
 	MIB_mechanism.gif
 
 PS_FILES = getnext1.ps \

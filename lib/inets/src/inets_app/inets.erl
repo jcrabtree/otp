@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2006-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2006-2018. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -274,13 +275,8 @@ sys_info() ->
 
 os_info() ->
     V = os:version(),
-    case os:type() of
-        {OsFam, OsName} ->
-            [{fam, OsFam}, {name, OsName}, {ver, V}];
-        OsFam ->
-            [{fam, OsFam}, {ver, V}]
-    end.
-
+    {OsFam, OsName} = os:type(),
+    [{fam, OsFam}, {name, OsName}, {ver, V}].
 
 print_mods_info(Versions) ->
     case key1search(mod_info, Versions) of
@@ -469,13 +465,19 @@ call_service(Service, Call, Args) ->
         exit:{noproc, _} ->
             {error, inets_not_started}
     end.
-	
+
+%% Obsolete! Kept for backward compatiblity!
+%% TFTP application has been moved out from inets
 service_module(tftpd) ->
-    tftp;
+    inets_tftp_wrapper;
 service_module(tftpc) ->
-    tftp;
+    inets_tftp_wrapper;
+service_module(tftp) ->
+    inets_tftp_wrapper;
+%% Obsolete! Kept for backward compatiblity!
+%% FTP application has been moved out from inets
 service_module(ftpc) ->
-    ftp;
+    inets_ftp_wrapper;
 service_module(Service) ->
     Service.
 

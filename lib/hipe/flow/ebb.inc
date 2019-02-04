@@ -1,21 +1,16 @@
 %% -*- Erlang -*-
 %%
-%% %CopyrightBegin%
-%% 
-%% Copyright Ericsson AB 2001-2009. All Rights Reserved.
-%% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
-%% 
-%% %CopyrightEnd%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
@@ -45,12 +40,14 @@
 %%      |  {ebb_leaf, SuccesorLabel}
 %%--------------------------------------------------------------------
 
-%% XXX: Cheating big time! no recursive types
--type ebb() :: {ebb_node, icode_lbl(), _}
-             | {ebb_leaf, icode_lbl()}.
+-type ebb() :: ebb_node()
+	     | ebb_leaf().
 
 -record(ebb_node, {label :: icode_lbl(), successors :: [ebb()]}).
+-type ebb_node() :: #ebb_node{}.
+
 -record(ebb_leaf, {successor :: icode_lbl()}).
+-type ebb_leaf() :: #ebb_leaf{}.
 
 %%--------------------------------------------------------------------
 %% Returns a list of extended basic blocks.
@@ -198,7 +195,7 @@ add_succ([Lbl|Lbls], Visited, Node, MkFun, EBBs, CFG) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
--spec mk_node(icode_lbl(), [ebb()]) -> #ebb_node{}.
+-spec mk_node(icode_lbl(), [ebb()]) -> ebb_node().
 mk_node(Label, Successors) -> #ebb_node{label=Label, successors=Successors}.
 
 -spec node_label(#ebb_node{}) -> icode_lbl().
@@ -207,11 +204,11 @@ node_label(#ebb_node{label=Label}) -> Label.
 -spec node_successors(#ebb_node{}) -> [ebb()].
 node_successors(#ebb_node{successors=Successors}) -> Successors.
 
--spec mk_leaf(icode_lbl()) -> #ebb_leaf{}.
+-spec mk_leaf(icode_lbl()) -> ebb_leaf().
 mk_leaf(NextEbb) -> #ebb_leaf{successor=NextEbb}.
 %% leaf_next(Leaf) -> Leaf#ebb_leaf.successor.
 
--spec type(#ebb_node{}) -> 'node' ; (#ebb_leaf{}) -> 'leaf'.
+-spec type(ebb_node()) -> 'node' ; (ebb_leaf()) -> 'leaf'.
 type(#ebb_node{}) -> node;
 type(#ebb_leaf{}) -> leaf.
 

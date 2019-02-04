@@ -1,32 +1,24 @@
 %% -*- erlang-indent-level: 2 -*-
 %%
-%% %CopyrightBegin%
-%% 
-%% Copyright Ericsson AB 2001-2011. All Rights Reserved.
-%% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
-%% 
-%% %CopyrightEnd%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %%========================================================================
 %%
 %% Filename : hipe_tagscheme.erl
-%% Note     : This is specific to Erlang 5.* (i.e. R9 to R13).
+%% Note     : This is specific to Erlang >= 5.* (i.e. starting with R9).
 %%
 %% Modifications:
 %%  020904: Happi - added support for external pids and ports.
-%%     
-%%========================================================================
-%% $Id$
 %%========================================================================
 
 -module(hipe_tagscheme).
@@ -39,36 +31,37 @@
 	 test_tuple/4, test_atom/4, test_bignum/4, test_pos_bignum/4,
 	 test_any_pid/4, test_any_port/4,
 	 test_ref/4, test_fun/4, test_fun2/5, test_matchstate/4,
-	 test_binary/4, test_bitstr/4, test_list/4,
-	 test_integer/4, test_number/4, test_constant/4, test_tuple_N/5]).
+	 test_binary/4, test_bitstr/4, test_list/4, test_map/4,
+	 test_integer/4, test_number/4, test_tuple_N/5,
+	 test_pos_bignum_arity/6]).
 -export([realtag_fixnum/2, tag_fixnum/2, realuntag_fixnum/2, untag_fixnum/2]).
 -export([test_two_fixnums/3, test_fixnums/4, unsafe_fixnum_add/3,
 	 unsafe_fixnum_sub/3,
 	 fixnum_gt/5, fixnum_lt/5, fixnum_ge/5, fixnum_le/5, fixnum_val/1,
-	 fixnum_mul/4,
-	 fixnum_addsub/5, fixnum_andorxor/4, fixnum_not/2,
+	 fixnum_mul/4, fixnum_addsub/5, fixnum_andorxor/4, fixnum_not/2,
 	 fixnum_bsr/3, fixnum_bsl/3]).
+-export([test_either_immed/4]).
 -export([unsafe_car/2, unsafe_cdr/2,
 	 unsafe_constant_element/3, unsafe_update_element/3, element/6]).
 -export([unsafe_closure_element/3]).
 -export([mk_fun_header/0, tag_fun/2]).
 -export([unsafe_untag_float/2, unsafe_tag_float/2]).
--export([mk_sub_binary/6,mk_sub_binary/7]).
+-export([mk_sub_binary/6, mk_sub_binary/7]).
 -export([unsafe_mk_big/3, unsafe_load_float/3]).
--export([bignum_sizeneed/1,bignum_sizeneed_code/2, get_one_word_pos_bignum/3]).
+-export([bignum_sizeneed/1, bignum_sizeneed_code/2, get_one_word_pos_bignum/3,
+	 unsafe_get_one_word_pos_bignum/2]).
 -export([test_subbinary/3, test_heap_binary/3]).
 -export([create_heap_binary/3, create_refc_binary/3, create_refc_binary/4]).
 -export([create_matchstate/6, convert_matchstate/1, compare_matchstate/4]).
--export([get_field_from_term/3, get_field_from_pointer/3,
+-export([get_field_addr_from_term/3,
+	 get_field_from_term/3, get_field_from_pointer/3,
 	 set_field_from_term/3, set_field_from_pointer/3,
 	 extract_matchbuffer/2, extract_binary_bytes/2]).
 
 -include("hipe_rtl.hrl").
 -include("hipe_literals.hrl").
 
--ifdef(EFT_NATIVE_ADDRESS).
 -export([if_fun_get_arity_and_address/5]).
--endif.
 
 -undef(TAG_PRIMARY_BOXED).
 -undef(TAG_IMMED2_MASK).
@@ -83,6 +76,10 @@
 -define(TAG_PRIMARY_LIST,   16#1).
 -define(TAG_PRIMARY_BOXED,  16#2).
 -define(TAG_PRIMARY_IMMED1, 16#3).
+
+%% Only when ?ERTS_USE_LITERAL_TAG =:= 1
+-define(TAG_PTR_MASK__,   16#7).
+-define(TAG_LITERAL_PTR,  16#4).
 
 -define(TAG_IMMED1_SIZE,  4).
 -define(TAG_IMMED1_MASK,  16#F).
@@ -113,13 +110,15 @@
 -define(TAG_HEADER_EXTERNAL_PID, ((16#C bsl ?TAG_PRIMARY_SIZE) bor ?TAG_PRIMARY_HEADER)).
 -define(TAG_HEADER_EXTERNAL_PORT,((16#D bsl ?TAG_PRIMARY_SIZE) bor ?TAG_PRIMARY_HEADER)).
 -define(TAG_HEADER_EXTERNAL_REF, ((16#E bsl ?TAG_PRIMARY_SIZE) bor ?TAG_PRIMARY_HEADER)).
+-define(TAG_HEADER_MAP,     ((16#F bsl ?TAG_PRIMARY_SIZE) bor ?TAG_PRIMARY_HEADER)).
 
 -define(TAG_HEADER_MASK, 16#3F).
 -define(HEADER_ARITY_OFFS, 6).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-mk_header(SZ,TAG) -> (SZ bsl ?HEADER_ARITY_OFFS) + TAG.
+mk_header(SZ, TAG) -> (SZ bsl ?HEADER_ARITY_OFFS) + TAG.
+
 mk_arityval(SZ)	-> mk_header(SZ, ?TAG_HEADER_ARITYVAL).
 
 size_from_header(Sz, Header) ->
@@ -133,14 +132,14 @@ mk_var_header(Header, Size, Tag) ->
 mk_fixnum(X) -> (X bsl ?TAG_IMMED1_SIZE) + ?TAG_IMMED1_SMALL.
 
 -define(NIL, ((-1 bsl ?TAG_IMMED2_SIZE) bor ?TAG_IMMED2_NIL)).
-mk_nil()	-> ?NIL.
-%% mk_atom(X)	-> (X bsl ?TAG_IMMED2_SIZE) + ?TAG_IMMED2_ATOM.
-mk_non_value()	-> ?THE_NON_VALUE.
+mk_nil()       -> ?NIL.
+%% mk_atom(X)  -> (X bsl ?TAG_IMMED2_SIZE) + ?TAG_IMMED2_ATOM.
+mk_non_value() -> ?THE_NON_VALUE.
 
 -spec is_fixnum(integer()) -> boolean().
 is_fixnum(N) when is_integer(N) ->
   Bits = ?bytes_to_bits(hipe_rtl_arch:word_size()) - ?TAG_IMMED1_SIZE,
-  (N =< ((1 bsl (Bits - 1)) - 1)) and (N >= -(1 bsl (Bits - 1))).
+  (N =< ((1 bsl (Bits - 1)) - 1)) andalso (N >= -(1 bsl (Bits - 1))).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -163,28 +162,60 @@ tag_cons(Res, X) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+ptr_val(Res, X) ->
+  hipe_rtl:mk_alu(Res, X, 'and', hipe_rtl:mk_imm(bnot ?TAG_PTR_MASK__)).
+
+%% Returns {Base, Offset, Untag}. To be used like, for example:
+%% {Base, Offset, Untag} = untag_ptr(X, ?TAG_PRIMARY_BOXED),
+%% ...
+%% [Untag, hipe_rtl:mk_load(Dst, Base, hipe_rtl:mk_imm(Offset))].
+%%
+%% NB: Base might either be X or a new temp. It must thus not be modified.
+untag_ptr(X, Tag) ->
+  case ?ERTS_USE_LITERAL_TAG of
+    0 ->
+      {X, -Tag, []};
+    1 ->
+      Base = hipe_rtl:mk_new_reg(),
+      Untag = ptr_val(Base, X),
+      {Base, 0, Untag}
+  end.
+
+untag_ptr_nooffset(Dst, X, Tag) ->
+  %% We could just use ptr_val in all cases, but subtraction can use LEA on x86
+  %% and can be inlined into effective address computations on several
+  %% architectures.
+  case ?ERTS_USE_LITERAL_TAG of
+    0 ->
+      hipe_rtl:mk_alu(Dst, X, 'sub', hipe_rtl:mk_imm(Tag));
+    1 ->
+      ptr_val(Dst, X)
+  end.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 %%% Operations to test if an object has a known type T.
 
 test_nil(X, TrueLab, FalseLab, Pred) ->
   hipe_rtl:mk_branch(X, eq, hipe_rtl:mk_imm(?NIL), TrueLab, FalseLab, Pred).
 
 test_cons(X, TrueLab, FalseLab, Pred) ->
-  Tmp = hipe_rtl:mk_new_reg_gcsafe(),
   Mask = hipe_rtl:mk_imm(?TAG_PRIMARY_MASK - ?TAG_PRIMARY_LIST),
-  hipe_rtl:mk_alub(Tmp, X, 'and', Mask, 'eq', TrueLab, FalseLab, Pred).
+  hipe_rtl:mk_branch(X, 'and', Mask, 'eq', TrueLab, FalseLab, Pred).
 
 test_is_boxed(X, TrueLab, FalseLab, Pred) ->
-  Tmp = hipe_rtl:mk_new_reg_gcsafe(),
   Mask = hipe_rtl:mk_imm(?TAG_PRIMARY_MASK - ?TAG_PRIMARY_BOXED),
-  hipe_rtl:mk_alub(Tmp, X, 'and', Mask, 'eq', TrueLab, FalseLab, Pred).
+  hipe_rtl:mk_branch(X, 'and', Mask, 'eq', TrueLab, FalseLab, Pred).
 
 get_header(Res, X) ->
-  hipe_rtl:mk_load(Res, X, hipe_rtl:mk_imm(-(?TAG_PRIMARY_BOXED))).
+  {Base, Offset, Untag} = untag_ptr(X, ?TAG_PRIMARY_BOXED),
+  [Untag, hipe_rtl:mk_load(Res, Base, hipe_rtl:mk_imm(Offset))].
 
 mask_and_compare(X, Mask, Value, TrueLab, FalseLab, Pred) ->
   Tmp = hipe_rtl:mk_new_reg_gcsafe(),
-  [hipe_rtl:mk_alu(Tmp, X, 'and', hipe_rtl:mk_imm(Mask)),
-   hipe_rtl:mk_branch(Tmp, 'eq', hipe_rtl:mk_imm(Value), TrueLab, FalseLab, Pred)].
+  [hipe_rtl:mk_alu(Tmp, X, 'sub', hipe_rtl:mk_imm(Value)),
+   hipe_rtl:mk_branch(Tmp, 'and', hipe_rtl:mk_imm(Mask),
+		      eq, TrueLab, FalseLab, Pred)].
 
 test_immed1(X, Value, TrueLab, FalseLab, Pred) ->
   mask_and_compare(X, ?TAG_IMMED1_MASK, Value, TrueLab, FalseLab, Pred).
@@ -236,13 +267,12 @@ test_atom(X, TrueLab, FalseLab, Pred) ->
 
 test_tuple(X, TrueLab, FalseLab, Pred) ->
   Tmp = hipe_rtl:mk_new_reg_gcsafe(),
-  Tmp2 = hipe_rtl:mk_new_reg_gcsafe(),
   HalfTrueLab = hipe_rtl:mk_new_label(),
   [test_is_boxed(X, hipe_rtl:label_name(HalfTrueLab), FalseLab, Pred),
    HalfTrueLab,
    get_header(Tmp, X),
-   hipe_rtl:mk_alub(Tmp2, Tmp, 'and', hipe_rtl:mk_imm(?TAG_HEADER_MASK), 'eq',
-		    TrueLab, FalseLab, Pred)].
+   hipe_rtl:mk_branch(Tmp, 'and', hipe_rtl:mk_imm(?TAG_HEADER_MASK), 'eq',
+		      TrueLab, FalseLab, Pred)].
 
 test_tuple_N(X, N, TrueLab, FalseLab, Pred) ->
   Tmp = hipe_rtl:mk_new_reg_gcsafe(),
@@ -252,6 +282,15 @@ test_tuple_N(X, N, TrueLab, FalseLab, Pred) ->
    get_header(Tmp, X),
    hipe_rtl:mk_branch(Tmp, 'eq', hipe_rtl:mk_imm(mk_arityval(N)),
 		      TrueLab, FalseLab, Pred)].
+
+test_map(X, TrueLab, FalseLab, Pred) ->
+  Tmp = hipe_rtl:mk_new_reg_gcsafe(),
+  HalfTrueLab = hipe_rtl:mk_new_label(),
+  MapMask = ?TAG_HEADER_MASK,
+  [test_is_boxed(X, hipe_rtl:label_name(HalfTrueLab), FalseLab, Pred),
+   HalfTrueLab,
+   get_header(Tmp, X),
+   mask_and_compare(Tmp, MapMask, ?TAG_HEADER_MAP, TrueLab, FalseLab, Pred)].
 
 test_ref(X, TrueLab, FalseLab, Pred) ->
   Hdr = hipe_rtl:mk_new_reg_gcsafe(),
@@ -269,7 +308,6 @@ test_ref(X, TrueLab, FalseLab, Pred) ->
 		      TrueLab, FalseLab, Pred)
   ].
 
--ifdef(EFT_NATIVE_ADDRESS).
 test_closure(X, TrueLab, FalseLab, Pred) ->
   Tmp = hipe_rtl:mk_new_reg_gcsafe(),
   HalfTrueLab = hipe_rtl:mk_new_label(),
@@ -278,7 +316,6 @@ test_closure(X, TrueLab, FalseLab, Pred) ->
    get_header(Tmp, X),
    mask_and_compare(Tmp, ?TAG_HEADER_MASK, ?TAG_HEADER_FUN,
 		    TrueLab, FalseLab, Pred)].
--endif.
 
 test_fun(X, TrueLab, FalseLab, Pred) ->
   Hdr = hipe_rtl:mk_new_reg_gcsafe(),
@@ -338,6 +375,24 @@ test_pos_bignum(X, TrueLab, FalseLab, Pred) ->
    mask_and_compare(Tmp, BigMask, ?TAG_HEADER_POS_BIG,
 		    TrueLab, FalseLab, Pred)].
 
+test_pos_bignum_arity(X, Arity, TrueLab, NotPosBignumLab, FalseLab, Pred) ->
+  Tmp = hipe_rtl:mk_new_reg_gcsafe(),
+  BoxedLab = hipe_rtl:mk_new_label(),
+  HeaderImm = hipe_rtl:mk_imm(mk_header(Arity, ?TAG_HEADER_POS_BIG)),
+  [test_is_boxed(X, hipe_rtl:label_name(BoxedLab), NotPosBignumLab, Pred),
+   BoxedLab,
+   get_header(Tmp, X)] ++
+    case NotPosBignumLab =:= FalseLab of
+      true -> [];
+      false ->
+	BignumLab = hipe_rtl:mk_new_label(),
+	BigMask = ?TAG_HEADER_MASK,
+	[mask_and_compare(Tmp, BigMask, ?TAG_HEADER_POS_BIG,
+			  hipe_rtl:label_name(BignumLab), NotPosBignumLab, Pred),
+	 BignumLab]
+    end ++
+    [hipe_rtl:mk_branch(Tmp, 'eq', HeaderImm, TrueLab, FalseLab, Pred)].
+
 test_matchstate(X, TrueLab, FalseLab, Pred) ->
   Tmp = hipe_rtl:mk_new_reg_gcsafe(),
   HalfTrueLab = hipe_rtl:mk_new_label(),
@@ -347,14 +402,17 @@ test_matchstate(X, TrueLab, FalseLab, Pred) ->
    mask_and_compare(Tmp, ?TAG_HEADER_MASK, ?TAG_HEADER_BIN_MATCHSTATE, 
 		    TrueLab, FalseLab, Pred)].
 
+test_bitstr_header(HdrTmp, TrueLab, FalseLab, Pred) ->
+  Mask = ?TAG_HEADER_MASK - ?BINARY_XXX_MASK,
+  mask_and_compare(HdrTmp, Mask, ?TAG_HEADER_REFC_BIN, TrueLab, FalseLab, Pred).
+
 test_bitstr(X, TrueLab, FalseLab, Pred) ->
   Tmp = hipe_rtl:mk_new_reg_gcsafe(),
   HalfTrueLab = hipe_rtl:mk_new_label(),
-  Mask = ?TAG_HEADER_MASK - ?BINARY_XXX_MASK,
   [test_is_boxed(X, hipe_rtl:label_name(HalfTrueLab), FalseLab, Pred),
    HalfTrueLab,
    get_header(Tmp, X),
-   mask_and_compare(Tmp, Mask, ?TAG_HEADER_REFC_BIN, TrueLab, FalseLab, Pred)].
+   test_bitstr_header(Tmp, TrueLab, FalseLab, Pred)].
 
 test_binary(X, TrueLab, FalseLab, Pred) ->
   Tmp1 = hipe_rtl:mk_new_reg_gcsafe(),
@@ -362,12 +420,10 @@ test_binary(X, TrueLab, FalseLab, Pred) ->
   IsBoxedLab = hipe_rtl:mk_new_label(),
   IsBitStrLab = hipe_rtl:mk_new_label(),
   IsSubBinLab =  hipe_rtl:mk_new_label(),
-  Mask = ?TAG_HEADER_MASK - ?BINARY_XXX_MASK,
   [test_is_boxed(X, hipe_rtl:label_name(IsBoxedLab), FalseLab, Pred),
    IsBoxedLab,
    get_header(Tmp1, X),
-   mask_and_compare(Tmp1, Mask, ?TAG_HEADER_REFC_BIN,
-		    hipe_rtl:label_name(IsBitStrLab), FalseLab, Pred),
+   test_bitstr_header(Tmp1, hipe_rtl:label_name(IsBitStrLab), FalseLab, Pred),
    IsBitStrLab,
    mask_and_compare(Tmp1, ?TAG_HEADER_MASK, ?TAG_HEADER_SUB_BIN,
 		    hipe_rtl:label_name(IsSubBinLab), TrueLab, 0.5),
@@ -405,17 +461,6 @@ test_number(X, TrueLab, FalseLab, Pred) ->
    hipe_rtl:mk_branch(Tmp, 'eq', hipe_rtl:mk_imm(HeaderFlonum),
 		      TrueLab, FalseLab, Pred)].
 
-%% CONS, NIL, and TUPLE are not constants, everything else is
-test_constant(X, TrueLab, FalseLab, Pred) ->
-  Lab1 = hipe_rtl:mk_new_label(),
-  Lab2 = hipe_rtl:mk_new_label(),
-  Pred1 = 1-Pred,
-  [test_cons(X, FalseLab, hipe_rtl:label_name(Lab1), Pred1),
-   Lab1,
-   test_nil(X, FalseLab, hipe_rtl:label_name(Lab2), Pred1),
-   Lab2,
-   test_tuple(X, FalseLab, TrueLab, Pred1)].
-
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 tag_fixnum(DestVar, SrcReg) ->
@@ -448,14 +493,23 @@ test_fixnums_1([Arg1, Arg2|Args], Acc) ->
   Tmp = hipe_rtl:mk_new_reg_gcsafe(),
   test_fixnums_1([Tmp|Args], [hipe_rtl:mk_alu(Tmp, Arg1, 'and', Arg2)|Acc]).
 
+test_two_fixnums(Arg, Arg, FalseLab) ->
+  TrueLab = hipe_rtl:mk_new_label(),
+  [test_fixnum(Arg, hipe_rtl:label_name(TrueLab), FalseLab, 0.99),
+   TrueLab];
 test_two_fixnums(Arg1, Arg2, FalseLab) ->
   TrueLab = hipe_rtl:mk_new_label(),
-  case hipe_rtl:is_imm(Arg2) of
+  case hipe_rtl:is_imm(Arg1) orelse hipe_rtl:is_imm(Arg2) of
     true ->
-      Value = hipe_rtl:imm_value(Arg2),
+      {Imm, Var} =
+	case hipe_rtl:is_imm(Arg1) of
+	  true  -> {Arg1, Arg2};
+	  false -> {Arg2, Arg1}
+	end,
+      Value = hipe_rtl:imm_value(Imm),
       case Value band ?TAG_IMMED1_MASK of
 	?TAG_IMMED1_SMALL ->
-	  [test_fixnum(Arg1, hipe_rtl:label_name(TrueLab), FalseLab, 0.99),
+	  [test_fixnum(Var, hipe_rtl:label_name(TrueLab), FalseLab, 0.99),
 	   TrueLab];
 	_ ->
 	  [hipe_rtl:mk_goto(FalseLab)]
@@ -496,28 +550,48 @@ unsafe_fixnum_sub(Arg1, Arg2, Res) ->
 
 %%% (16X+tag)+((16Y+tag)-tag) = 16X+tag+16Y = 16(X+Y)+tag
 %%% (16X+tag)-((16Y+tag)-tag) = 16X+tag-16Y = 16(X-Y)+tag
-fixnum_addsub(AluOp, Arg1, Arg2, Res, OtherLab) ->
-  Tmp = hipe_rtl:mk_new_reg_gcsafe(),
+fixnum_addsub(AluOp, Arg1, Arg2, FinalRes, OtherLab) ->
+  NoOverflowLab = hipe_rtl:mk_new_label(),
   %% XXX: Consider moving this test to the users of fixnum_addsub.
-  case Arg1 =/= Res andalso Arg2 =/= Res of 
-    true -> 
-      %% Args differ from res.
-      NoOverflowLab = hipe_rtl:mk_new_label(),
-      [hipe_rtl:mk_alu(Tmp, Arg2, sub, hipe_rtl:mk_imm(?TAG_IMMED1_SMALL)),
-       hipe_rtl:mk_alub(Res, Arg1, AluOp, Tmp, not_overflow,
-			hipe_rtl:label_name(NoOverflowLab), 
-			hipe_rtl:label_name(OtherLab), 0.99),
-       NoOverflowLab];
+  {Res, Tail} =
+    case Arg1 =/= FinalRes andalso Arg2 =/= FinalRes of
+      true ->
+	%% Args differ from res.
+	{FinalRes, [NoOverflowLab]};
+      false ->
+	%% At least one of the arguments is the same as Res.
+	Tmp = hipe_rtl:mk_new_reg_gcsafe(),
+	{Tmp, [NoOverflowLab, hipe_rtl:mk_move(FinalRes, Tmp)]}
+    end,
+  case (hipe_rtl:is_imm(Arg1) andalso AluOp =:= 'add')
+    orelse hipe_rtl:is_imm(Arg2)
+  of
+    true ->
+      %% Pre-compute the untagged immediate. The optimisers won't do this for us
+      %% since they don't know that the untag never underflows.
+      {Var, Imm0} =
+	case hipe_rtl:is_imm(Arg2) of
+	  true  -> {Arg1, Arg2};
+	  false -> {Arg2, Arg1}
+	end,
+      Imm = hipe_rtl:mk_imm(hipe_rtl:imm_value(Imm0) - ?TAG_IMMED1_SMALL),
+      [hipe_rtl:mk_alub(Res, Var, AluOp, Imm, not_overflow,
+			hipe_rtl:label_name(NoOverflowLab),
+			hipe_rtl:label_name(OtherLab), 0.99)
+       |Tail];
     false ->
-      %% At least one of the arguments is the same as Res.
-      Tmp2 = hipe_rtl:mk_new_var(), % XXX: shouldn't this var be a reg?
-      NoOverflowLab = hipe_rtl:mk_new_label(),
-      [hipe_rtl:mk_alu(Tmp, Arg2, sub, hipe_rtl:mk_imm(?TAG_IMMED1_SMALL)),
-       hipe_rtl:mk_alub(Tmp2, Arg1, AluOp, Tmp, not_overflow,
+      %% Commute add to save a move on x86
+      {UntagFirst, Lhs, Rhs} =
+	case AluOp of
+	  'add' -> {Arg1, Res, Arg2};
+	  'sub' -> {Arg2, Arg1, Res}
+	end,
+      [hipe_rtl:mk_alu(Res, UntagFirst, sub,
+		       hipe_rtl:mk_imm(?TAG_IMMED1_SMALL)),
+       hipe_rtl:mk_alub(Res, Lhs, AluOp, Rhs, not_overflow,
 			hipe_rtl:label_name(NoOverflowLab), 
-			hipe_rtl:label_name(OtherLab), 0.99),
-       NoOverflowLab,
-       hipe_rtl:mk_move(Res, Tmp2)]
+			hipe_rtl:label_name(OtherLab), 0.99)
+       |Tail]
   end.
 
 %%% ((16X+tag) div 16) * ((16Y+tag)-tag) + tag = X*16Y+tag = 16(XY)+tag
@@ -537,8 +611,8 @@ fixnum_andorxor(AluOp, Arg1, Arg2, Res) ->
   case AluOp of
     'xor' ->
       Tmp = hipe_rtl:mk_new_reg_gcsafe(),
-      [hipe_rtl:mk_alu(Tmp, Arg1, 'xor', Arg2),	% clears tag :-(
-       hipe_rtl:mk_alu(Res, Tmp, 'or', hipe_rtl:mk_imm(?TAG_IMMED1_SMALL))];
+      [hipe_rtl:mk_alu(Tmp, Arg1, 'sub', hipe_rtl:mk_imm(?TAG_IMMED1_SMALL)),
+       hipe_rtl:mk_alu(Res, Tmp, 'xor', Arg2)];
     _ -> hipe_rtl:mk_alu(Res, Arg1, AluOp, Arg2)
   end.
 
@@ -565,22 +639,41 @@ fixnum_bsl(Arg1, Arg2, Res) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+%% Test if either of two values are immediate (primary tag IMMED1, 0x3)
+test_either_immed(Arg1, Arg2, TrueLab, FalseLab) ->
+  %% This test assumes primary tag 0x0 is reserved and immed has tag 0x3
+  16#0 = ?TAG_PRIMARY_HEADER,
+  16#3 = ?TAG_PRIMARY_IMMED1,
+  Tmp1 = hipe_rtl:mk_new_reg_gcsafe(),
+  Tmp2 = hipe_rtl:mk_new_reg_gcsafe(),
+  [hipe_rtl:mk_alu(Tmp1, Arg1, 'sub', hipe_rtl:mk_imm(1)),
+   hipe_rtl:mk_alu(Tmp2, Arg2, 'sub', hipe_rtl:mk_imm(1)),
+   hipe_rtl:mk_alu(Tmp2, Tmp2, 'or', Tmp1),
+   hipe_rtl:mk_branch(Tmp2, 'and', hipe_rtl:mk_imm(2), eq,
+		      FalseLab, TrueLab, 0.01)].
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 unsafe_car(Dst, Arg) ->
-  hipe_rtl:mk_load(Dst, Arg, hipe_rtl:mk_imm(-(?TAG_PRIMARY_LIST))).
+  {Base, Offset, Untag} = untag_ptr(Arg, ?TAG_PRIMARY_LIST),
+  [Untag, hipe_rtl:mk_load(Dst, Base, hipe_rtl:mk_imm(Offset))].
 
 unsafe_cdr(Dst, Arg) ->
+  {Base, Offset, Untag} = untag_ptr(Arg, ?TAG_PRIMARY_LIST),
   WordSize = hipe_rtl_arch:word_size(),
-  hipe_rtl:mk_load(Dst, Arg, hipe_rtl:mk_imm(-(?TAG_PRIMARY_LIST)+WordSize)).
+  [Untag, hipe_rtl:mk_load(Dst, Base, hipe_rtl:mk_imm(Offset+WordSize))].
 
 unsafe_constant_element(Dst, Index, Tuple) ->	% Index is an immediate
   WordSize = hipe_rtl_arch:word_size(),
-  Offset = -(?TAG_PRIMARY_BOXED) + WordSize * hipe_rtl:imm_value(Index),
-  hipe_rtl:mk_load(Dst, Tuple, hipe_rtl:mk_imm(Offset)).
+  {Base, Offset0, Untag} = untag_ptr(Tuple, ?TAG_PRIMARY_BOXED),
+  Offset = Offset0 + WordSize * hipe_rtl:imm_value(Index),
+  [Untag, hipe_rtl:mk_load(Dst, Base, hipe_rtl:mk_imm(Offset))].
 
 unsafe_update_element(Tuple, Index, Value) ->   % Index is an immediate
   WordSize = hipe_rtl_arch:word_size(),
-  Offset = -(?TAG_PRIMARY_BOXED) + WordSize * hipe_rtl:imm_value(Index),
-  hipe_rtl:mk_store(Tuple, hipe_rtl:mk_imm(Offset), Value).
+  {Base, Offset0, Untag} = untag_ptr(Tuple, ?TAG_PRIMARY_BOXED),
+  Offset = Offset0 + WordSize * hipe_rtl:imm_value(Index),
+  [Untag, hipe_rtl:mk_store(Base, hipe_rtl:mk_imm(Offset), Value)].
 
 %%% wrong semantics
 %% unsafe_variable_element(Dst, Index, Tuple) -> % Index is an unknown fixnum
@@ -593,121 +686,103 @@ unsafe_update_element(Tuple, Index, Value) ->   % Index is an immediate
 %%     Tmp1 = hipe_rtl:mk_new_reg_gcsafe(),
 %%     Tmp2 = hipe_rtl:mk_new_reg_gcsafe(),
 %%     Shift = ?TAG_IMMED1_SIZE - 2,
-%%     OffAdj = (?TAG_IMMED1_SMALL bsr Shift) + ?TAG_PRIMARY_BOXED,
+%%     {Base, Off0, Untag} = untag_ptr(Tuple, ?TAG_PRIMARY_BOXED),
+%%     OffAdj = (?TAG_IMMED1_SMALL bsr Shift) - Off0,
 %%     [hipe_rtl:mk_alu(Tmp1, Index, 'srl', hipe_rtl:mk_imm(Shift)),
 %%      hipe_rtl:mk_alu(Tmp2, Tmp1, 'sub', hipe_rtl:mk_imm(OffAdj)),
-%%      hipe_rtl:mk_load(Dst, Tuple, Tmp2)].
+%%      Untag,
+%%      hipe_rtl:mk_load(Base, Tuple, Tmp2)].
 
 element(Dst, Index, Tuple, FailLabName, {tuple, A}, IndexInfo) ->
   FixnumOkLab = hipe_rtl:mk_new_label(),
   IndexOkLab = hipe_rtl:mk_new_label(),
-  Ptr = hipe_rtl:mk_new_reg(), % offset from Tuple
   UIndex = hipe_rtl:mk_new_reg_gcsafe(),
   Arity = hipe_rtl:mk_imm(A),
-  InvIndex = hipe_rtl:mk_new_reg_gcsafe(),
-  Offset = hipe_rtl:mk_new_reg_gcsafe(),
   case IndexInfo of
     valid ->
       %% This is no branch, 1 load and 3 alus = 4 instr
+      Offset = hipe_rtl:mk_new_reg_gcsafe(),
+      Ptr = hipe_rtl:mk_new_reg(), % offset from Tuple
       [untag_fixnum(UIndex, Index),
-       hipe_rtl:mk_alu(Ptr, Tuple, 'sub', hipe_rtl:mk_imm(?TAG_PRIMARY_BOXED)),
+       untag_ptr_nooffset(Ptr, Tuple, ?TAG_PRIMARY_BOXED),
        hipe_rtl:mk_alu(Offset, UIndex, 'sll', 
 		       hipe_rtl:mk_imm(hipe_rtl_arch:log2_word_size())),
        hipe_rtl:mk_load(Dst, Ptr, Offset)];
     fixnums ->
       %% This is 1 branch, 1 load and 4 alus = 6 instr
       [untag_fixnum(UIndex, Index),
-       hipe_rtl:mk_alu(Ptr, Tuple, 'sub',hipe_rtl:mk_imm(?TAG_PRIMARY_BOXED))|
-       gen_element_tail(Dst, Ptr, InvIndex, Arity, Offset, UIndex, 
-			FailLabName, IndexOkLab)];
+       gen_element_tail(Dst, Tuple, Arity, UIndex, FailLabName, IndexOkLab)];
     _ ->
       %% This is 3 branches, 1 load and 5 alus = 9 instr
       [test_fixnum(Index, hipe_rtl:label_name(FixnumOkLab),
 		   FailLabName, 0.99),
        FixnumOkLab,
        untag_fixnum(UIndex, Index),
-       hipe_rtl:mk_alu(Ptr, Tuple, 'sub',hipe_rtl:mk_imm(?TAG_PRIMARY_BOXED))|
-       gen_element_tail(Dst, Ptr, InvIndex, Arity, Offset, UIndex, 
-			FailLabName, IndexOkLab)]
+       gen_element_tail(Dst, Tuple, Arity, UIndex, FailLabName, IndexOkLab)]
   end;
 element(Dst, Index, Tuple, FailLabName, tuple, IndexInfo) ->
   FixnumOkLab = hipe_rtl:mk_new_label(),
   IndexOkLab = hipe_rtl:mk_new_label(),
-  Ptr = hipe_rtl:mk_new_reg(), % offset from Tuple
   Header = hipe_rtl:mk_new_reg_gcsafe(),
   UIndex = hipe_rtl:mk_new_reg_gcsafe(),
   Arity = hipe_rtl:mk_new_reg_gcsafe(),
-  InvIndex = hipe_rtl:mk_new_reg_gcsafe(),
-  Offset = hipe_rtl:mk_new_reg_gcsafe(),
   case IndexInfo of
     fixnums ->
       %% This is 1 branch, 2 loads and 5 alus = 8 instr
-      [hipe_rtl:mk_alu(Ptr, Tuple, 'sub', hipe_rtl:mk_imm(?TAG_PRIMARY_BOXED)),
-       hipe_rtl:mk_load(Header, Ptr, hipe_rtl:mk_imm(0)),
+      [get_header(Header, Tuple),
        untag_fixnum(UIndex, Index),
        hipe_rtl:mk_alu(Arity,Header,'srl',hipe_rtl:mk_imm(?HEADER_ARITY_OFFS))|
-       gen_element_tail(Dst, Ptr, InvIndex, Arity, Offset, UIndex, 
-			FailLabName, IndexOkLab)];
+       gen_element_tail(Dst, Tuple, Arity, UIndex, FailLabName, IndexOkLab)];
     Num when is_integer(Num) ->
       %% This is 1 branch, 1 load and 3 alus = 5 instr
-      [hipe_rtl:mk_alu(Ptr, Tuple, 'sub', hipe_rtl:mk_imm(?TAG_PRIMARY_BOXED))|
-       gen_element_tail(Dst, Ptr, InvIndex, hipe_rtl:mk_imm(Num), 
-			Offset, UIndex, FailLabName, IndexOkLab)];
+      gen_element_tail(Dst, Tuple, hipe_rtl:mk_imm(Num), UIndex, FailLabName,
+		       IndexOkLab);
     _ ->
       %% This is 2 branches, 2 loads and 6 alus = 10 instr
       [test_fixnum(Index, hipe_rtl:label_name(FixnumOkLab), FailLabName, 0.99),
        FixnumOkLab,
-       hipe_rtl:mk_alu(Ptr, Tuple, 'sub', hipe_rtl:mk_imm(?TAG_PRIMARY_BOXED)),
-       hipe_rtl:mk_load(Header, Ptr, hipe_rtl:mk_imm(0)),
+       get_header(Header, Tuple),
        untag_fixnum(UIndex, Index),
        hipe_rtl:mk_alu(Arity,Header,'srl',hipe_rtl:mk_imm(?HEADER_ARITY_OFFS))|
-       gen_element_tail(Dst, Ptr, InvIndex, Arity, Offset, UIndex, 
-			FailLabName, IndexOkLab)]
+       gen_element_tail(Dst, Tuple, Arity, UIndex, FailLabName, IndexOkLab)]
   end;
 element(Dst, Index, Tuple, FailLabName, unknown, IndexInfo) ->
   FixnumOkLab = hipe_rtl:mk_new_label(),
   BoxedOkLab = hipe_rtl:mk_new_label(),
   TupleOkLab = hipe_rtl:mk_new_label(),
   IndexOkLab = hipe_rtl:mk_new_label(),
-  Ptr = hipe_rtl:mk_new_reg(), % offset from Tuple
   Header = hipe_rtl:mk_new_reg_gcsafe(),
-  Tmp = hipe_rtl:mk_new_reg_gcsafe(),
   UIndex = hipe_rtl:mk_new_reg_gcsafe(),
   Arity = hipe_rtl:mk_new_reg_gcsafe(),
-  InvIndex = hipe_rtl:mk_new_reg_gcsafe(),
-  Offset = hipe_rtl:mk_new_reg_gcsafe(),
   case IndexInfo of
     fixnums ->
       %% This is 3 branches, 2 loads and 5 alus = 10 instr
       [test_is_boxed(Tuple, hipe_rtl:label_name(BoxedOkLab),
 		     FailLabName, 0.99),
        BoxedOkLab,
-       hipe_rtl:mk_alu(Ptr, Tuple, 'sub', hipe_rtl:mk_imm(?TAG_PRIMARY_BOXED)),
-       hipe_rtl:mk_load(Header, Ptr, hipe_rtl:mk_imm(0)),
-       hipe_rtl:mk_alub(Tmp, Header, 'and', 
-			hipe_rtl:mk_imm(?TAG_HEADER_MASK), 'eq',
-			hipe_rtl:label_name(TupleOkLab), FailLabName, 0.99),
+       get_header(Header, Tuple),
+       hipe_rtl:mk_branch(Header, 'and',
+			  hipe_rtl:mk_imm(?TAG_HEADER_MASK), 'eq',
+			  hipe_rtl:label_name(TupleOkLab), FailLabName, 0.99),
        TupleOkLab,
        untag_fixnum(UIndex, Index),
        hipe_rtl:mk_alu(Arity, Header, 'srl',
 		       hipe_rtl:mk_imm(?HEADER_ARITY_OFFS))|
-       gen_element_tail(Dst, Ptr, InvIndex, Arity, Offset, 
-			UIndex, FailLabName, IndexOkLab)];
+       gen_element_tail(Dst, Tuple, Arity, UIndex, FailLabName, IndexOkLab)];
     Num when is_integer(Num) ->
       %% This is 3 branches, 2 loads and 4 alus = 9 instr
       [test_is_boxed(Tuple, hipe_rtl:label_name(BoxedOkLab),
 		     FailLabName, 0.99),
        BoxedOkLab,
-       hipe_rtl:mk_alu(Ptr, Tuple, 'sub', hipe_rtl:mk_imm(?TAG_PRIMARY_BOXED)),
-       hipe_rtl:mk_load(Header, Ptr, hipe_rtl:mk_imm(0)),
-       hipe_rtl:mk_alub(Tmp, Header, 'and', 
-			hipe_rtl:mk_imm(?TAG_HEADER_MASK), 'eq',
-			hipe_rtl:label_name(TupleOkLab), FailLabName, 0.99),
+       get_header(Header, Tuple),
+       hipe_rtl:mk_branch(Header, 'and',
+			  hipe_rtl:mk_imm(?TAG_HEADER_MASK), 'eq',
+			  hipe_rtl:label_name(TupleOkLab), FailLabName, 0.99),
        TupleOkLab,
        hipe_rtl:mk_alu(Arity, Header, 'srl', 
 		       hipe_rtl:mk_imm(?HEADER_ARITY_OFFS))|
-       gen_element_tail(Dst, Ptr, InvIndex, Arity, Offset, 
-			hipe_rtl:mk_imm(Num), FailLabName, IndexOkLab)];
+       gen_element_tail(Dst, Tuple, Arity, hipe_rtl:mk_imm(Num), FailLabName,
+			IndexOkLab)];
     _ ->
       %% This is 4 branches, 2 loads, and 6 alus = 12 instr :(
       [test_fixnum(Index, hipe_rtl:label_name(FixnumOkLab),
@@ -716,29 +791,29 @@ element(Dst, Index, Tuple, FailLabName, unknown, IndexInfo) ->
        test_is_boxed(Tuple, hipe_rtl:label_name(BoxedOkLab),
 		     FailLabName, 0.99),
        BoxedOkLab,
-       hipe_rtl:mk_alu(Ptr, Tuple, 'sub', hipe_rtl:mk_imm(?TAG_PRIMARY_BOXED)),
-       hipe_rtl:mk_load(Header, Ptr, hipe_rtl:mk_imm(0)),
-       hipe_rtl:mk_alub(Tmp, Header, 'and', 
-			hipe_rtl:mk_imm(?TAG_HEADER_MASK), 'eq',
-			hipe_rtl:label_name(TupleOkLab), FailLabName, 0.99),
+       get_header(Header, Tuple),
+       hipe_rtl:mk_branch(Header, 'and',
+			  hipe_rtl:mk_imm(?TAG_HEADER_MASK), 'eq',
+			  hipe_rtl:label_name(TupleOkLab), FailLabName, 0.99),
        TupleOkLab,
        untag_fixnum(UIndex, Index),
        hipe_rtl:mk_alu(Arity, Header, 'srl',
 		       hipe_rtl:mk_imm(?HEADER_ARITY_OFFS))|
-       gen_element_tail(Dst, Ptr, InvIndex, Arity, Offset,
-			UIndex, FailLabName, IndexOkLab)]
+       gen_element_tail(Dst, Tuple, Arity, UIndex, FailLabName, IndexOkLab)]
   end.
 
-gen_element_tail(Dst, Ptr, InvIndex, Arity, Offset, 
-		 UIndex, FailLabName, IndexOkLab) ->
+gen_element_tail(Dst, Tuple, Arity, UIndex, FailLabName, IndexOkLab) ->
+  ZeroIndex = hipe_rtl:mk_new_reg_gcsafe(),
+  Offset = hipe_rtl:mk_new_reg_gcsafe(),
+  Ptr = hipe_rtl:mk_new_reg(), % offset from Tuple
   %% now check that 1 <= UIndex <= Arity
-  %% if UIndex < 1, then (Arity - UIndex) >= Arity
-  %% if UIndex > Arity, then (Arity - UIndex) < 0, which is >=u Arity
-  %% otherwise, 0 <= (Arity - UIndex) < Arity
-  [hipe_rtl:mk_alu(InvIndex, Arity, 'sub', UIndex),
-   hipe_rtl:mk_branch(InvIndex, 'geu', Arity, FailLabName,
+  %% by checking the equivalent (except for when Arity>=2^(WordSize-1))
+  %% (UIndex - 1) <u Arity
+  [hipe_rtl:mk_alu(ZeroIndex, UIndex, 'sub', hipe_rtl:mk_imm(1)),
+   hipe_rtl:mk_branch(ZeroIndex, 'geu', Arity, FailLabName,
 		      hipe_rtl:label_name(IndexOkLab), 0.01),
    IndexOkLab,
+   untag_ptr_nooffset(Ptr, Tuple, ?TAG_PRIMARY_BOXED),
    hipe_rtl:mk_alu(Offset, UIndex, 'sll',
                    hipe_rtl:mk_imm(hipe_rtl_arch:log2_word_size())),
    hipe_rtl:mk_load(Dst, Ptr, Offset)].
@@ -746,11 +821,13 @@ gen_element_tail(Dst, Ptr, InvIndex, Arity, Offset,
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 unsafe_closure_element(Dst, Index, Closure) ->	% Index is an immediate
-  Offset = -(?TAG_PRIMARY_BOXED)    %% Untag
+  %% XXX: Can there even be closure literals?
+  {Base, Offset0, Untag} = untag_ptr(Closure, ?TAG_PRIMARY_BOXED),
+  Offset = Offset0                  %% Untag
     + ?EFT_ENV                      %% Field offset
                                     %% Index from 1 to N hence -1)
     + (hipe_rtl_arch:word_size() * (hipe_rtl:imm_value(Index)-1)),
-  hipe_rtl:mk_load(Dst, Closure, hipe_rtl:mk_imm(Offset)).
+  [Untag, hipe_rtl:mk_load(Dst, Base, hipe_rtl:mk_imm(Offset))].
 
 mk_fun_header() ->
   hipe_rtl:mk_imm(?HEADER_FUN).
@@ -759,29 +836,29 @@ tag_fun(Res, X) ->
   tag_boxed(Res, X).
 
 %% untag_fun(Res, X) ->
-%%   hipe_rtl:mk_alu(Res, X, 'sub', hipe_rtl:mk_imm(?TAG_PRIMARY_BOXED)).
+%%   untag_ptr_nooffset(Res, X, ?TAG_PRIMARY_BOXED).
 
--ifdef(EFT_NATIVE_ADDRESS).
 if_fun_get_arity_and_address(ArityReg, AddressReg, FunP, BadFunLab, Pred) ->
   %% EmuAddressPtrReg = hipe_rtl:mk_new_reg(),
-  %% FEPtrReg = hipe_rtl:mk_new_reg(),
+  FEPtrReg = hipe_rtl:mk_new_reg(),
   %% ArityReg = hipe_rtl:mk_new_reg(),
   %% NumFreeReg = hipe_rtl:mk_new_reg(),
   %% RealArityReg = hipe_rtl:mk_new_reg(),
   TrueLab0 = hipe_rtl:mk_new_label(),
   %% TrueLab1 = hipe_rtl:mk_new_label(),
   IsFunCode = test_closure(FunP, hipe_rtl:label_name(TrueLab0), BadFunLab, Pred),
+  {Base, Offset, Untag} = untag_ptr(FunP, ?TAG_PRIMARY_BOXED),
   GetArityCode =
     [TrueLab0,
      %% Funp->arity contains the arity
-     hipe_rtl:mk_load(ArityReg, FunP,
-		      hipe_rtl:mk_imm(-(?TAG_PRIMARY_BOXED)+
-				      ?EFT_ARITY)),
-     hipe_rtl:mk_load(AddressReg, FunP,
-		      hipe_rtl:mk_imm(-(?TAG_PRIMARY_BOXED)+
-				      ?EFT_NATIVE_ADDRESS))],
+     Untag,
+     hipe_rtl:mk_load(ArityReg, Base,
+		      hipe_rtl:mk_imm(Offset+?EFT_ARITY)),
+     hipe_rtl:mk_load(FEPtrReg, Base,
+		      hipe_rtl:mk_imm(Offset+?EFT_FE)),
+     hipe_rtl:mk_load(AddressReg, FEPtrReg,
+		      hipe_rtl:mk_imm(?EFE_NATIVE_ADDRESS))],
   IsFunCode ++ GetArityCode.
--endif.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
@@ -854,12 +931,10 @@ heap_arch_spec(HP) ->
    hipe_rtl_arch:pcb_store(?P_OFF_HEAP_FIRST, HP)].
 
 test_heap_binary(Binary, TrueLblName, FalseLblName) ->
-  Tmp1 = hipe_rtl:mk_new_reg_gcsafe(),
-  Tmp2 = hipe_rtl:mk_new_reg_gcsafe(),
-  [get_header(Tmp1, Binary),
-   hipe_rtl:mk_alu(Tmp2, Tmp1, 'and', hipe_rtl:mk_imm(?TAG_HEADER_MASK)),
-   hipe_rtl:mk_branch(Tmp2, eq, hipe_rtl:mk_imm(?TAG_HEADER_HEAP_BIN), 
-		      TrueLblName, FalseLblName)].
+  Tmp = hipe_rtl:mk_new_reg_gcsafe(),
+  [get_header(Tmp, Binary),
+   mask_and_compare(Tmp, ?TAG_HEADER_MASK, ?TAG_HEADER_HEAP_BIN,
+		    TrueLblName, FalseLblName, 0.5)].
 
 mk_sub_binary(Dst, ByteSize, ByteOffs, BitSize, BitOffs, Orig) -> 
   mk_sub_binary(Dst, ByteSize, ByteOffs, BitSize, BitOffs, 
@@ -887,11 +962,10 @@ build_sub_binary(Dst, ByteSize, ByteOffs, BitSize, BitOffs,
    set_field_from_term({sub_binary, orig}, Dst, Orig)].
 
 test_subbinary(Binary, TrueLblName, FalseLblName) ->
-  Tmp1 = hipe_rtl:mk_new_reg_gcsafe(),
-  Tmp2 = hipe_rtl:mk_new_reg_gcsafe(),
-  [get_header(Tmp1, Binary),
-   hipe_rtl:mk_alu(Tmp2, Tmp1, 'and', hipe_rtl:mk_imm(?TAG_HEADER_MASK)),
-   hipe_rtl:mk_branch(Tmp2, eq, hipe_rtl:mk_imm(?TAG_HEADER_SUB_BIN), TrueLblName, FalseLblName)].
+  Tmp = hipe_rtl:mk_new_reg_gcsafe(),
+  [get_header(Tmp, Binary),
+   mask_and_compare(Tmp, ?TAG_HEADER_MASK, ?TAG_HEADER_SUB_BIN,
+		    TrueLblName, FalseLblName, 0.5)].
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
@@ -899,20 +973,24 @@ test_subbinary(Binary, TrueLblName, FalseLblName) ->
 
 unsafe_load_float(DstLo, DstHi, Src) ->
   WordSize = hipe_rtl_arch:word_size(),
-  Offset1 = -(?TAG_PRIMARY_BOXED) + WordSize,
+  {Base, Offset0, Untag} = untag_ptr(Src, ?TAG_PRIMARY_BOXED),
+  Offset1 = Offset0 + WordSize,
   Offset2 = Offset1 + 4, %% This should really be 4 and not WordSize
   case hipe_rtl_arch:endianess() of
     little ->
-      [hipe_rtl:mk_load(DstLo, Src, hipe_rtl:mk_imm(Offset1), int32, unsigned),
-       hipe_rtl:mk_load(DstHi, Src, hipe_rtl:mk_imm(Offset2), int32, unsigned)];
+      [Untag,
+       hipe_rtl:mk_load(DstLo, Base, hipe_rtl:mk_imm(Offset1), int32, unsigned),
+       hipe_rtl:mk_load(DstHi, Base, hipe_rtl:mk_imm(Offset2), int32, unsigned)];
     big ->
-      [hipe_rtl:mk_load(DstHi, Src, hipe_rtl:mk_imm(Offset1), int32, unsigned),
-       hipe_rtl:mk_load(DstLo, Src, hipe_rtl:mk_imm(Offset2), int32, unsigned)]
+      [Untag,
+       hipe_rtl:mk_load(DstHi, Base, hipe_rtl:mk_imm(Offset1), int32, unsigned),
+       hipe_rtl:mk_load(DstLo, Base, hipe_rtl:mk_imm(Offset2), int32, unsigned)]
   end. 
 
 unsafe_untag_float(Dst, Src) ->
-  Offset = -(?TAG_PRIMARY_BOXED) + hipe_rtl_arch:word_size(),
-  [hipe_rtl:mk_fload(Dst, Src, hipe_rtl:mk_imm(Offset))].
+  {Base, Offset0, Untag} = untag_ptr(Src, ?TAG_PRIMARY_BOXED),
+  Offset = Offset0 + hipe_rtl_arch:word_size(),
+  [Untag, hipe_rtl:mk_fload(Dst, Base, hipe_rtl:mk_imm(Offset))].
 
 unsafe_tag_float(Dst, Src) ->
   {GetHPInsn, HP, PutHPInsn} = hipe_rtl_arch:heap_pointer(),
@@ -963,22 +1041,26 @@ get_one_word_pos_bignum(USize, Size, Fail) ->
   Header = hipe_rtl:mk_new_reg(),
   HalfLbl = hipe_rtl:mk_new_label(),
   HalfLblName = hipe_rtl:label_name(HalfLbl),
-  WordSize = hipe_rtl_arch:word_size(),
   PosHead = hipe_rtl:mk_imm(mk_header(1, ?TAG_HEADER_POS_BIG)),
   [get_header(Header, Size),
    hipe_rtl:mk_branch(Header, eq, PosHead, HalfLblName, Fail),
-   HalfLbl,
-   hipe_rtl:mk_load(USize, Size, hipe_rtl:mk_imm(1*WordSize
-						 -?TAG_PRIMARY_BOXED))].
+   HalfLbl |
+   unsafe_get_one_word_pos_bignum(USize, Size)].
+
+unsafe_get_one_word_pos_bignum(USize, Size) ->
+  WordSize = hipe_rtl_arch:word_size(),
+  {Base, Offset, Untag} = untag_ptr(Size, ?TAG_PRIMARY_BOXED),
+  Imm = hipe_rtl:mk_imm(1*WordSize+Offset),
+  [Untag, hipe_rtl:mk_load(USize, Base, Imm)].
 
 -spec bignum_sizeneed(non_neg_integer()) -> non_neg_integer().
 
 bignum_sizeneed(Size) ->
-  WordSizeBits = hipe_rtl_arch:word_size() * 8,
   case is_fixnum(1 bsl Size) of
     true ->
       0;
     false ->
+      WordSizeBits = hipe_rtl_arch:word_size() * 8,
       ((Size + (WordSizeBits-1)) div WordSizeBits) + 1
   end.
 
@@ -1009,7 +1091,7 @@ create_matchstate(Max, BinSize, Base, Offset, Orig, Ms) ->
   SizeInWords = ((ByteSize div WordSize) - 1),
   Header = hipe_rtl:mk_imm(mk_header(SizeInWords, ?TAG_HEADER_BIN_MATCHSTATE)),
   [GetHPInsn,
-   hipe_rtl:mk_alu(Ms, HP, add, hipe_rtl:mk_imm(?TAG_PRIMARY_BOXED)),
+   tag_boxed(Ms, HP),
    set_field_from_term({matchstate,thing_word}, Ms, Header),
    set_field_from_term({matchstate,{matchbuffer,orig}}, Ms, Orig),
    set_field_from_term({matchstate,{matchbuffer,base}}, Ms, Base),
@@ -1047,7 +1129,10 @@ convert_matchstate(Ms) ->
    size_from_header(SizeInWords, Header),
    hipe_rtl:mk_alu(Hole, SizeInWords, sub, hipe_rtl:mk_imm(?SUB_BIN_WORDSIZE)),
    mk_var_header(BigIntHeader, Hole, ?TAG_HEADER_POS_BIG),
-   hipe_rtl:mk_store(Ms, hipe_rtl:mk_imm(?SUB_BIN_WORDSIZE*WordSize-?TAG_PRIMARY_BOXED),
+   %% Matchstates can't be literals; so untagging with ?TAG_PRIMARY_BOXED is
+   %% fine here
+   hipe_rtl:mk_store(Ms, hipe_rtl:mk_imm(?SUB_BIN_WORDSIZE*WordSize
+                                         -?TAG_PRIMARY_BOXED),
 		     BigIntHeader)].
 
 compare_matchstate(Max, Ms, LargeEnough, TooSmall) ->
@@ -1056,8 +1141,10 @@ compare_matchstate(Max, Ms, LargeEnough, TooSmall) ->
   SizeInWords = ((ByteSize div WordSize) - 1),
   Header = hipe_rtl:mk_imm(mk_header(SizeInWords, ?TAG_HEADER_BIN_MATCHSTATE)),
   RealHeader = hipe_rtl:mk_new_reg_gcsafe(),
-   [hipe_rtl:mk_load(RealHeader, Ms, hipe_rtl:mk_imm(-?TAG_PRIMARY_BOXED)),
-    hipe_rtl:mk_branch(RealHeader, ge, Header, LargeEnough, TooSmall)].
+  %% Matchstates can't be literals; so untagging with ?TAG_PRIMARY_BOXED is fine
+  %% here
+  [hipe_rtl:mk_load(RealHeader, Ms, hipe_rtl:mk_imm(-?TAG_PRIMARY_BOXED)),
+   hipe_rtl:mk_branch(RealHeader, ge, Header, LargeEnough, TooSmall)].
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
@@ -1117,14 +1204,11 @@ get_field_offset({matchbuffer, binsize}) ->
   ?MB_SIZE.
 
 get_field_size(Field) ->
-  size_to_atom(get_field_size1(Field)).
-
-size_to_atom(Bytes) ->
   WordSize = hipe_rtl_arch:word_size(),
-  case Bytes of
+  case get_field_size1(Field) of
     WordSize -> word;
-    4 -> int32;
-    %%2 -> int16; So far there are no 2 byte fields
+    %% 4 -> int32; Seems not needed: covered by the previous case
+    %% 2 -> int16; So far there are no 2 byte fields
     1 -> byte
   end.
 
@@ -1179,15 +1263,22 @@ get_field_size1({matchbuffer, base}) ->
 get_field_size1({matchbuffer, binsize}) ->  
   ?MB_SIZE_SIZE.
 
+get_field_addr_from_term(Struct, Term, Dst) ->
+  {Base, Offset0, Untag} = untag_ptr(Term, ?TAG_PRIMARY_BOXED),
+  Offset = hipe_rtl:mk_imm(get_field_offset(Struct) + Offset0),
+  [Untag, hipe_rtl:mk_alu(Dst, Base, add, Offset)].
+
 get_field_from_term(Struct, Term, Dst) ->
-  Offset = hipe_rtl:mk_imm(get_field_offset(Struct) - ?TAG_PRIMARY_BOXED),
+  {Base, Offset0, Untag} = untag_ptr(Term, ?TAG_PRIMARY_BOXED),
+  Offset = hipe_rtl:mk_imm(get_field_offset(Struct) + Offset0),
   Size = get_field_size(Struct),
-  hipe_rtl:mk_load(Dst, Term, Offset, Size, unsigned). 
+  [Untag, hipe_rtl:mk_load(Dst, Base, Offset, Size, unsigned)].
 
 set_field_from_term(Struct, Term, Value) ->
-  Offset = hipe_rtl:mk_imm(get_field_offset(Struct) - ?TAG_PRIMARY_BOXED),
+  {Base, Offset0, Untag} = untag_ptr(Term, ?TAG_PRIMARY_BOXED),
+  Offset = hipe_rtl:mk_imm(get_field_offset(Struct) + Offset0),
   Size = get_field_size(Struct),
-  hipe_rtl:mk_store(Term, Offset, Value, Size).
+  [Untag, hipe_rtl:mk_store(Base, Offset, Value, Size)].
 
 get_field_from_pointer(Struct, Term, Dst) ->
   Offset = hipe_rtl:mk_imm(get_field_offset(Struct)),
@@ -1201,6 +1292,8 @@ set_field_from_pointer(Struct, Term, Value) ->
   
 extract_matchbuffer(Mb, Ms) ->
   What = {matchstate, matchbuffer},
+  %% Matchstates can't be literals; so untagging with ?TAG_PRIMARY_BOXED is fine
+  %% here
   Offset = hipe_rtl:mk_imm(get_field_offset(What) - ?TAG_PRIMARY_BOXED),
   hipe_rtl:mk_alu(Mb, Ms, add, Offset).
 

@@ -1,22 +1,24 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
 -module(gen).
+-compile({inline,[get_node/1]}).
 
 %%%-----------------------------------------------------------------
 %%% This module implements the really generic stuff of the generic
@@ -24,8 +26,9 @@
 %%%
 %%% The standard behaviour should export init_it/6.
 %%%-----------------------------------------------------------------
--export([start/5, start/6, debug_options/1,
-	 call/3, call/4, reply/2]).
+-export([start/5, start/6, debug_options/2, hibernate_after/1,
+	 name/1, unregister_name/1, get_proc_name/1, get_parent/0,
+	 call/3, call/4, reply/2, stop/1, stop/3]).
 
 -export([init_it/6, init_it/7]).
 
@@ -36,7 +39,9 @@
 %%-----------------------------------------------------------------
 
 -type linkage()    :: 'link' | 'nolink'.
--type emgr_name()  :: {'local', atom()} | {'global', term()} | {via, atom(), term()}.
+-type emgr_name()  :: {'local', atom()}
+                    | {'global', term()}
+                    | {'via', Module :: module(), Name :: term()}.
 
 -type start_ret()  :: {'ok', pid()} | 'ignore' | {'error', term()}.
 
@@ -44,6 +49,7 @@
                     | {'logfile', string()}.
 -type option()     :: {'timeout', timeout()}
 		    | {'debug', [debug_flag()]}
+		    | {'hibernate_after', timeout()}
 		    | {'spawn_opt', [proc_lib:spawn_option()]}.
 -type options()    :: [option()].
 
@@ -120,7 +126,7 @@ init_it(GenMod, Starter, Parent, Mod, Args, Options) ->
     init_it2(GenMod, Starter, Parent, self(), Mod, Args, Options).
 
 init_it(GenMod, Starter, Parent, Name, Mod, Args, Options) ->
-    case name_register(Name) of
+    case register_name(Name) of
 	true ->
 	    init_it2(GenMod, Starter, Parent, Name, Mod, Args, Options);
 	{false, Pid} ->
@@ -142,128 +148,48 @@ init_it2(GenMod, Starter, Parent, Name, Mod, Args, Options) ->
 call(Process, Label, Request) -> 
     call(Process, Label, Request, ?default_timeout).
 
-%% Local or remote by pid
-call(Pid, Label, Request, Timeout) 
-  when is_pid(Pid), Timeout =:= infinity;
-       is_pid(Pid), is_integer(Timeout), Timeout >= 0 ->
-    do_call(Pid, Label, Request, Timeout);
-%% Local by name
-call(Name, Label, Request, Timeout) 
-  when is_atom(Name), Timeout =:= infinity;
-       is_atom(Name), is_integer(Timeout), Timeout >= 0 ->
-    case whereis(Name) of
-	Pid when is_pid(Pid) ->
-	    do_call(Pid, Label, Request, Timeout);
-	undefined ->
-	    exit(noproc)
-    end;
-%% Global by name
+%% Optimize a common case.
+call(Process, Label, Request, Timeout) when is_pid(Process),
+  Timeout =:= infinity orelse is_integer(Timeout) andalso Timeout >= 0 ->
+    do_call(Process, Label, Request, Timeout);
 call(Process, Label, Request, Timeout)
-  when ((tuple_size(Process) == 2 andalso element(1, Process) == global)
-	orelse
-	  (tuple_size(Process) == 3 andalso element(1, Process) == via))
-       andalso
-       (Timeout =:= infinity orelse (is_integer(Timeout) andalso Timeout >= 0)) ->
-    case where(Process) of
-	Pid when is_pid(Pid) ->
-	    Node = node(Pid),
- 	    try do_call(Pid, Label, Request, Timeout)
- 	    catch
- 		exit:{nodedown, Node} ->
- 		    %% A nodedown not yet detected by global,
- 		    %% pretend that it was.
- 		    exit(noproc)
-	    end;
-	undefined ->
-	    exit(noproc)
-    end;
-%% Local by name in disguise
-call({Name, Node}, Label, Request, Timeout)
-  when Node =:= node(), Timeout =:= infinity;
-       Node =:= node(), is_integer(Timeout), Timeout >= 0 ->
-    call(Name, Label, Request, Timeout);
-%% Remote by name
-call({_Name, Node}=Process, Label, Request, Timeout)
-  when is_atom(Node), Timeout =:= infinity;
-       is_atom(Node), is_integer(Timeout), Timeout >= 0 ->
-    if
- 	node() =:= nonode@nohost ->
- 	    exit({nodedown, Node});
- 	true ->
- 	    do_call(Process, Label, Request, Timeout)
+  when Timeout =:= infinity; is_integer(Timeout), Timeout >= 0 ->
+    Fun = fun(Pid) -> do_call(Pid, Label, Request, Timeout) end,
+    do_for_proc(Process, Fun).
+
+do_call(Process, Label, Request, Timeout) when is_atom(Process) =:= false ->
+    Mref = erlang:monitor(process, Process),
+
+    %% OTP-21:
+    %% Auto-connect is asynchronous. But we still use 'noconnect' to make sure
+    %% we send on the monitored connection, and not trigger a new auto-connect.
+    %%
+    erlang:send(Process, {Label, {self(), Mref}, Request}, [noconnect]),
+
+    receive
+        {Mref, Reply} ->
+            erlang:demonitor(Mref, [flush]),
+            {ok, Reply};
+        {'DOWN', Mref, _, _, noconnection} ->
+            Node = get_node(Process),
+            exit({nodedown, Node});
+        {'DOWN', Mref, _, _, Reason} ->
+            exit(Reason)
+    after Timeout ->
+            erlang:demonitor(Mref, [flush]),
+            exit(timeout)
     end.
 
-do_call(Process, Label, Request, Timeout) ->
+get_node(Process) ->
     %% We trust the arguments to be correct, i.e
     %% Process is either a local or remote pid,
-    %% or a {Name, Node} tuple (of atoms) and in this 
+    %% or a {Name, Node} tuple (of atoms) and in this
     %% case this node (node()) _is_ distributed and Node =/= node().
-    Node = case Process of
- 	       {_S, N} when is_atom(N) ->
- 		   N;
- 	       _ when is_pid(Process) ->
- 		   node(Process)
-	   end,
-    try erlang:monitor(process, Process) of
-	Mref ->
-	    %% If the monitor/2 call failed to set up a connection to a
-	    %% remote node, we don't want the '!' operator to attempt
-	    %% to set up the connection again. (If the monitor/2 call
-	    %% failed due to an expired timeout, '!' too would probably
-	    %% have to wait for the timeout to expire.) Therefore,
-	    %% use erlang:send/3 with the 'noconnect' option so that it
-	    %% will fail immediately if there is no connection to the
-	    %% remote node.
-
-	    catch erlang:send(Process, {Label, {self(), Mref}, Request},
-		  [noconnect]),
-	    receive
-		{Mref, Reply} ->
-		    erlang:demonitor(Mref, [flush]),
-		    {ok, Reply};
-		{'DOWN', Mref, _, _, noconnection} ->
-		    exit({nodedown, Node});
-		{'DOWN', Mref, _, _, Reason} ->
-		    exit(Reason)
-	    after Timeout ->
-		    erlang:demonitor(Mref),
-		    receive
-			{'DOWN', Mref, _, _, _} -> true
-		    after 0 -> true
-		    end,
-		    exit(timeout)
-	    end
-    catch
-	error:_ ->
-	    %% Node (C/Java?) is not supporting the monitor.
-	    %% The other possible case -- this node is not distributed
-	    %% -- should have been handled earlier.
-	    %% Do the best possible with monitor_node/2.
-	    %% This code may hang indefinitely if the Process 
-	    %% does not exist. It is only used for featureweak remote nodes.
-	    monitor_node(Node, true),
-	    receive
-		{nodedown, Node} -> 
-		    monitor_node(Node, false),
-		    exit({nodedown, Node})
-	    after 0 -> 
-		    Tag = make_ref(),
-		    Process ! {Label, {self(), Tag}, Request},
-		    wait_resp(Node, Tag, Timeout)
-	    end
-    end.
-
-wait_resp(Node, Tag, Timeout) ->
-    receive
-	{Tag, Reply} ->
-	    monitor_node(Node, false),
-	    {ok, Reply};
-	{nodedown, Node} ->
-	    monitor_node(Node, false),
-	    exit({nodedown, Node})
-    after Timeout ->
-	    monitor_node(Node, false),
-	    exit(timeout)
+    case Process of
+	{_S, N} when is_atom(N) ->
+	    N;
+	_ when is_pid(Process) ->
+	    node(Process)
     end.
 
 %%
@@ -273,6 +199,65 @@ reply({To, Tag}, Reply) ->
     Msg = {Tag, Reply},
     try To ! Msg catch _:_ -> Msg end.
 
+%%-----------------------------------------------------------------
+%% Syncronously stop a generic process
+%%-----------------------------------------------------------------
+stop(Process) ->
+    stop(Process, normal, infinity).
+
+stop(Process, Reason, Timeout)
+  when Timeout =:= infinity; is_integer(Timeout), Timeout >= 0 ->
+    Fun = fun(Pid) -> proc_lib:stop(Pid, Reason, Timeout) end,
+    do_for_proc(Process, Fun).
+
+%%-----------------------------------------------------------------
+%% Map different specifications of a process to either Pid or
+%% {Name,Node}. Execute the given Fun with the process as only
+%% argument.
+%% -----------------------------------------------------------------
+
+%% Local or remote by pid
+do_for_proc(Pid, Fun) when is_pid(Pid) ->
+    Fun(Pid);
+%% Local by name
+do_for_proc(Name, Fun) when is_atom(Name) ->
+    case whereis(Name) of
+	Pid when is_pid(Pid) ->
+	    Fun(Pid);
+	undefined ->
+	    exit(noproc)
+    end;
+%% Global by name
+do_for_proc(Process, Fun)
+  when ((tuple_size(Process) == 2 andalso element(1, Process) == global)
+	orelse
+	  (tuple_size(Process) == 3 andalso element(1, Process) == via)) ->
+    case where(Process) of
+	Pid when is_pid(Pid) ->
+	    Node = node(Pid),
+	    try Fun(Pid)
+	    catch
+		exit:{nodedown, Node} ->
+		    %% A nodedown not yet detected by global,
+		    %% pretend that it was.
+		    exit(noproc)
+	    end;
+	undefined ->
+	    exit(noproc)
+    end;
+%% Local by name in disguise
+do_for_proc({Name, Node}, Fun) when Node =:= node() ->
+    do_for_proc(Name, Fun);
+%% Remote by name
+do_for_proc({_Name, Node} = Process, Fun) when is_atom(Node) ->
+    if
+	node() =:= nonode@nohost ->
+	    exit({nodedown, Node});
+	true ->
+	    Fun(Process)
+    end.
+
+
 %%%-----------------------------------------------------------------
 %%%  Misc. functions.
 %%%-----------------------------------------------------------------
@@ -280,19 +265,19 @@ where({global, Name}) -> global:whereis_name(Name);
 where({via, Module, Name}) -> Module:whereis_name(Name);
 where({local, Name})  -> whereis(Name).
 
-name_register({local, Name} = LN) ->
+register_name({local, Name} = LN) ->
     try register(Name, self()) of
 	true -> true
     catch
 	error:_ ->
 	    {false, where(LN)}
     end;
-name_register({global, Name} = GN) ->
+register_name({global, Name} = GN) ->
     case global:register_name(Name, self()) of
 	yes -> true;
 	no -> {false, where(GN)}
     end;
-name_register({via, Module, Name} = GN) ->
+register_name({via, Module, Name} = GN) ->
     case Module:register_name(Name, self()) of
 	yes ->
 	    true;
@@ -300,34 +285,116 @@ name_register({via, Module, Name} = GN) ->
 	    {false, where(GN)}
     end.
 
+name({local,Name}) -> Name;
+name({global,Name}) -> Name;
+name({via,_, Name}) -> Name;
+name(Pid) when is_pid(Pid) -> Pid.
+
+unregister_name({local,Name}) ->
+    try unregister(Name) of
+	_ -> ok
+    catch
+	_:_ -> ok
+    end;
+unregister_name({global,Name}) ->
+    _ = global:unregister_name(Name),
+    ok;
+unregister_name({via, Mod, Name}) ->
+    _ = Mod:unregister_name(Name),
+    ok;
+unregister_name(Pid) when is_pid(Pid) ->
+    ok.
+
+get_proc_name(Pid) when is_pid(Pid) ->
+    Pid;
+get_proc_name({local, Name}) ->
+    case process_info(self(), registered_name) of
+	{registered_name, Name} ->
+	    Name;
+	{registered_name, _Name} ->
+	    exit(process_not_registered);
+	[] ->
+	    exit(process_not_registered)
+    end;
+get_proc_name({global, Name}) ->
+    case global:whereis_name(Name) of
+	undefined ->
+	    exit(process_not_registered_globally);
+	Pid when Pid =:= self() ->
+	    Name;
+	_Pid ->
+	    exit(process_not_registered_globally)
+    end;
+get_proc_name({via, Mod, Name}) ->
+    case Mod:whereis_name(Name) of
+	undefined ->
+	    exit({process_not_registered_via, Mod});
+	Pid when Pid =:= self() ->
+	    Name;
+	_Pid ->
+	    exit({process_not_registered_via, Mod})
+    end.
+
+get_parent() ->
+    case get('$ancestors') of
+	[Parent | _] when is_pid(Parent) ->
+	    Parent;
+	[Parent | _] when is_atom(Parent) ->
+	    name_to_pid(Parent);
+	_ ->
+	    exit(process_was_not_started_by_proc_lib)
+    end.
+
+name_to_pid(Name) ->
+    case whereis(Name) of
+	undefined ->
+	    case global:whereis_name(Name) of
+		undefined ->
+		    exit(could_not_find_registered_name);
+		Pid ->
+		    Pid
+	    end;
+	Pid ->
+	    Pid
+    end.
+
 
 timeout(Options) ->
-    case opt(timeout, Options) of
-	{ok, Time} ->
+    case lists:keyfind(timeout, 1, Options) of
+	{_,Time} ->
 	    Time;
-	_ ->
+	false ->
 	    infinity
     end.
 
 spawn_opts(Options) ->
-    case opt(spawn_opt, Options) of
-	{ok, Opts} ->
+    case lists:keyfind(spawn_opt, 1, Options) of
+	{_,Opts} ->
 	    Opts;
-	_ ->
+	false ->
 	    []
     end.
 
-opt(Op, [{Op, Value}|_]) ->
-    {ok, Value};
-opt(Op, [_|Options]) ->
-    opt(Op, Options);
-opt(_, []) ->
-    false.
+hibernate_after(Options) ->
+	case lists:keyfind(hibernate_after, 1, Options) of
+		{_,HibernateAfterTimeout} ->
+			HibernateAfterTimeout;
+		false ->
+			infinity
+	end.
 
-debug_options(Opts) ->
-    case opt(debug, Opts) of
-	{ok, Options} -> sys:debug_options(Options);
-	_ -> []
+debug_options(Name, Opts) ->
+    case lists:keyfind(debug, 1, Opts) of
+	{_,Options} ->
+	    try sys:debug_options(Options)
+	    catch _:_ ->
+		    error_logger:format(
+		      "~tp: ignoring erroneous debug options - ~tp~n",
+		      [Name,Options]),
+		    []
+	    end;
+	false ->
+	    []
     end.
 
 format_status_header(TagLine, Pid) when is_pid(Pid) ->

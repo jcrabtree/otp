@@ -1,27 +1,30 @@
-#-*-makefile-*-   ; force emacs to enter makefile-mode
 
 # %CopyrightBegin%
 #
-# Copyright Ericsson AB 2010-2011. All Rights Reserved.
+# Copyright Ericsson AB 2010-2017. All Rights Reserved.
 #
-# The contents of this file are subject to the Erlang Public License,
-# Version 1.1, (the "License"); you may not use this file except in
-# compliance with the License. You should have received a copy of the
-# Erlang Public License along with this software. If not, it can be
-# retrieved online at http://www.erlang.org/.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-# Software distributed under the License is distributed on an "AS IS"
-# basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-# the License for the specific language governing rights and limitations
-# under the License.
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 #
 # %CopyrightEnd%
 
-# Runtime dictionary files in ./dict. Modules will be generated from
-# these are included in the app file.
+# Runtime dictionary files in ./dict. Modules generated from these are
+# included in the app file.
 DICTS = \
 	base_rfc3588 \
+	base_rfc6733 \
 	base_accounting \
+	acct_rfc6733 \
+	doic_rfc7683 \
 	relay
 
 # The yecc grammar for the dictionary parser.
@@ -35,8 +38,9 @@ RT_MODULES = \
 	base/diameter_callback \
 	base/diameter_capx \
 	base/diameter_config \
+	base/diameter_config_sup \
 	base/diameter_codec \
-	base/diameter_dict \
+	base/diameter_gen \
 	base/diameter_lib \
 	base/diameter_misc_sup \
 	base/diameter_peer \
@@ -49,6 +53,7 @@ RT_MODULES = \
 	base/diameter_stats \
 	base/diameter_sup \
 	base/diameter_sync \
+	base/diameter_traffic \
 	base/diameter_types \
 	base/diameter_watchdog \
 	base/diameter_watchdog_sup \
@@ -58,18 +63,21 @@ RT_MODULES = \
 	transport/diameter_tcp_sup \
 	transport/diameter_sctp \
 	transport/diameter_sctp_sup \
+	transport/diameter_transport \
 	transport/diameter_transport_sup
 
-# Handwritten (compile time) modules not included in the app file.
+# Handwritten compiler modules not included in the app file.
 CT_MODULES = \
-	base/diameter_dbg \
-	base/diameter_info \
 	compiler/diameter_codegen \
 	compiler/diameter_exprecs \
-	compiler/diameter_nowarn \
 	compiler/diameter_dict_scanner \
 	compiler/diameter_dict_util \
 	compiler/diameter_make
+
+# Info/debug modules, also not included in the app file.
+INFO_MODULES = \
+	info/diameter_dbg \
+	info/diameter_info
 
 # Released hrl files in ../include intended for public consumption.
 EXTERNAL_HRLS = \
@@ -89,7 +97,7 @@ BINS = \
 # Released files relative to ../examples.
 EXAMPLES = \
 	code/GNUmakefile \
-	code/peer.erl \
+	code/node.erl \
 	code/client.erl \
 	code/client_cb.erl \
 	code/server.erl \
@@ -102,3 +110,12 @@ EXAMPLES = \
 	dict/rfc4072_eap.dia \
 	dict/rfc4590_digest.dia \
 	dict/rfc4740_sip.dia
+
+# Registered server names.
+
+REGISTERED = \
+	diameter_config \
+	diameter_peer \
+	diameter_reg \
+	diameter_stats \
+	diameter_sync

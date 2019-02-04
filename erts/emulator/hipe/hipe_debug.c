@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2001-2011. All Rights Reserved.
+ * Copyright Ericsson AB 2001-2018. All Rights Reserved.
  *
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  * %CopyrightEnd%
  */
@@ -36,6 +37,7 @@
 #include "beam_load.h"
 #include "hipe_mode_switch.h"
 #include "hipe_debug.h"
+#include "erl_map.h"
 
 static const char dashes[2*sizeof(long)+5] = {
     [0 ... 2*sizeof(long)+3] = '-'
@@ -60,11 +62,14 @@ static void print_beam_pc(BeamInstr *pc)
     } else if (pc == &beam_apply[1]) {
 	printf("normal-process-exit");
     } else {
-	BeamInstr *mfa = find_function_from_pc(pc);
-	if (mfa)
+	ErtsCodeMFA *cmfa = find_function_from_pc(pc);
+	if (cmfa) {
+	    fflush(stdout);
 	    erts_printf("%T:%T/%bpu + 0x%bpx",
-			mfa[0], mfa[1], mfa[2], pc - &mfa[3]);
-	else
+			cmfa->module, cmfa->function,
+                        cmfa->arity,
+                        pc - erts_codemfa_to_code(cmfa));
+	} else
 	    printf("?");
     }
 }
@@ -112,6 +117,7 @@ static void print_stack(Eterm *sp, Eterm *end)
 	    printf(" | 0x%0*lx | 0x%0*lx | ",
 		   2*(int)sizeof(long), (unsigned long)sp,
 		   2*(int)sizeof(long), (unsigned long)val);
+	    fflush(stdout);
 	    erts_printf("%.30T", val);
 	    printf("\r\n");
 	}
@@ -122,7 +128,9 @@ static void print_stack(Eterm *sp, Eterm *end)
 
 void hipe_print_estack(Process *p)
 {
-    printf(" |       BEAM  STACK       |\r\n");
+    printf(" | %*s BEAM   STACK %*s |\r\n",
+	   2*(int)sizeof(long)-3, "",
+	   2*(int)sizeof(long)-4, "");
     print_stack(p->stop, STACK_START(p));
 }
 
@@ -131,7 +139,9 @@ static void print_heap(Eterm *pos, Eterm *end)
     printf("From: 0x%0*lx to 0x%0*lx\n\r",
 	   2*(int)sizeof(long), (unsigned long)pos,
 	   2*(int)sizeof(long), (unsigned long)end);
-    printf(" |         H E A P         |\r\n");
+    printf(" | %*s H E A P %*s |\r\n",
+	   2*(int)sizeof(long)-1, "",
+	   2*(int)sizeof(long)-1, "");
     printf(" | %*s | %*s |\r\n",
 	   2+2*(int)sizeof(long), "Address",
 	   2+2*(int)sizeof(long), "Contents");
@@ -154,8 +164,10 @@ static void print_heap(Eterm *pos, Eterm *end)
 		++pos;
 		--ari;
 	    }
-	} else
+	} else {
+	    fflush(stdout);
 	    erts_printf("%.30T", val);
+	}
 	printf("\r\n");
     }
     printf(" |%s|%s|\r\n", dashes, dashes);
@@ -169,10 +181,16 @@ void hipe_print_heap(Process *p)
 void hipe_print_pcb(Process *p)
 {
     printf("P: 0x%0*lx\r\n", 2*(int)sizeof(long), (unsigned long)p);
-    printf("-----------------------------------------------\r\n");
-    printf("Offset| Name        | Value      | *Value     |\r\n");
+    printf("%.*s\r\n",
+           6+1+13+1+2*(int)sizeof(long)+4+1+2*(int)sizeof(long)+4+1,
+           "---------------------------------------------------------------");
+    printf("Offset| Name        | Value %*s | *Value %*s |\r\n",
+           2*(int)sizeof(long)-4, "",
+           2*(int)sizeof(long)-5, "");
+#undef U
 #define U(n,x) \
-    printf(" % 4d | %s | 0x%0*lx |            |\r\n", (int)offsetof(Process,x), n, 2*(int)sizeof(long), (unsigned long)p->x)
+    printf(" % 4d | %s | 0x%0*lx | %*s |\r\n", (int)offsetof(Process,x), n, 2*(int)sizeof(long), (unsigned long)p->x, 2*(int)sizeof(long)+2, "")
+#undef P
 #define P(n,x) \
     printf(" % 4d | %s | 0x%0*lx | 0x%0*lx |\r\n", (int)offsetof(Process,x), n, 2*(int)sizeof(long), (unsigned long)p->x, 2*(int)sizeof(long), p->x ? (unsigned long)*(p->x) : -1UL)
 
@@ -188,14 +206,11 @@ void hipe_print_pcb(Process *p)
     U("old_htop   ", old_htop);
     U("old_head   ", old_heap);
     U("min_heap_..", min_heap_size);
-    U("status     ", status);
-    U("rstatus    ", rstatus);
     U("rcount     ", rcount);
-    U("id         ", id);
-    U("prio       ", prio);
+    U("id         ", common.id);
     U("reds       ", reds);
-    U("tracer_pr..", tracer_proc);
-    U("trace_fla..", trace_flags);
+    U("tracer     ", common.tracer);
+    U("trace_fla..", common.trace_flags);
     U("group_lea..", group_leader);
     U("flags      ", flags);
     U("fvalue     ", fvalue);
@@ -204,8 +219,8 @@ void hipe_print_pcb(Process *p)
     /*XXX: ErlTimer tm; */
     U("next       ", next);
     /*XXX: ErlOffHeap off_heap; */
-    U("reg        ", reg);
-    U("nlinks     ", nlinks);
+    U("reg        ", common.u.alive.reg);
+    U("nlinks     ", common.u.alive.links);
     /*XXX: ErlMessageQueue msg; */
     U("mbuf       ", mbuf);
     U("mbuf_sz    ", mbuf_sz);
@@ -213,10 +228,10 @@ void hipe_print_pcb(Process *p)
     U("seq..clock ", seq_trace_clock);
     U("seq..astcnt", seq_trace_lastcnt);
     U("seq..token ", seq_trace_token);
-    U("intial[0]  ", initial[0]);
-    U("intial[1]  ", initial[1]);
-    U("intial[2]  ", initial[2]);
-    P("current    ", current);
+    U("intial.mod ", u.initial.module);
+    U("intial.fun ", u.initial.function);
+    U("intial.ari ", u.initial.arity);
+    U("current    ", current);
     P("cp         ", cp);
     P("i          ", i);
     U("catches    ", catches);
@@ -233,10 +248,12 @@ void hipe_print_pcb(Process *p)
     U("nsp        ", hipe.nsp);
     U("nstack     ", hipe.nstack);
     U("nstend     ", hipe.nstend);
-    U("ncallee    ", hipe.ncallee);
+    U("ncallee    ", hipe.u.ncallee);
     hipe_arch_print_pcb(&p->hipe);
 #endif	/* HIPE */
 #undef U
 #undef P
-    printf("-----------------------------------------------\r\n");
+    printf("%.*s\r\n",
+           6+1+14+1+2*(int)sizeof(long)+4+1+2*(int)sizeof(long)+4+1,
+           "---------------------------------------------------------------");
 }

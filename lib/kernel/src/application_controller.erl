@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -43,6 +44,7 @@
 		keyfind/3, keydelete/3, keyreplace/4]).
 
 -include("application_master.hrl").
+-include("logger.hrl").
 
 -define(AC, ?MODULE). % Name of process
 
@@ -162,7 +164,7 @@
 %%       appl_opt() = {description, string()}           |
 %%                    {vsn, string()}                   |
 %%                    {id, string()},                   |
-%%                    {modules, [Module|{Module,Vsn}]}  |
+%%                    {modules, [Module]}  |
 %%                    {registered, [atom()]}            |
 %%                    {applications, [atom()]}          |
 %%                    {included_applications, [atom()]} |
@@ -172,7 +174,6 @@
 %%                    {maxP, integer()|infinity}        |
 %%                    {mod, {Module, term()}}
 %%         Module = atom()
-%%         Vsn = term()
 %% Purpose: Starts the application_controller.  This process starts all
 %%          application masters for the applications.
 %%          The kernel application is the only application that is
@@ -248,7 +249,7 @@ start_boot_application(Application, RestartType) ->
 	{{error, {already_loaded, AppName}}, _} ->
 	    gen_server:call(?AC, {start_application, AppName, RestartType}, infinity);
 	{{error,{bad_environment_value,Env}}, permanent} ->
-	    Txt = io_lib:format("Bad environment variable: ~p  Application: ~p",
+	    Txt = io_lib:format("Bad environment variable: ~tp  Application: ~p",
 				[Env, Application]),
 	    exit({error, list_to_atom(lists:flatten(Txt))});
 	{Error, _} ->
@@ -446,7 +447,7 @@ get_application_module(Module) ->
     get_application_module(Module, AppModules).
 
 get_application_module(Module, [[AppName, Modules]|AppModules]) ->
-    case in_modules(Module, Modules) of
+    case lists:member(Module, Modules) of
 	true ->
 	    {ok, AppName};
 	false ->
@@ -455,16 +456,6 @@ get_application_module(Module, [[AppName, Modules]|AppModules]) ->
 get_application_module(_Module, []) ->
     undefined.
 
-%% 'modules' key in .app is a list of Module or {Module,Vsn}
-in_modules(Module, [Module|_Modules]) ->
-    true;
-in_modules(Module, [{Module, _Vsn}|_Modules]) ->
-    true;
-in_modules(Module, [_Module|Modules]) ->
-    in_modules(Module, Modules);
-in_modules(_Module, []) ->
-    false.
-
 permit_application(ApplName, Flag) ->
     gen_server:call(?AC, 
 		    {permit_application, ApplName, Flag},
@@ -472,14 +463,16 @@ permit_application(ApplName, Flag) ->
 
 
 set_env(AppName, Key, Val) ->
-    gen_server:call(?AC, {set_env, AppName, Key, Val}).
-set_env(AppName, Key, Val, Timeout) ->
-    gen_server:call(?AC, {set_env, AppName, Key, Val}, Timeout).
+    gen_server:call(?AC, {set_env, AppName, Key, Val, []}).
+set_env(AppName, Key, Val, Opts) ->
+    Timeout = proplists:get_value(timeout, Opts, 5000),
+    gen_server:call(?AC, {set_env, AppName, Key, Val, Opts}, Timeout).
 
 unset_env(AppName, Key) ->
-    gen_server:call(?AC, {unset_env, AppName, Key}).
-unset_env(AppName, Key, Timeout) ->
-    gen_server:call(?AC, {unset_env, AppName, Key}, Timeout).
+    gen_server:call(?AC, {unset_env, AppName, Key, []}).
+unset_env(AppName, Key, Opts) ->
+    Timeout = proplists:get_value(timeout, Opts, 5000),
+    gen_server:call(?AC, {unset_env, AppName, Key, Opts}, Timeout).
 
 %%%-----------------------------------------------------------------
 %%% call-back functions from gen_server
@@ -499,26 +492,29 @@ init(Init, Kernel) ->
 	    %% called during start-up of any app.
 	    case check_conf_data(ConfData) of
 		ok ->
-		    ets:new(ac_tab, [set, public, named_table]),
+		    _ = ets:new(ac_tab, [set, public, named_table,
+                                         {read_concurrency,true}]),
 		    S = #state{conf_data = ConfData},
 		    {ok, KAppl} = make_appl(Kernel),
 		    case catch load(S, KAppl) of
 			{'EXIT', LoadError} ->
 			    Reason = {'load error', LoadError},
 			    Init ! {ack, self(), {error, to_string(Reason)}};
+                        {error, Error} ->
+                            Init ! {ack, self(), {error, to_string(Error)}};
 			{ok, NewS} ->
 			    Init ! {ack, self(), ok},
 			    gen_server:enter_loop(?MODULE, [], NewS,
 						  {local, ?AC})
 		    end;
 		{error, ErrorStr} ->
-		    Str = lists:flatten(io_lib:format("invalid config data: ~s", [ErrorStr])),
+		    Str = lists:flatten(io_lib:format("invalid config data: ~ts", [ErrorStr])),
 		    Init ! {ack, self(), {error, to_string(Str)}}
 	    end;
 	{error, {File, Line, Str}} ->
 	    ReasonStr =
 		lists:flatten(io_lib:format("error in config file "
-					    "~p (~w): ~s",
+					    "~tp (~w): ~ts",
 					    [File, Line, Str])),
 	    Init ! {ack, self(), {error, to_string(ReasonStr)}}
     end.
@@ -548,17 +544,17 @@ check_conf_data(ConfData) when is_list(ConfData) ->
 	    end;
 	{AppName, List} when is_list(List)  ->
 	    ErrMsg = "application: "
-		++ lists:flatten(io_lib:format("~p",[AppName]))
+		++ lists:flatten(io_lib:format("~tp",[AppName]))
 		++ "; application name must be an atom",
 	    {error, ErrMsg};
 	{AppName, _List} ->
 	    ErrMsg = "application: "
-		++ lists:flatten(io_lib:format("~p",[AppName]))
+		++ lists:flatten(io_lib:format("~tp",[AppName]))
 		++ "; parameters must be a list",
 	    {error, ErrMsg};
 	Else ->
 	    ErrMsg = "invalid application name: " ++ 
-		lists:flatten(io_lib:format(" ~p",[Else])),
+		lists:flatten(io_lib:format(" ~tp",[Else])),
 	    {error, ErrMsg}
     end;
 check_conf_data(_ConfData) ->
@@ -581,10 +577,10 @@ check_para_kernel([{Para, _Val} | ParaList]) when is_atom(Para) ->
     check_para_kernel(ParaList);
 check_para_kernel([{Para, _Val} | _ParaList]) ->
     {error, "application: kernel; invalid parameter: " ++ 
-     lists:flatten(io_lib:format("~p",[Para]))};
+     lists:flatten(io_lib:format("~tp",[Para]))};
 check_para_kernel(Else) ->
     {error, "application: kernel; invalid parameter list: " ++ 
-     lists:flatten(io_lib:format("~p",[Else]))}.
+     lists:flatten(io_lib:format("~tp",[Else]))}.
     
 
 check_distributed([]) ->
@@ -605,10 +601,10 @@ check_para([{Para, _Val} | ParaList], AppName) when is_atom(Para) ->
     check_para(ParaList, AppName);
 check_para([{Para, _Val} | _ParaList], AppName) ->
     {error, "application: " ++ AppName ++ "; invalid parameter: " ++ 
-     lists:flatten(io_lib:format("~p",[Para]))};
+     lists:flatten(io_lib:format("~tp",[Para]))};
 check_para([Else | _ParaList], AppName) ->
     {error, "application: " ++ AppName ++ "; invalid parameter: " ++ 
-     lists:flatten(io_lib:format("~p",[Else]))}.
+     lists:flatten(io_lib:format("~tp",[Else]))}.
 
 
 -type calls() :: 'info' | 'prep_config_change' | 'which_applications'
@@ -618,8 +614,8 @@ check_para([Else | _ParaList], AppName) ->
                | {'change_application_data', _, _}
                | {'permit_application', atom() | {'application',atom(),_},_}
                | {'start_application', _, _}
-               | {'unset_env', _, _}
-               | {'set_env', _, _, _}.
+               | {'unset_env', _, _, _}
+               | {'set_env', _, _, _, _}.
 
 -spec handle_call(calls(), {pid(), term()}, state()) ->
         {'noreply', state()} | {'reply', term(), state()}.
@@ -836,12 +832,12 @@ handle_call({change_application_data, Applications, Config}, _From, S) ->
 	    {reply, Error, S};
 	{'EXIT', R} ->
 	    {reply, {error, R}, S};
-	NewAppls ->
+	{NewAppls, NewConfig} ->
 	    lists:foreach(fun(Appl) ->
 				  ets:insert(ac_tab, {{loaded, Appl#appl.name},
 						      Appl})
 			  end, NewAppls),
-	    {reply, ok, S#state{conf_data = Config}}
+	    {reply, ok, S#state{conf_data = NewConfig}}
     end;
 
 handle_call(prep_config_change, _From, S) ->
@@ -867,13 +863,25 @@ handle_call(which_applications, _From, S) ->
 	       end, S#state.running),
     {reply, Reply, S};
 
-handle_call({set_env, AppName, Key, Val}, _From, S) ->
+handle_call({set_env, AppName, Key, Val, Opts}, _From, S) ->
     ets:insert(ac_tab, {{env, AppName, Key}, Val}),
-    {reply, ok, S};
+    case proplists:get_value(persistent, Opts, false) of
+	true ->
+	    Fun = fun(Env) -> lists:keystore(Key, 1, Env, {Key, Val}) end,
+	    {reply, ok, S#state{conf_data = change_app_env(S#state.conf_data, AppName, Fun)}};
+	false ->
+	    {reply, ok, S}
+    end;
 
-handle_call({unset_env, AppName, Key}, _From, S) ->
+handle_call({unset_env, AppName, Key, Opts}, _From, S) ->
     ets:delete(ac_tab, {env, AppName, Key}),
-    {reply, ok, S};
+    case proplists:get_value(persistent, Opts, false) of
+	true ->
+	    Fun = fun(Env) -> lists:keydelete(Key, 1, Env) end,
+	    {reply, ok, S#state{conf_data = change_app_env(S#state.conf_data, AppName, Fun)}};
+	false ->
+	    {reply, ok, S}
+    end;
 
 handle_call({control_application, AppName}, {Pid, _Tag}, S) ->
     Control = S#state.control,
@@ -1264,9 +1272,7 @@ load(S, {ApplData, ApplEnv, IncApps, Descr, Id, Vsn, Apps}) ->
     NewEnv = merge_app_env(ApplEnv, ConfEnv),
     CmdLineEnv = get_cmd_env(Name),
     NewEnv2 = merge_app_env(NewEnv, CmdLineEnv),
-    NewEnv3 = keyreplaceadd(included_applications, 1, NewEnv2,
-			    {included_applications, IncApps}),
-    add_env(Name, NewEnv3),
+    add_env(Name, NewEnv2),
     Appl = #appl{name = Name, descr = Descr, id = Id, vsn = Vsn, 
 		 appl_data = ApplData, inc_apps = IncApps, apps = Apps},
     ets:insert(ac_tab, {{loaded, Name}, Appl}),
@@ -1284,7 +1290,7 @@ load(S, {ApplData, ApplEnv, IncApps, Descr, Id, Vsn, Apps}) ->
     {ok, NewS}.
 
 unload(AppName, S) ->
-    {ok, IncApps} = get_env(AppName, included_applications),
+    {ok, IncApps} = get_key(AppName, included_applications),
     del_env(AppName),
     ets:delete(ac_tab, {loaded, AppName}),
     foldl(fun(App, S1) ->
@@ -1445,7 +1451,9 @@ make_appl(Name) when is_atom(Name) ->
 		{ok, [Application]} ->
 		    {ok, make_appl_i(Application)};
 		{error, Reason} -> 
-		    {error, {file:format_error(Reason), FName}}
+		    {error, {file:format_error(Reason), FName}};
+                error ->
+                    {error, "bad encoding"}
 	    end
     end;
 make_appl(Application) ->
@@ -1454,12 +1462,17 @@ make_appl(Application) ->
 prim_consult(FullName) ->
     case erl_prim_loader:get_file(FullName) of
 	{ok, Bin, _} ->
-	    case erl_scan:string(binary_to_list(Bin)) of
-		{ok, Tokens, _EndLine} ->
-		    prim_parse(Tokens, []);
-		{error, Reason, _EndLine} ->
-		    {error, Reason}
-	    end;
+            case file_binary_to_list(Bin) of
+                {ok, String} ->
+                    case erl_scan:string(String) of
+                        {ok, Tokens, _EndLine} ->
+                            prim_parse(Tokens, []);
+                        {error, Reason, _EndLine} ->
+                            {error, Reason}
+                    end;
+                error ->
+                    error
+            end;
 	error ->
 	    {error, enoent}
     end.
@@ -1532,24 +1545,24 @@ do_change_apps(Applications, Config, OldAppls) ->
     %% Report errors, but do not terminate
     %% (backwards compatible behaviour)
     lists:foreach(fun({error, {SysFName, Line, Str}}) ->
-			  Str2 = lists:flatten(io_lib:format("~p: ~w: ~s~n",
-							     [SysFName, Line, Str])),
-			  error_logger:format(Str2, [])
+			  ?LOG_ERROR("~tp: ~w: ~ts~n",[SysFName, Line, Str],
+                                     #{error_logger=>#{tag=>error}})
 		  end,
 		  Errors),
 
-    map(fun(Appl) ->
-		AppName = Appl#appl.name,
-		case is_loaded_app(AppName, Applications) of
-		    {true, Application} ->
-			do_change_appl(make_appl(Application),
-				       Appl, SysConfig);
+    {map(fun(Appl) ->
+		 AppName = Appl#appl.name,
+		 case is_loaded_app(AppName, Applications) of
+		     {true, Application} ->
+			 do_change_appl(make_appl(Application),
+					Appl, SysConfig);
 
-		    %% ignored removed apps - handled elsewhere
-		    false ->
-			Appl
-		end
-	end, OldAppls).
+		     %% ignored removed apps - handled elsewhere
+		     false ->
+			 Appl
+		 end
+	 end, OldAppls),
+     SysConfig}.
 
 is_loaded_app(AppName, [{application, AppName, App} | _]) ->
     {true, {application, AppName, App}};
@@ -1568,13 +1581,9 @@ do_change_appl({ok, {ApplData, Env, IncApps, Descr, Id, Vsn, Apps}},
     CmdLineEnv = get_cmd_env(AppName),
     NewEnv2 = merge_app_env(NewEnv1, CmdLineEnv),
 
-    %% included_apps is made into an env parameter as well
-    NewEnv3 = keyreplaceadd(included_applications, 1, NewEnv2,
-			    {included_applications, IncApps}),
-
     %% Update ets table with new application env
     del_env(AppName),
-    add_env(AppName, NewEnv3),
+    add_env(AppName, NewEnv2),
 
     OldAppl#appl{appl_data=ApplData,
 		 descr=Descr,
@@ -1602,23 +1611,24 @@ conv([Key, Val | T]) ->
     [{make_term(Key), make_term(Val)} | conv(T)];
 conv(_) -> [].
 
-%%% Fix some day: eliminate the duplicated code here
 make_term(Str) -> 
     case erl_scan:string(Str) of
 	{ok, Tokens, _} ->		  
-	    case erl_parse:parse_term(Tokens ++ [{dot, 1}]) of
+	    case erl_parse:parse_term(Tokens ++ [{dot, erl_anno:new(1)}]) of
 		{ok, Term} ->
 		    Term;
 		{error, {_,M,Reason}} ->
-		    error_logger:format("application_controller: ~s: ~s~n",
-					[M:format_error(Reason), Str]),
-		    throw({error, {bad_environment_value, Str}})
+                    handle_make_term_error(M, Reason, Str)
 	    end;
 	{error, {_,M,Reason}, _} ->
-	    error_logger:format("application_controller: ~s: ~s~n",
-				[M:format_error(Reason), Str]),
-	    throw({error, {bad_environment_value, Str}})
+            handle_make_term_error(M, Reason, Str)
     end.
+
+handle_make_term_error(Mod, Reason, Str) ->
+    ?LOG_ERROR("application_controller: ~ts: ~ts~n",
+               [Mod:format_error(Reason), Str],
+               #{error_logger=>#{tag=>error}}),
+    throw({error, {bad_environment_value, Str}}).
 
 get_env_i(Name, #state{conf_data = ConfData}) when is_list(ConfData) ->
     case lists:keyfind(Name, 1, ConfData) of
@@ -1641,6 +1651,16 @@ merge_env([{App, AppEnv1} | T], Env2, Res) ->
     end;
 merge_env([], Env2, Res) ->
     Env2 ++ Res.
+
+%% Changes the environment for the given application
+%% If there is no application, an empty one is created
+change_app_env(Env, App, Fun) ->
+    case get_env_key(App, Env) of
+	{value, AppEnv, RestEnv} ->
+	    [{App, Fun(AppEnv)} | RestEnv];
+	_ ->
+	    [{App, Fun([])} | Env]
+    end.
 
 %% Merges envs for an application.  Env2 overrides Env1
 merge_app_env(Env1, Env2) ->
@@ -1794,8 +1814,9 @@ check_conf() ->
 				   %% Therefore read and merge contents.
 				   if
 				       BFName =:= "sys" ->
+					   DName = filename:dirname(FName),
 					   {ok, SysEnv, Errors} =
-					       check_conf_sys(NewEnv),
+					       check_conf_sys(NewEnv, [], [], DName),
 
 					   %% Report first error, if any, and
 					   %% terminate
@@ -1817,20 +1838,31 @@ check_conf() ->
     end.
 
 check_conf_sys(Env) ->
-    check_conf_sys(Env, [], []).
+    check_conf_sys(Env, [], [], []).
 
-check_conf_sys([File|T], SysEnv, Errors) when is_list(File) ->
+check_conf_sys([File|T], SysEnv, Errors, DName) when is_list(File),is_list(DName) ->
     BFName = filename:basename(File, ".config"),
     FName = filename:join(filename:dirname(File), BFName ++ ".config"),
-    case load_file(FName) of
+    LName = case filename:pathtype(FName) of
+               relative when (DName =/= []) ->
+                  % Check if relative to sys.config dir otherwise use legacy mode,
+                  % i.e relative to cwd.
+                  RName = filename:join(DName, FName),
+                  case erl_prim_loader:read_file_info(RName) of
+                     {ok, _} -> RName ;
+                     error   -> FName
+                  end;
+		_          -> FName
+	    end,
+    case load_file(LName) of
 	{ok, NewEnv} ->
-	    check_conf_sys(T, merge_env(SysEnv, NewEnv), Errors);
+	    check_conf_sys(T, merge_env(SysEnv, NewEnv), Errors, DName);
 	{error, {Line, _Mod, Str}} ->
-	    check_conf_sys(T, SysEnv, [{error, {FName, Line, Str}}|Errors])
+	    check_conf_sys(T, SysEnv, [{error, {LName, Line, Str}}|Errors], DName)
     end;
-check_conf_sys([Tuple|T], SysEnv, Errors) ->
-    check_conf_sys(T, merge_env(SysEnv, [Tuple]), Errors);
-check_conf_sys([], SysEnv, Errors) ->
+check_conf_sys([Tuple|T], SysEnv, Errors, DName) ->
+    check_conf_sys(T, merge_env(SysEnv, [Tuple]), Errors, DName);
+check_conf_sys([], SysEnv, Errors, _) ->
     {ok, SysEnv, lists:reverse(Errors)}.
 
 load_file(File) ->
@@ -1839,8 +1871,12 @@ load_file(File) ->
 	{ok, Bin, _FileName} ->
 	    %% Make sure that there is some whitespace at the end of the string
 	    %% (so that reading a file with no NL following the "." will work).
-	    Str = binary_to_list(Bin) ++ " ",
-	    scan_file(Str);
+            case file_binary_to_list(Bin) of
+                {ok, String} ->
+                    scan_file(String ++ " ");
+                error ->
+                    {error, {none, scan_file, "bad encoding"}}
+            end;
 	error ->
 	    {error, {none, open_file, "configuration file not found"}}
     end.
@@ -1884,19 +1920,25 @@ config_error() ->
       "configuration file must contain ONE list ended by <dot>"}}.
 
 %%-----------------------------------------------------------------
-%% Info messages sent to error_logger
+%% Info messages sent to logger
 %%-----------------------------------------------------------------
 info_started(Name, Node) ->
-    Rep = [{application, Name},
-	   {started_at, Node}],
-    error_logger:info_report(progress, Rep).
+    ?LOG_INFO(#{label=>{application_controller,progress},
+                report=>[{application, Name},
+                         {started_at, Node}]},
+              #{domain=>[otp,sasl],
+                report_cb=>fun logger:format_otp_report/1,
+                logger_formatter=>#{title=>"PROGRESS REPORT"},
+                error_logger=>#{tag=>info_report,type=>progress}}).
 
 info_exited(Name, Reason, Type) ->
-    Rep = [{application, Name},
-	   {exited, Reason},
-	   {type, Type}],
-    error_logger:info_report(Rep).
-
+    ?LOG_NOTICE(#{label=>{application_controller,exit},
+                  report=>[{application, Name},
+                           {exited, Reason},
+                           {type, Type}]},
+                #{domain=>[otp],
+                  report_cb=>fun logger:format_otp_report/1,
+                  error_logger=>#{tag=>info_report,type=>std_info}}).
 
 %%-----------------------------------------------------------------
 %% Reply to all processes waiting this application to be started.  
@@ -1947,16 +1989,28 @@ test_change_apps(Apps, Conf) ->
 test_do_change_appl([], _, _) ->
     ok;
 test_do_change_appl([A|Apps], [], [R|Res]) ->
-    do_change_appl(R, #appl{name = A}, []),
+    _ = do_change_appl(R, #appl{name = A}, []),
     test_do_change_appl(Apps, [], Res);
 test_do_change_appl([A|Apps], [C|Conf], [R|Res]) ->
-    do_change_appl(R, #appl{name = A}, C),
+    _ = do_change_appl(R, #appl{name = A}, C),
     test_do_change_appl(Apps, Conf, Res).
 
 test_make_apps([], Res) ->
     lists:reverse(Res);
 test_make_apps([A|Apps], Res) ->
     test_make_apps(Apps, [make_appl(A) | Res]).
+
+file_binary_to_list(Bin) ->
+    Enc = case epp:read_encoding_from_binary(Bin) of
+              none -> epp:default_encoding();
+              Encoding -> Encoding
+          end,
+    case catch unicode:characters_to_list(Bin, Enc) of
+        String when is_list(String) ->
+            {ok, String};
+        _ ->
+            error
+    end.
 
 %%-----------------------------------------------------------------
 %% String conversion
@@ -1971,5 +2025,5 @@ to_string(Term) ->
 	true ->
 	    Term;
 	false ->
-	    lists:flatten(io_lib:write(Term))
+	    lists:flatten(io_lib:format("~0p", [Term]))
     end.

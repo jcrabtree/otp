@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2002-2012. All Rights Reserved.
+ * Copyright Ericsson AB 2002-2018. All Rights Reserved.
  *
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  * %CopyrightEnd%
  *
@@ -20,14 +21,13 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include "erl_nif.h"
+#include <erl_nif.h>
 
 /* #define ASN1_DEBUG 1 */
 
 #define ASN1_OK 0
 #define ASN1_ERROR -1
 #define ASN1_COMPL_ERROR 1
-#define ASN1_MEMORY_ERROR 0
 #define ASN1_DECODE_ERROR 2
 #define ASN1_TAG_ERROR -3
 #define ASN1_LEN_ERROR -4
@@ -58,54 +58,54 @@
 #define MASK(X,M) (X & M)
 
 /* PER COMPLETE */
-int per_complete(ErlNifBinary *, unsigned char *, int);
+static int per_complete(ErlNifBinary *, unsigned char *, int);
 
-int per_insert_octets(int, unsigned char **, unsigned char **, int *);
+static int per_insert_octets(int, unsigned char **, unsigned char **, int *);
 
-int per_insert_octets_except_unused(int, unsigned char **, unsigned char **,
+static int per_insert_octets_except_unused(int, unsigned char **, unsigned char **,
 	int *, int);
 
-int per_insert_octets_as_bits_exact_len(int, int, unsigned char **,
+static int per_insert_octets_as_bits_exact_len(int, int, unsigned char **,
 	unsigned char **, int *);
 
-int per_insert_octets_as_bits(int, unsigned char **, unsigned char **, int *);
+static int per_insert_octets_as_bits(int, unsigned char **, unsigned char **, int *);
 
-int per_pad_bits(int, unsigned char **, int *);
+static int per_pad_bits(int, unsigned char **, int *);
 
-int per_insert_least_sign_bits(int, unsigned char, unsigned char **, int *);
+static int per_insert_least_sign_bits(int, unsigned char, unsigned char **, int *);
 
-int per_insert_most_sign_bits(int, unsigned char, unsigned char **, int *);
+static int per_insert_most_sign_bits(int, unsigned char, unsigned char **, int *);
 
-int per_insert_bits_as_bits(int, int, unsigned char **, unsigned char **, int *);
+static int per_insert_bits_as_bits(int, int, unsigned char **, unsigned char **, int *);
 
-int per_insert_octets_unaligned(int, unsigned char **, unsigned char **, int);
+static int per_insert_octets_unaligned(int, unsigned char **, unsigned char **, int);
 
-int per_realloc_memory(ErlNifBinary *, int, unsigned char **);
+static int per_realloc_memory(ErlNifBinary *, int, unsigned char **);
 
 /* BER DECODE */
-int ber_decode_begin(ErlNifEnv *, ERL_NIF_TERM *, unsigned char *, int,
+static int ber_decode_begin(ErlNifEnv *, ERL_NIF_TERM *, unsigned char *, int,
 	unsigned int *);
 
-int ber_decode(ErlNifEnv *, ERL_NIF_TERM *, unsigned char *, int *, int);
+static int ber_decode(ErlNifEnv *, ERL_NIF_TERM *, unsigned char *, int *, int);
 
-int ber_decode_tag(ErlNifEnv *, ERL_NIF_TERM *, unsigned char *, int, int *);
+static int ber_decode_tag(ErlNifEnv *, ERL_NIF_TERM *, unsigned char *, int, int *);
 
-int ber_decode_value(ErlNifEnv*, ERL_NIF_TERM *, unsigned char *, int *, int,
+static int ber_decode_value(ErlNifEnv*, ERL_NIF_TERM *, unsigned char *, int *, int,
 	int);
 
 /* BER ENCODE */
 typedef struct ber_encode_mem_chunk mem_chunk_t;
 
-int ber_encode(ErlNifEnv *, ERL_NIF_TERM , mem_chunk_t **, unsigned int *);
+static int ber_encode(ErlNifEnv *, ERL_NIF_TERM , mem_chunk_t **, unsigned int *);
 
-void ber_free_chunks(mem_chunk_t *chunk);
-mem_chunk_t *ber_new_chunk(unsigned int length);
-int ber_check_memory(mem_chunk_t **curr, unsigned int needed);
+static void ber_free_chunks(mem_chunk_t *chunk);
+static mem_chunk_t *ber_new_chunk(unsigned int length);
+static int ber_check_memory(mem_chunk_t **curr, unsigned int needed);
 
-int ber_encode_tag(ErlNifEnv *, ERL_NIF_TERM , unsigned int ,
+static int ber_encode_tag(ErlNifEnv *, ERL_NIF_TERM , unsigned int ,
 	mem_chunk_t **, unsigned int *);
 
-int ber_encode_length(size_t , mem_chunk_t **, unsigned int *);
+static int ber_encode_length(size_t , mem_chunk_t **, unsigned int *);
 
 /*
  *
@@ -114,7 +114,7 @@ int ber_encode_length(size_t , mem_chunk_t **, unsigned int *);
  *
  */
 
-int per_complete(ErlNifBinary *out_binary, unsigned char *in_buf,
+static int per_complete(ErlNifBinary *out_binary, unsigned char *in_buf,
 	int in_buf_len) {
     int counter = in_buf_len;
     /* counter keeps track of number of bytes left in the
@@ -490,7 +490,7 @@ int per_complete(ErlNifBinary *out_binary, unsigned char *in_buf,
     }
 }
 
-int per_realloc_memory(ErlNifBinary *binary, int amount, unsigned char **ptr) {
+static int per_realloc_memory(ErlNifBinary *binary, int amount, unsigned char **ptr) {
 
     int i = *ptr - binary->data;
 
@@ -503,7 +503,7 @@ int per_realloc_memory(ErlNifBinary *binary, int amount, unsigned char **ptr) {
     return ASN1_OK;
 }
 
-int per_insert_most_sign_bits(int no_bits, unsigned char val,
+static int per_insert_most_sign_bits(int no_bits, unsigned char val,
 	unsigned char **output_ptr, int *unused) {
     unsigned char *ptr = *output_ptr;
 
@@ -524,7 +524,7 @@ int per_insert_most_sign_bits(int no_bits, unsigned char val,
     return ASN1_OK;
 }
 
-int per_insert_least_sign_bits(int no_bits, unsigned char val,
+static int per_insert_least_sign_bits(int no_bits, unsigned char val,
 	unsigned char **output_ptr, int *unused) {
     unsigned char *ptr = *output_ptr;
     int ret = 0;
@@ -553,7 +553,7 @@ int per_insert_least_sign_bits(int no_bits, unsigned char val,
 /* per_pad_bits adds no_bits bits in the buffer that output_ptr
  points at.
  */
-int per_pad_bits(int no_bits, unsigned char **output_ptr, int *unused) {
+static int per_pad_bits(int no_bits, unsigned char **output_ptr, int *unused) {
     unsigned char *ptr = *output_ptr;
     int ret = 0;
 
@@ -576,7 +576,7 @@ int per_pad_bits(int no_bits, unsigned char **output_ptr, int *unused) {
  The unused parameter tells how many bits that are not set in the
  actual byte in the output buffer. If desired_no is more bits than the
  input buffer has in no_bytes bytes, then zero bits is padded.*/
-int per_insert_bits_as_bits(int desired_no, int no_bytes,
+static int per_insert_bits_as_bits(int desired_no, int no_bytes,
 	unsigned char **input_ptr, unsigned char **output_ptr, int *unused) {
     unsigned char *in_ptr = *input_ptr;
     unsigned char val;
@@ -616,7 +616,7 @@ int per_insert_bits_as_bits(int desired_no, int no_bytes,
 }
 
 /* per_insert_octets_as_bits_exact_len */
-int per_insert_octets_as_bits_exact_len(int desired_len, int in_buff_len,
+static int per_insert_octets_as_bits_exact_len(int desired_len, int in_buff_len,
 	unsigned char **in_ptr, unsigned char **ptr, int *unused) {
     int ret = 0;
     int ret2 = 0;
@@ -654,7 +654,7 @@ int per_insert_octets_as_bits_exact_len(int desired_len, int in_buff_len,
  otherwise the function returns ASN1_ERROR. The output buffer is concatenated
  without alignment.
  */
-int per_insert_octets_as_bits(int no_bytes, unsigned char **input_ptr,
+static int per_insert_octets_as_bits(int no_bytes, unsigned char **input_ptr,
 	unsigned char **output_ptr, int *unused) {
     unsigned char *in_ptr = *input_ptr;
     unsigned char *ptr = *output_ptr;
@@ -694,7 +694,7 @@ int per_insert_octets_as_bits(int no_bytes, unsigned char **input_ptr,
  into the output buffer, *output_ptr. Before the first byte is
  inserted the input buffer is aligned.
  */
-int per_insert_octets(int no_bytes, unsigned char **input_ptr,
+static int per_insert_octets(int no_bytes, unsigned char **input_ptr,
 	unsigned char **output_ptr, int *unused) {
     unsigned char *in_ptr = *input_ptr;
     unsigned char *ptr = *output_ptr;
@@ -719,7 +719,7 @@ int per_insert_octets(int no_bytes, unsigned char **input_ptr,
 /* per_insert_octets_unaligned inserts bytes from the input buffer, *input_ptr,
  into the output buffer, *output_ptr.No alignment is done.
  */
-int per_insert_octets_unaligned(int no_bytes, unsigned char **input_ptr,
+static int per_insert_octets_unaligned(int no_bytes, unsigned char **input_ptr,
 	unsigned char **output_ptr, int unused) {
     unsigned char *in_ptr = *input_ptr;
     unsigned char *ptr = *output_ptr;
@@ -743,7 +743,7 @@ int per_insert_octets_unaligned(int no_bytes, unsigned char **input_ptr,
     return no_bytes;
 }
 
-int per_insert_octets_except_unused(int no_bytes, unsigned char **input_ptr,
+static int per_insert_octets_except_unused(int no_bytes, unsigned char **input_ptr,
 	unsigned char **output_ptr, int *unused, int in_unused) {
     unsigned char *in_ptr = *input_ptr;
     unsigned char *ptr = *output_ptr;
@@ -836,7 +836,7 @@ int per_insert_octets_except_unused(int no_bytes, unsigned char **input_ptr,
  * is the empty binary.
  * If some error occured during the decoding of the in_buf an error is returned.
  */
-int ber_decode_begin(ErlNifEnv* env, ERL_NIF_TERM *term, unsigned char *in_buf,
+static int ber_decode_begin(ErlNifEnv* env, ERL_NIF_TERM *term, unsigned char *in_buf,
 	int in_buf_len, unsigned int *err_pos) {
     int maybe_ret;
     int ib_index = 0;
@@ -851,17 +851,14 @@ int ber_decode_begin(ErlNifEnv* env, ERL_NIF_TERM *term, unsigned char *in_buf,
     };
 
     // The remaining binary after one ASN1 segment has been decoded
-    if ((rest_data = enif_make_new_binary(env, in_buf_len - ib_index, &rest))
-	    == NULL) {
-	*term = enif_make_atom(env, "could_not_alloc_binary");
-	return ASN1_ERROR;
-    }
+    rest_data = enif_make_new_binary(env, in_buf_len - ib_index, &rest);
+    memcpy(rest_data, in_buf+ib_index, in_buf_len - ib_index);
 
     *term = enif_make_tuple2(env, decoded_term, rest);
     return ASN1_OK;
 }
 
-int ber_decode(ErlNifEnv* env, ERL_NIF_TERM *term, unsigned char *in_buf,
+static int ber_decode(ErlNifEnv* env, ERL_NIF_TERM *term, unsigned char *in_buf,
 	int *ib_index, int in_buf_len) {
     int maybe_ret;
     int form;
@@ -893,7 +890,7 @@ int ber_decode(ErlNifEnv* env, ERL_NIF_TERM *term, unsigned char *in_buf,
  * decode_tag decodes the BER encoded tag in in_buf and creates an
  * nif term tag
  */
-int ber_decode_tag(ErlNifEnv* env, ERL_NIF_TERM *tag, unsigned char *in_buf,
+static int ber_decode_tag(ErlNifEnv* env, ERL_NIF_TERM *tag, unsigned char *in_buf,
 	int in_buf_len, int *ib_index) {
     int tag_no, tmp_tag, form;
 
@@ -904,31 +901,35 @@ int ber_decode_tag(ErlNifEnv* env, ERL_NIF_TERM *tag, unsigned char *in_buf,
 
     /* then get the tag number */
     if ((tmp_tag = (int) INVMASK(in_buf[*ib_index],ASN1_CLASSFORM)) < 31) {
-	*tag = enif_make_uint(env, tag_no + tmp_tag);
+	*tag = enif_make_uint(env, tag_no | tmp_tag);
 	(*ib_index)++;
     } else {
-	int n = 0; /* n is used to check that the 64K limit is not
-	 exceeded*/
-
 	/* should check that at least three bytes are left in
 	 in-buffer,at least two tag byte and at least one length byte */
 	if ((*ib_index + 3) > in_buf_len)
 	    return ASN1_VALUE_ERROR;
 	(*ib_index)++;
-	/* The tag is in the following bytes in in_buf as
-	 1ttttttt 1ttttttt ... 0ttttttt, where the t-bits
-	 is the tag number*/
-	/* In practice is the tag size limited to 64K, i.e. 16 bits. If
-	 the tag is greater then 64K return an error */
-	while (((tmp_tag = (int) in_buf[*ib_index]) >= 128) && n < 2) {
-	    /* m.s.b. = 1 */
-	    tag_no = tag_no + (MASK(tmp_tag,ASN1_LONG_TAG) << 7);
+	/*
+         * The tag is in the following bytes in in_buf as:
+         *
+         *  1ttttttt 0ttttttt
+         *
+         * or
+         *
+         *  0ttttttt
+         *
+         * where the t-bits is the tag number. If the tag does not
+         * fit in two tag bytes (16K), return an error.
+         */
+	if ((tmp_tag = (int) in_buf[*ib_index]) >= 128) {
+	    tag_no = tag_no | (MASK(tmp_tag,ASN1_LONG_TAG) << 7);
 	    (*ib_index)++;
-	    n++;
-	};
-	if ((n == 2) && in_buf[*ib_index] > 3)
-	    return ASN1_TAG_ERROR; /* tag number > 64K */
-	tag_no = tag_no + in_buf[*ib_index];
+	}
+        tmp_tag = (int) in_buf[*ib_index];
+	if (tmp_tag >= 128) {
+	    return ASN1_TAG_ERROR; /* tag number > 16K */
+        }
+	tag_no = tag_no | tmp_tag;
 	(*ib_index)++;
 	*tag = enif_make_uint(env, tag_no);
     }
@@ -940,21 +941,42 @@ int ber_decode_tag(ErlNifEnv* env, ERL_NIF_TERM *tag, unsigned char *in_buf,
  * in_buf and puts the value part in the decode_buf as an Erlang
  * nif term into value
  */
-int ber_decode_value(ErlNifEnv* env, ERL_NIF_TERM *value, unsigned char *in_buf,
+static int ber_decode_value(ErlNifEnv* env, ERL_NIF_TERM *value, unsigned char *in_buf,
 	int *ib_index, int form, int in_buf_len) {
     int maybe_ret;
     unsigned int len = 0;
     unsigned int lenoflen = 0;
-    int indef = 0;
     unsigned char *tmp_out_buff;
     ERL_NIF_TERM term = 0, curr_head = 0;
 
+    /* Recursion depth limitation, borrow a signed int: maybe_ret */
+    maybe_ret = (int) (ErlNifSInt) ((char *)value - (char *)ib_index);
+    maybe_ret = maybe_ret < 0 ? -maybe_ret : maybe_ret;
+    if (maybe_ret >= sizeof(void *) * 8192) /* 8 k pointer words */
+        return ASN1_ERROR;
+
     if (((in_buf[*ib_index]) & 0x80) == ASN1_SHORT_DEFINITE_LENGTH) {
 	len = in_buf[*ib_index];
-    } else if (in_buf[*ib_index] == ASN1_INDEFINITE_LENGTH
-    )
-	indef = 1;
-    else /* long definite length */{
+    } else if (in_buf[*ib_index] == ASN1_INDEFINITE_LENGTH) {
+	(*ib_index)++;
+	curr_head = enif_make_list(env, 0);
+	if (*ib_index+1 >= in_buf_len || form == ASN1_PRIMITIVE) {
+	    return ASN1_INDEF_LEN_ERROR;
+	}
+	while (!(in_buf[*ib_index] == 0 && in_buf[*ib_index + 1] == 0)) {
+	    maybe_ret = ber_decode(env, &term, in_buf, ib_index, in_buf_len);
+	    if (maybe_ret <= ASN1_ERROR) {
+		return maybe_ret;
+	    }
+	    curr_head = enif_make_list_cell(env, term, curr_head);
+	    if (*ib_index+1 >= in_buf_len) {
+		return ASN1_INDEF_LEN_ERROR;
+	    }
+	}
+	enif_make_reverse_list(env, curr_head, value);
+	(*ib_index) += 2; /* skip the indefinite length end bytes */
+	return ASN1_OK;
+    } else /* long definite length */{
 	lenoflen = (in_buf[*ib_index] & 0x7f); /*length of length */
 	if (lenoflen > (in_buf_len - (*ib_index + 1)))
 	    return ASN1_LEN_ERROR;
@@ -969,23 +991,7 @@ int ber_decode_value(ErlNifEnv* env, ERL_NIF_TERM *value, unsigned char *in_buf,
     if (len > (in_buf_len - (*ib_index + 1)))
 	return ASN1_VALUE_ERROR;
     (*ib_index)++;
-    if (indef == 1) { /* in this case it is desireably to check that indefinite length
-     end bytes exist in inbuffer */
-	curr_head = enif_make_list(env, 0);
-	while (!(in_buf[*ib_index] == 0 && in_buf[*ib_index + 1] == 0)) {
-	    if (*ib_index >= in_buf_len)
-		return ASN1_INDEF_LEN_ERROR;
-
-	    if ((maybe_ret = ber_decode(env, &term, in_buf, ib_index, in_buf_len))
-		    <= ASN1_ERROR
-		    )
-		return maybe_ret;
-	    curr_head = enif_make_list_cell(env, term, curr_head);
-	}
-	enif_make_reverse_list(env, curr_head, value);
-	(*ib_index) += 2; /* skip the indefinite length end bytes */
-    } else if (form == ASN1_CONSTRUCTED)
-    {
+    if (form == ASN1_CONSTRUCTED) {
 	int end_index = *ib_index + len;
 	if (end_index > in_buf_len)
 	    return ASN1_LEN_ERROR;
@@ -993,7 +999,7 @@ int ber_decode_value(ErlNifEnv* env, ERL_NIF_TERM *value, unsigned char *in_buf,
 	while (*ib_index < end_index) {
 
 	    if ((maybe_ret = ber_decode(env, &term, in_buf, ib_index,
-		    in_buf_len)) <= ASN1_ERROR
+                   end_index )) <= ASN1_ERROR
 	    )
 		return maybe_ret;
 	    curr_head = enif_make_list_cell(env, term, curr_head);
@@ -1016,7 +1022,7 @@ struct ber_encode_mem_chunk {
     char *curr;
 };
 
-int ber_encode(ErlNifEnv *env, ERL_NIF_TERM term, mem_chunk_t **curr, unsigned int *count) {
+static int ber_encode(ErlNifEnv *env, ERL_NIF_TERM term, mem_chunk_t **curr, unsigned int *count) {
 
     const ERL_NIF_TERM *tv;
     unsigned int form;
@@ -1091,7 +1097,7 @@ int ber_encode(ErlNifEnv *env, ERL_NIF_TERM term, mem_chunk_t **curr, unsigned i
     return ASN1_OK;
 }
 
-int ber_encode_tag(ErlNifEnv *env, ERL_NIF_TERM tag, unsigned int form,
+static int ber_encode_tag(ErlNifEnv *env, ERL_NIF_TERM tag, unsigned int form,
 	mem_chunk_t **curr, unsigned int *count) {
     unsigned int class_tag_no, head_tag;
     if (!enif_get_uint(env, tag, &class_tag_no))
@@ -1126,7 +1132,7 @@ int ber_encode_tag(ErlNifEnv *env, ERL_NIF_TERM tag, unsigned int form,
     }
 }
 
-int ber_encode_length(size_t size, mem_chunk_t **curr, unsigned int *count) {
+static int ber_encode_length(size_t size, mem_chunk_t **curr, unsigned int *count) {
     if (size < 128) {
 	if (ber_check_memory(curr, 1u))
 	    return ASN1_ERROR;
@@ -1134,8 +1140,8 @@ int ber_encode_length(size_t size, mem_chunk_t **curr, unsigned int *count) {
 	(*curr)->curr -= 1;
 	(*count)++;
     } else {
-	int chunks = size / 256 + 1;
-	if (ber_check_memory(curr, chunks + 1))
+	int chunks = 0;
+	if (ber_check_memory(curr, 8))
 	    return ASN1_ERROR;
 
 	while (size > 0)
@@ -1144,6 +1150,7 @@ int ber_encode_length(size_t size, mem_chunk_t **curr, unsigned int *count) {
 	    size >>= 8;
 	    (*curr)->curr -= 1;
 	    (*count)++;
+	    chunks++;
 	}
 
 	*(*curr)->curr = chunks | 0x80;
@@ -1153,7 +1160,7 @@ int ber_encode_length(size_t size, mem_chunk_t **curr, unsigned int *count) {
     return ASN1_OK;
 }
 
-mem_chunk_t *ber_new_chunk(unsigned int length) {
+static mem_chunk_t *ber_new_chunk(unsigned int length) {
     mem_chunk_t *new = enif_alloc(sizeof(mem_chunk_t));
     if (new == NULL)
 	return NULL;
@@ -1168,7 +1175,7 @@ mem_chunk_t *ber_new_chunk(unsigned int length) {
     return new;
 }
 
-void ber_free_chunks(mem_chunk_t *chunk) {
+static void ber_free_chunks(mem_chunk_t *chunk) {
     mem_chunk_t *curr, *next = chunk;
     while (next != NULL) {
 	curr = next;
@@ -1178,7 +1185,7 @@ void ber_free_chunks(mem_chunk_t *chunk) {
     }
 }
 
-int ber_check_memory(mem_chunk_t **curr, unsigned int needed) {
+static int ber_check_memory(mem_chunk_t **curr, unsigned int needed) {
     mem_chunk_t *new;
     if ((*curr)->curr-needed >= (*curr)->top)
 	return ASN1_OK;
@@ -1221,7 +1228,33 @@ static ERL_NIF_TERM encode_per_complete(ErlNifEnv* env, int argc,
     return enif_make_binary(env, &out_binary);
 }
 
-static ERL_NIF_TERM decode_ber_tlv(ErlNifEnv* env, int argc,
+static ERL_NIF_TERM
+make_ber_error_term(ErlNifEnv* env, unsigned int return_code,
+		    unsigned int err_pos)
+{
+    ERL_NIF_TERM reason;
+    ERL_NIF_TERM t;
+
+    switch (return_code) {
+    case ASN1_TAG_ERROR:
+	reason = enif_make_atom(env, "invalid_tag");
+	break;
+    case ASN1_LEN_ERROR:
+    case ASN1_INDEF_LEN_ERROR:
+	reason = enif_make_atom(env, "invalid_length");
+	break;
+    case ASN1_VALUE_ERROR:
+	reason = enif_make_atom(env, "invalid_value");
+	break;
+    default:
+	reason = enif_make_atom(env, "unknown");
+	break;
+    }
+    t = enif_make_tuple2(env, reason, enif_make_int(env, err_pos));
+    return enif_make_tuple2(env, enif_make_atom(env, "error"), t);
+}
+
+static ERL_NIF_TERM decode_ber_tlv_raw(ErlNifEnv* env, int argc,
 	const ERL_NIF_TERM argv[]) {
     ErlNifBinary in_binary;
     ERL_NIF_TERM return_term;
@@ -1230,11 +1263,11 @@ static ERL_NIF_TERM decode_ber_tlv(ErlNifEnv* env, int argc,
     if (!enif_inspect_iolist_as_binary(env, argv[0], &in_binary))
 	return enif_make_badarg(env);
 
-    if ((return_code = ber_decode_begin(env, &return_term, in_binary.data,
-	    in_binary.size, &err_pos)) != ASN1_OK
-    )
-	return enif_make_tuple2(env, enif_make_atom(env,"error"), enif_make_tuple2(env,
-			enif_make_int(env, return_code),enif_make_int(env, err_pos)));
+    return_code = ber_decode_begin(env, &return_term, in_binary.data,
+				   in_binary.size, &err_pos);
+    if (return_code != ASN1_OK) {
+	return make_ber_error_term(env, return_code, err_pos);
+    }
     return return_term;
 }
 
@@ -1297,8 +1330,11 @@ static void unload(ErlNifEnv* env, void* priv_data) {
 
 }
 
-static ErlNifFunc nif_funcs[] = { { "encode_per_complete", 1,
-	encode_per_complete }, { "decode_ber_tlv", 1, decode_ber_tlv }, {
-	"encode_ber_tlv", 1, encode_ber_tlv } };
+
+static ErlNifFunc nif_funcs[] =  {
+    { "encode_per_complete", 1, encode_per_complete },
+    { "decode_ber_tlv_raw", 1, decode_ber_tlv_raw },
+    { "encode_ber_tlv", 1, encode_ber_tlv },
+};
 
 ERL_NIF_INIT(asn1rt_nif, nif_funcs, load, NULL, upgrade, unload)

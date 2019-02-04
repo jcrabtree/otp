@@ -1,23 +1,17 @@
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% %CopyrightBegin%
-%% 
-%% Copyright Ericsson AB 2003-2012. All Rights Reserved.
-%% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
-%% 
-%% %CopyrightEnd%
+%%     http://www.apache.org/licenses/LICENSE-2.0
 %%
-%% @author Richard Carlsson <richardc@it.uu.se>
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%
 %% @copyright 2000-2004 Richard Carlsson
+%% @author Richard Carlsson <carlsson.richard@gmail.com>
 %% @doc HiPE-ification of Core Erlang code. Prepares Core Erlang code
 %% for translation to ICode.
 %% @see cerl_to_icode
@@ -622,12 +616,12 @@ ren__map(Key, Ren) ->
 %% ---------------------------------------------------------------------
 %% State
 
-%% pmatch = 'true' | 'false' | 'no_duplicates' | 'duplicate_all'
+-type pmatch() :: 'true' | 'false' | 'no_duplicates' | 'duplicate_all'.
 
--record(state, {module::atom(),
-		function::{atom(), 0..256},
-		pmatch=true,
-		revisit = false}).
+-record(state, {module          :: module(),
+		function        :: {atom(), arity()} | 'undefined',
+		pmatch = true   :: pmatch(),
+		revisit = false :: boolean()}).
 
 s__new(Module) ->
     #state{module = Module}.

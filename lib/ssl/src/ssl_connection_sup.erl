@@ -1,33 +1,31 @@
 %%
 %% %CopyrightBegin%
-%% 
-%% Copyright Ericsson AB 2007-2011. All Rights Reserved.
-%% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
-%% 
+%%
+%% Copyright Ericsson AB 1998-2018. All Rights Reserved.
+%%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%%
 %% %CopyrightEnd%
 %%
 
 %%
-%%----------------------------------------------------------------------
-%% Purpose: The top supervisor for the ftp hangs under inets_sup.
-%%----------------------------------------------------------------------
+
 -module(ssl_connection_sup).
 
 -behaviour(supervisor).
 
 %% API
--export([start_link/0, start_link_dist/0]).
--export([start_child/1, start_child_dist/1]).
+-export([start_link/0]).
 
 %% Supervisor callback
 -export([init/1]).
@@ -35,32 +33,69 @@
 %%%=========================================================================
 %%%  API
 %%%=========================================================================
+
+-spec start_link() -> {ok, pid()} | ignore | {error, term()}.
+			
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-start_link_dist() ->
-    supervisor:start_link({local, ssl_connection_sup_dist}, ?MODULE, []).
-
-start_child(Args) ->
-    supervisor:start_child(?MODULE, Args).
-    
-start_child_dist(Args) ->
-    supervisor:start_child(ssl_connection_sup_dist, Args).
-    
 %%%=========================================================================
 %%%  Supervisor callback
 %%%=========================================================================
-init(_O) ->
-    RestartStrategy = simple_one_for_one,
-    MaxR = 0,
-    MaxT = 3600,
-   
-    Name = undefined, % As simple_one_for_one is used.
-    StartFunc = {ssl_connection, start_link, []},
-    Restart = temporary, % E.g. should not be restarted
-    Shutdown = 4000,
-    Modules = [ssl_connection],
-    Type = worker,
+
+init([]) ->    
+  
+    TLSConnetionManager = tls_connection_manager_child_spec(),
+    %% Handles emulated options so that they inherited by the accept
+    %% socket, even when setopts is performed on the listen socket
+    ListenOptionsTracker = listen_options_tracker_child_spec(), 
     
-    ChildSpec = {Name, StartFunc, Restart, Shutdown, Type, Modules},
-    {ok, {{RestartStrategy, MaxR, MaxT}, [ChildSpec]}}.
+    DTLSConnetionManager = dtls_connection_manager_child_spec(),
+    DTLSListeners = dtls_listeners_spec(),
+
+    {ok, {{one_for_one, 10, 3600}, [TLSConnetionManager, 
+				    ListenOptionsTracker,
+				    DTLSConnetionManager, 
+				    DTLSListeners
+				   ]}}.
+
+    
+%%--------------------------------------------------------------------
+%%% Internal functions
+%%--------------------------------------------------------------------
+
+tls_connection_manager_child_spec() ->
+    Name = tls_connection,  
+    StartFunc = {tls_connection_sup, start_link, []},
+    Restart = permanent, 
+    Shutdown = 4000,
+    Modules = [tls_connection_sup],
+    Type = supervisor,
+    {Name, StartFunc, Restart, Shutdown, Type, Modules}.
+
+dtls_connection_manager_child_spec() ->
+    Name = dtls_connection,
+    StartFunc = {dtls_connection_sup, start_link, []},
+    Restart = permanent,
+    Shutdown = 4000,
+    Modules = [dtls_connection_sup],
+    Type = supervisor,
+    {Name, StartFunc, Restart, Shutdown, Type, Modules}.
+
+listen_options_tracker_child_spec() ->
+    Name = tls_socket,  
+    StartFunc = {ssl_listen_tracker_sup, start_link, []},
+    Restart = permanent, 
+    Shutdown = 4000,
+    Modules = [tls_socket],
+    Type = supervisor,
+    {Name, StartFunc, Restart, Shutdown, Type, Modules}.
+
+dtls_listeners_spec() ->
+    Name = dtls_listener,  
+    StartFunc = {dtls_listener_sup, start_link, []},
+    Restart = permanent, 
+    Shutdown = 4000,
+    Modules = [],
+    Type = supervisor,
+    {Name, StartFunc, Restart, Shutdown, Type, Modules}.

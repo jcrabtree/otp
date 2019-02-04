@@ -1,20 +1,20 @@
-%% ``The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved via the world wide web at http://www.erlang.org/.
+%% ``Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% The Initial Developer of the Original Code is Ericsson Utvecklings AB.
 %% Portions created by Ericsson are Copyright 1999, Ericsson Utvecklings
 %% AB. All Rights Reserved.''
 %%
 %%     $Id: mnesia.erl,v 1.2 2010/03/04 13:54:19 maria Exp $
-%%
 %% This module exports the public interface of the Mnesia DBMS engine
 
 -module(mnesia).
@@ -431,7 +431,7 @@ wrap_trans(State, Fun, Args, Retries, Mod, Kind) ->
 %% read lock is only set on the first node
 %% Nodes may either be a list of nodes or one node as an atom
 %% Mnesia on all Nodes must be connected to each other, but
-%% it is not neccessary that they are up and running.
+%% it is not necessary that they are up and running.
 
 lock(LockItem, LockKind) ->
     case get(mnesia_activity_state) of
@@ -1806,7 +1806,6 @@ system_info2(dump_log_update_in_place) ->
 system_info2(dump_log_update_in_place) ->
     mnesia_monitor:get_env(dump_log_update_in_place);
 system_info2(max_wait_for_decision) -> mnesia_monitor:get_env(max_wait_for_decision);
-system_info2(embedded_mnemosyne) -> mnesia_monitor:get_env(embedded_mnemosyne);
 system_info2(ignore_fallback_at_startup) -> mnesia_monitor:get_env(ignore_fallback_at_startup);
 system_info2(fallback_error_function) ->  mnesia_monitor:get_env(fallback_error_function);
 system_info2(log_version) -> mnesia_log:version();
@@ -1840,7 +1839,6 @@ system_info_items(yes) ->
      dump_log_time_threshold,
      dump_log_update_in_place,
      dump_log_write_threshold,
-     embedded_mnemosyne,
      event_module,
      extra_db_nodes,
      fallback_activated,

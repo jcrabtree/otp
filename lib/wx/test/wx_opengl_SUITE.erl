@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2008-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2008-2018. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%%-------------------------------------------------------------------
@@ -26,7 +27,7 @@
 	 init_per_suite/1, end_per_suite/1, 
 	 init_per_testcase/2, end_per_testcase/2]).
 
--compile(export_all).
+-export([canvas/1, glu_tesselation/1]).
 
 -include("wx_test_lib.hrl").
 -include_lib("wx/include/gl.hrl").
@@ -51,7 +52,7 @@ end_per_testcase(Func,Config) ->
     wx_test_lib:end_per_testcase(Func,Config).
 
 %% SUITE specification
-suite() -> [{ct_hooks,[ts_install_cth]}].
+suite() -> [{ct_hooks,[ts_install_cth]}, {timetrap,{minutes,2}}].
 
 all() -> 
     [canvas, glu_tesselation].
@@ -92,12 +93,26 @@ canvas(TestInfo) when is_atom(TestInfo) -> wx_test_lib:tc_info(TestInfo);
 canvas(Config) ->
     WX = ?mr(wx_ref, wx:new()),
     Frame = wxFrame:new(WX,1,"Hello 3D-World",[]),
-    Attrs = [{attribList, [?WX_GL_RGBA,?WX_GL_DOUBLEBUFFER,0]}],
-    Canvas = ?mt(wxGLCanvas, wxGLCanvas:new(Frame, Attrs)),
+    Attrs = [{attribList, [?WX_GL_RGBA,
+			   ?WX_GL_DOUBLEBUFFER,
+			   ?WX_GL_MIN_RED,8,
+			   ?WX_GL_MIN_GREEN,8,
+			   ?WX_GL_MIN_BLUE,8,
+			   ?WX_GL_DEPTH_SIZE,24,0]}],
+    Canvas = ?mt(wxGLCanvas, wxGLCanvas:new(Frame, [{style,?wxFULL_REPAINT_ON_RESIZE}|
+						    Attrs])),
     
+    wxFrame:connect(Frame, show),
     ?m(true, wxWindow:show(Frame)),
+
+    receive #wx{event=#wxShow{}} -> ok
+    after 1000 -> exit(show_timeout)
+    end,
+
     ?m(false, wx:is_null(wxGLCanvas:getContext(Canvas))),
     ?m({'EXIT', {{error, no_gl_context,_},_}}, gl:getString(?GL_VENDOR)),
+    gl:viewport(0,0,50,50), %% Show cause an error report
+
 
     ?m(ok, wxGLCanvas:setCurrent(Canvas)),
     io:format("Vendor:     ~s~n",  [gl:getString(?GL_VENDOR)]),
@@ -111,7 +126,7 @@ canvas(Config) ->
     %%gl:frustum( -2.0, 2.0, -2.0, 2.0, 5.0, 25.0 ),
     gl:ortho( -2.0, 2.0, -2.0*H/W, 2.0*H/W, -20.0, 20.0),
     gl:matrixMode(?GL_MODELVIEW),
-    gl:loadIdentity(),    
+    gl:loadIdentity(),
     gl:enable(?GL_DEPTH_TEST),
     gl:depthFunc(?GL_LESS),
     {R,G,B,_} = wxWindow:getBackgroundColour(Frame),
@@ -122,7 +137,7 @@ canvas(Config) ->
     ?m([], flush()),
     Env = wx:get_env(),
     Tester = self(),
-    spawn_link(fun() -> 
+    spawn_link(fun() ->
 		       wx:set_env(Env),
 		       ?m(ok, wxGLCanvas:setCurrent(Canvas)),
 		       ?m(ok, drawBox(1, Data)),
@@ -131,11 +146,20 @@ canvas(Config) ->
 		       %% This may fail when window is deleted
 		       catch draw_loop(2,Data,Canvas)
 	       end),
+    %% Needed on mac with wx-2.9
+    wxGLCanvas:connect(Canvas, paint, 
+    		       [{callback, fun(_,_) ->
+    					   wxGLCanvas:setCurrent(Canvas),
+    					   DC= wxPaintDC:new(Canvas),
+    					   wxPaintDC:destroy(DC)
+    				   end}]),
+
+
     ?m_receive(works),
     ?m([], flush()),
     io:format("Undef func ~p ~n", [catch gl:uniform1d(2, 0.75)]),
     timer:sleep(500),
-    ?m([], flush()),
+    flush(),
     wx_test_lib:wx_destroy(Frame, Config).
 
 flush() ->
@@ -150,6 +174,8 @@ flush(Collected) ->
     	  
 draw_loop(Deg,Data,Canvas) ->
     timer:sleep(15),
+    {NW,NH} = wxGLCanvas:getClientSize(Canvas),
+    gl:viewport(0,0,NW,NH),
     drawBox(Deg,Data),
     ?m(ok, wxGLCanvas:swapBuffers(Canvas)),
     draw_loop(Deg+1, Data,Canvas).
@@ -181,7 +207,12 @@ glu_tesselation(Config) ->
     Frame = wxFrame:new(WX,1,"Hello 3D-World",[]),
     Attrs = [{attribList, [?WX_GL_RGBA,?WX_GL_DOUBLEBUFFER,0]}],
     Canvas = ?mt(wxGLCanvas, wxGLCanvas:new(Frame, Attrs)),
+    wxFrame:connect(Frame, show),
     ?m(true, wxWindow:show(Frame)),
+
+    receive #wx{event=#wxShow{}} -> ok
+    after 1000 -> exit(show_timeout)
+    end,
     ?m(ok, wxGLCanvas:setCurrent(Canvas)),
     
     {RL1,RB1} = ?m({_,_}, glu:tesselate({0,0,1}, [{-1,0,0},{1,0,0},{0,1,0}])),

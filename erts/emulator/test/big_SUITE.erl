@@ -1,29 +1,31 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1997-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2018. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
 -module(big_SUITE).
 
 
--export([all/0, suite/0,groups/0,init_per_suite/1, end_per_suite/1, 
-	 init_per_group/2,end_per_group/2]).
+-export([all/0, suite/0, groups/0]).
+
 -export([t_div/1, eq_28/1, eq_32/1, eq_big/1, eq_math/1, big_literals/1,
 	 borders/1, negative/1, big_float_1/1, big_float_2/1,
-	 shift_limit_1/1, powmod/1, system_limit/1, otp_6692/1]).
+         bxor_2pow/1, band_2pow/1,
+	 shift_limit_1/1, powmod/1, system_limit/1, toobig/1, otp_6692/1]).
 
 %% Internal exports.
 -export([eval/1]).
@@ -31,40 +33,21 @@
 
 -export([fac/1, fib/1, pow/2, gcd/2, lcm/2]).
 
--export([init_per_testcase/2, end_per_testcase/2]).
 
--include_lib("test_server/include/test_server.hrl").
+-include_lib("common_test/include/ct.hrl").
 
-suite() -> [{ct_hooks,[ts_install_cth]}].
+suite() ->
+    [{ct_hooks,[ts_install_cth]},
+     {timetrap, {minutes, 3}}].
 
 all() -> 
     [t_div, eq_28, eq_32, eq_big, eq_math, big_literals,
      borders, negative, {group, big_float}, shift_limit_1,
-     powmod, system_limit, otp_6692].
+     bxor_2pow, band_2pow,
+     powmod, system_limit, toobig, otp_6692].
 
 groups() -> 
     [{big_float, [], [big_float_1, big_float_2]}].
-
-init_per_suite(Config) ->
-    Config.
-
-end_per_suite(_Config) ->
-    ok.
-
-init_per_group(_GroupName, Config) ->
-    Config.
-
-end_per_group(_GroupName, Config) ->
-    Config.
-
-
-init_per_testcase(Func, Config) when is_atom(Func), is_list(Config) ->
-    Dog=?t:timetrap(?t:minutes(3)),
-    [{watchdog, Dog}|Config].
-
-end_per_testcase(_Func, Config) ->
-    Dog=?config(watchdog, Config),
-    ?t:timetrap_cancel(Dog).
 
 %%
 %% Syntax of data files:
@@ -94,7 +77,7 @@ eq_math(Config) when is_list(Config) ->
     test(TestFile).
 
 
-borders(doc) -> "Tests border cases between small/big.";
+%% Tests border cases between small/big.
 borders(Config) when is_list(Config) ->
     TestFile = test_file(Config, "borders.dat"),
     test(TestFile).
@@ -106,7 +89,7 @@ negative(Config) when is_list(Config) ->
 
 %% Find test file
 test_file(Config, Name) ->
-    DataDir = ?config(data_dir, Config),
+    DataDir = proplists:get_value(data_dir, Config),
     filename:join(DataDir, Name).
 
 %%
@@ -118,12 +101,12 @@ test(File) ->
     test(File, [node()]).
 
 test(File, Nodes) ->
-    ?line {ok,Fd} = file:open(File, [read]),
+    {ok,Fd} = file:open(File, [read]),
     Res = test(File, Fd, Nodes),
     file:close(Fd),
     case Res of
 	{0,Cases} -> {comment, integer_to_list(Cases) ++ " cases"};
-	{_,_} -> test_server:fail()
+	{_,_} -> ct:fail("failed")
     end.
 
 test(File, Fd, Ns) ->
@@ -155,7 +138,7 @@ multi_match(Ns, Expr) ->
     multi_match(Ns, Expr, []).
 
 multi_match([Node|Ns], Expr, Rs) ->
-    ?line X = rpc:call(Node, big_SUITE, eval, [Expr]),
+    X = rpc:call(Node, big_SUITE, eval, [Expr]),
     if X == 0 -> multi_match(Ns, Expr, Rs);
        true -> multi_match(Ns, Expr, [{Node,X}|Rs])
     end;
@@ -185,7 +168,11 @@ eval({op,_,Op,A0,B0}, LFH) ->
     Res = eval_op(Op, A, B),
     erlang:garbage_collect(),
     Res;
-eval({integer,_,I}, _) -> I;
+eval({integer,_,I}, _) ->
+    %% "Parasitic" ("symbiotic"?) test of squaring all numbers
+    %% found in the test data.
+    test_squaring(I),
+    I;
 eval({call,_,{atom,_,Local},Args0}, LFH) ->
     Args = eval_list(Args0, LFH),
     LFH(Local, Args).
@@ -208,6 +195,18 @@ eval_op('bor', A, B) -> A bor B;
 eval_op('bxor', A, B) -> A bxor B;
 eval_op('bsl', A, B) -> A bsl B;
 eval_op('bsr', A, B) -> A bsr B.
+
+test_squaring(I) ->
+    %% Multiplying an integer by itself is specially optimized, so we
+    %% should take special care to test squaring.  The optimization
+    %% will kick in when the two operands have the same address.
+    Sqr = I * I,
+
+    %% This expression will be multiplied in the usual way, because
+    %% the the two operands for '*' are stored at different addresses.
+    Sqr = I * ((I + id(1)) - id(1)),
+
+    ok.
 
 %% Built in test functions
 
@@ -247,10 +246,10 @@ lcm(Q, R) ->
 %% Test case t_div cut in from R2D test suite.
 
 t_div(Config) when is_list(Config) ->
-    ?line 'try'(fun() -> 98765432101234 div 98765432101235 end, 0),
+    'try'(fun() -> 98765432101234 div 98765432101235 end, 0),
 
     % Big remainder, small quotient.
-    ?line 'try'(fun() -> 339254531512 div 68719476736 end, 4),
+    'try'(fun() -> 339254531512 div 68719476736 end, 4),
     ok.
 
 'try'(Fun, Result) ->
@@ -264,65 +263,60 @@ t_div(Config) when is_list(Config) ->
 	{result, Result} ->
 	    'try'(Iter-1, Fun, Result, [0|Filler]);
 	{result, Other} ->
-	    io:format("Expected ~p; got ~p~n", [Result, Other]),
-	    test_server:fail()
+	    ct:fail("Expected ~p; got ~p~n", [Result, Other])
     end.
 
 init(ReplyTo, Fun, _Filler) ->
     ReplyTo ! {result, Fun()}.
 
-big_literals(doc) ->
-    "Tests that big-number literals work correctly.";
+%% Tests that big-number literals work correctly.
 big_literals(Config) when is_list(Config) ->
     %% Note: The literal test cannot be compiler on a pre-R4 Beam emulator,
     %% so we compile it now.
-    ?line DataDir = ?config(data_dir, Config),
-    ?line Test = filename:join(DataDir, "literal_test"),
-    ?line {ok, Mod, Bin} = compile:file(Test, [binary]),
-    ?line {module, Mod} = code:load_binary(Mod, Mod, Bin),
-    ?line ok = Mod:t(),
+    DataDir = proplists:get_value(data_dir, Config),
+    Test = filename:join(DataDir, "literal_test"),
+    {ok, Mod, Bin} = compile:file(Test, [binary]),
+    {module, Mod} = code:load_binary(Mod, Mod, Bin),
+    ok = Mod:t(),
     ok.
 
 
-big_float_1(doc) ->
-    ["OTP-2436, part 1"];
+%% OTP-2436, part 1
 big_float_1(Config) when is_list(Config) ->
     %% F is a number very close to a maximum float.
-    ?line F = id(1.7e308),
-    ?line I = trunc(F),
-    ?line true = (I == F),
-    ?line false = (I /= F),
-    ?line true = (I > F/2),
-    ?line false = (I =< F/2),
-    ?line true = (I*2 >= F),
-    ?line false = (I*2 < F),
-    ?line true = (I*I > F),
-    ?line false = (I*I =< F),
+    F = id(1.7e308),
+    I = trunc(F),
+    true = (I == F),
+    false = (I /= F),
+    true = (I > F/2),
+    false = (I =< F/2),
+    true = (I*2 >= F),
+    false = (I*2 < F),
+    true = (I*I > F),
+    false = (I*I =< F),
 
-    ?line true = (F == I),
-    ?line false = (F /= I),
-    ?line false = (F/2 > I),
-    ?line true = (F/2 =< I),
-    ?line false = (F >= I*2),
-    ?line true = (F < I*2),
-    ?line false = (F > I*I),
-    ?line true = (F =< I*I),
+    true = (F == I),
+    false = (F /= I),
+    false = (F/2 > I),
+    true = (F/2 =< I),
+    false = (F >= I*2),
+    true = (F < I*2),
+    false = (F > I*I),
+    true = (F =< I*I),
     ok.
 
-big_float_2(doc) ->
-    ["OTP-2436, part 2"];
+%% "OTP-2436, part 2
 big_float_2(Config) when is_list(Config) ->
-    ?line F = id(1.7e308),
-    ?line I = trunc(F),
-    ?line {'EXIT', _} = (catch 1/(2*I)),
-    ?line _Ignore = 2/I,
-    ?line {'EXIT', _} = (catch 4/(2*I)),
+    F = id(1.7e308),
+    I = trunc(F),
+    {'EXIT', _} = (catch 1/(2*I)),
+    _Ignore = 2/I,
+    {'EXIT', _} = (catch 4/(2*I)),
     ok.
 
-shift_limit_1(doc) ->
-    ["OTP-3256"];
+%% OTP-3256
 shift_limit_1(Config) when is_list(Config) ->
-    ?line case catch (id(1) bsl 100000000) of
+    case catch (id(1) bsl 100000000) of
 	      {'EXIT', {system_limit, _}} ->
 		  ok
 	  end,
@@ -351,16 +345,23 @@ powmod(A, B, C) ->
     end.
 
 system_limit(Config) when is_list(Config) ->
-    ?line Maxbig = maxbig(),
-    ?line {'EXIT',{system_limit,_}} = (catch Maxbig+1),
-    ?line {'EXIT',{system_limit,_}} = (catch -Maxbig-1),
-    ?line {'EXIT',{system_limit,_}} = (catch 2*Maxbig),
-    ?line {'EXIT',{system_limit,_}} = (catch bnot Maxbig),
-    ?line {'EXIT',{system_limit,_}} = (catch apply(erlang, id('bnot'), [Maxbig])),
-    ?line {'EXIT',{system_limit,_}} = (catch Maxbig bsl 2),
-    ?line {'EXIT',{system_limit,_}} = (catch apply(erlang, id('bsl'), [Maxbig,2])),
-    ?line {'EXIT',{system_limit,_}} = (catch id(1) bsl (1 bsl 45)),
-    ?line {'EXIT',{system_limit,_}} = (catch id(1) bsl (1 bsl 69)),
+    Maxbig = maxbig(),
+    {'EXIT',{system_limit,_}} = (catch Maxbig+1),
+    {'EXIT',{system_limit,_}} = (catch -Maxbig-1),
+    {'EXIT',{system_limit,_}} = (catch 2*Maxbig),
+    {'EXIT',{system_limit,_}} = (catch bnot Maxbig),
+    {'EXIT',{system_limit,_}} = (catch apply(erlang, id('bnot'), [Maxbig])),
+    {'EXIT',{system_limit,_}} = (catch Maxbig bsl 2),
+    {'EXIT',{system_limit,_}} = (catch apply(erlang, id('bsl'), [Maxbig,2])),
+    {'EXIT',{system_limit,_}} = (catch id(1) bsl (1 bsl 45)),
+    {'EXIT',{system_limit,_}} = (catch id(1) bsl (1 bsl 69)),
+
+    %% There should be no system_limit exception when shifting a zero.
+    0 = id(0) bsl (1 bsl 128),
+    0 = id(0) bsr -(1 bsl 128),
+    Erlang = id(erlang),
+    0 = Erlang:'bsl'(id(0), 1 bsl 128),
+    0 = Erlang:'bsr'(id(0), -(1 bsl 128)),
     ok.
 
 maxbig() ->
@@ -370,12 +371,19 @@ maxbig() ->
 
 id(I) -> I.
 
-otp_6692(suite) ->
-    [];
-otp_6692(doc) ->
-    ["Tests for DIV/REM bug reported in OTP-6692"];
+toobig(Config) when is_list(Config) ->
+    {'EXIT',{{badmatch,_},_}} = (catch toobig()),
+    ok.
+
+toobig() ->
+    A = erlang:term_to_binary(lists:seq(1000000, 2200000)),
+    ASize = erlang:bit_size(A),
+    <<ANr:ASize>> = A, % should fail
+    ANr band ANr.
+
+%% Tests for DIV/REM bug reported in OTP-6692
 otp_6692(Config) when is_list(Config)->
-    ?line loop1(1,1000).
+    loop1(1,1000).
 
 fact(N) ->
      fact(N,1).
@@ -413,3 +421,89 @@ loop2(X,Y,N,M) ->
     end,
     loop2(X,Y,N+1,M).
     
+
+%% ERL-450
+bxor_2pow(_Config) ->
+    IL = lists:seq(8*3, 8*16, 4),
+    JL = lists:seq(0, 64),
+    [bxor_2pow_1((1 bsl I), (1 bsl J))
+     || I <- IL, J <- JL],
+    ok.
+
+bxor_2pow_1(A, B) ->
+    for(-1,1, fun(Ad) ->
+                      for(-1,1, fun(Bd) ->
+                                        bxor_2pow_2(A+Ad, B+Bd),
+                                        bxor_2pow_2(-A+Ad, B+Bd),
+                                        bxor_2pow_2(A+Ad, -B+Bd),
+                                        bxor_2pow_2(-A+Ad, -B+Bd)
+                                end)
+              end).
+
+for(From, To, _Fun) when From > To ->
+    ok;
+for(From, To, Fun) ->
+    Fun(From),
+    for(From+1, To, Fun).
+
+bxor_2pow_2(A, B) ->
+    Correct = my_bxor(A, B),
+    case A bxor B of
+        Correct -> ok;
+        Wrong ->
+            io:format("~.16b bxor ~.16b\n", [A,B]),
+            io:format("Expected ~.16b\n", [Correct]),
+            io:format("Got      ~.16b\n", [Wrong]),
+            ct:fail({failed, 'bxor'})
+
+    end.
+
+%% Implement bxor without bxor
+my_bxor(A, B) ->
+    my_bxor(A, B, 0, 0).
+
+my_bxor(0, 0, _, Acc) -> Acc;
+my_bxor(-1, -1, _, Acc) -> Acc;
+my_bxor(-1, 0, N, Acc) -> (-1 bsl N) bor Acc; % sign extension
+my_bxor(0, -1, N, Acc) -> (-1 bsl N) bor Acc; % sign extension
+my_bxor(A, B, N, Acc0) ->
+    Acc1 = case (A band 1) =:= (B band 1) of
+               true -> Acc0;
+               false -> Acc0 bor (1 bsl N)
+          end,
+    my_bxor(A bsr 1, B bsr 1, N+1, Acc1).
+
+
+%% ERL-804
+band_2pow(_Config) ->
+    IL = lists:seq(8*3, 8*16, 4),
+    JL = lists:seq(0, 64),
+    [band_2pow_1((1 bsl I), (1 bsl J))
+     || I <- IL, J <- JL],
+    ok.
+
+band_2pow_1(A, B) ->
+    for(-1,1, fun(Ad) ->
+                      for(-1,1, fun(Bd) ->
+                                        band_2pow_2(A+Ad, B+Bd),
+                                        band_2pow_2(-A+Ad, B+Bd),
+                                        band_2pow_2(A+Ad, -B+Bd),
+                                        band_2pow_2(-A+Ad, -B+Bd)
+                                end)
+              end).
+
+band_2pow_2(A, B) ->
+    Correct = my_band(A, B),
+    case A band B of
+        Correct -> ok;
+        Wrong ->
+            io:format("~.16# band ~.16#\n", [A,B]),
+            io:format("Expected ~.16#\n", [Correct]),
+            io:format("Got      ~.16#\n", [Wrong]),
+            ct:fail({failed, 'band'})
+
+    end.
+
+%% Implement band without band
+my_band(A, B) ->
+    bnot ((bnot A) bor (bnot B)).

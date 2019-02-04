@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 1998-2010. All Rights Reserved.
+ * Copyright Ericsson AB 1998-2016. All Rights Reserved.
  *
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  * %CopyrightEnd%
  *
@@ -39,6 +40,8 @@
 #       include <time.h>
 #    endif
 #  endif
+#else
+#  include <time.h>
 #endif
 
 #include "eiext.h"
@@ -132,13 +135,13 @@ int ei_show_sendmsg(FILE *stream, const char *header, const char *msgbuf)
 
     switch (msg.msgtype) {
     case ERL_SEND:
-	if (ei_decode_atom(header,&index,msg.cookie) 
+	if (ei_decode_atom_as(header,&index,msg.cookie,sizeof(msg.cookie),ERLANG_UTF8,NULL,NULL) 
 	    || ei_decode_pid(header,&index,&msg.to)) return -1;
 	mbuf = msgbuf;
 	break;
 
     case ERL_SEND_TT:
-	if (ei_decode_atom(header,&index,msg.cookie) 
+	if (ei_decode_atom_as(header,&index,msg.cookie,sizeof(msg.cookie),ERLANG_UTF8,NULL,NULL) 
 	    || ei_decode_pid(header,&index,&msg.to)
 	    || ei_decode_trace(header,&index,&msg.token)) return -1;
 	mbuf = msgbuf;
@@ -146,15 +149,15 @@ int ei_show_sendmsg(FILE *stream, const char *header, const char *msgbuf)
     
     case ERL_REG_SEND:
 	if (ei_decode_pid(header,&index,&msg.from) 
-	    || ei_decode_atom(header,&index,msg.cookie) 
-	    || ei_decode_atom(header,&index,msg.toname)) return -1;
+	    || ei_decode_atom_as(header,&index,msg.cookie,sizeof(msg.cookie),ERLANG_UTF8,NULL,NULL) 
+	    || ei_decode_atom_as(header,&index,msg.toname,sizeof(msg.toname),ERLANG_UTF8,NULL,NULL)) return -1;
 	mbuf = msgbuf;
 	break;
     
     case ERL_REG_SEND_TT:
 	if (ei_decode_pid(header,&index,&msg.from) 
-	    || ei_decode_atom(header,&index,msg.cookie) 
-	    || ei_decode_atom(header,&index,msg.toname)
+	    || ei_decode_atom_as(header,&index,msg.cookie,sizeof(msg.cookie),ERLANG_UTF8,NULL,NULL) 
+	    || ei_decode_atom_as(header,&index,msg.toname,sizeof(msg.toname),ERLANG_UTF8,NULL,NULL)
 	    || ei_decode_trace(header,&index,&msg.token)) return -1;
 	mbuf = msgbuf;
 	break;
@@ -397,6 +400,7 @@ static void show_term(const char *termbuf, int *index, FILE *stream)
 	break;
 
     case ERL_PID_EXT:
+    case ERL_NEW_PID_EXT:
 	ei_decode_pid(termbuf,index,&pid);
 	show_pid(stream,&pid);
 	break;
@@ -431,6 +435,7 @@ static void show_term(const char *termbuf, int *index, FILE *stream)
     
     case ERL_REFERENCE_EXT:
     case ERL_NEW_REFERENCE_EXT:
+    case ERL_NEWER_REFERENCE_EXT:
 	ei_decode_ref(termbuf,index,&ref);
 	fprintf(stream,"#Ref<%s",ref.node);
 	for (i = 0; i < ref.len; i++) {
@@ -440,6 +445,7 @@ static void show_term(const char *termbuf, int *index, FILE *stream)
 	break;
 
     case ERL_PORT_EXT:
+    case ERL_NEW_PORT_EXT:
 	ei_decode_port(termbuf,index,&port);
 	fprintf(stream,"#Port<%s.%u.%u>",port.node,port.id,port.creation);
 	break;
@@ -457,7 +463,7 @@ static void show_term(const char *termbuf, int *index, FILE *stream)
 	break;
     
     case ERL_FUN_EXT: {
-	char atom[MAXATOMLEN+1];
+	char atom[MAXATOMLEN];
 	long idx;
 	long uniq;
 	const char* s = termbuf + *index, * s0 = s;

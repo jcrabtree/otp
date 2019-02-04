@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1997-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2017. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -63,7 +64,7 @@ handle_event(Event, State) ->
 %%-----------------------------------------------------------------
 
 handle_info(Msg, State) ->
-    handle_any_event(Msg, State),
+    {ok, _} = handle_any_event(Msg, State),
     {ok, State}.
 
 %%-----------------------------------------------------------------
@@ -102,18 +103,19 @@ handle_any_event({mnesia_system_event, Event}, State) ->
 handle_any_event({mnesia_table_event, Event}, State) ->
     handle_table_event(Event, State);
 handle_any_event(Msg, State) ->
-    report_error("~p got unexpected event: ~p~n", [?MODULE, Msg]),
+    report_error("~p got unexpected event: ~tp~n", [?MODULE, Msg]),
     {ok, State}.
 
 handle_table_event({Oper, Record, TransId}, State) ->
-    report_info("~p performed by ~p on record:~n\t~p~n",
+    report_info("~p performed by ~p on record:~n\t~tp~n",
 		[Oper, TransId, Record]),
     {ok, State}.  
 
 handle_system_event({mnesia_checkpoint_activated, _Checkpoint}, State) ->
     {ok, State};
 
-handle_system_event({mnesia_checkpoint_deactivated, _Checkpoint}, State) ->
+handle_system_event({mnesia_checkpoint_deactivated, Checkpoint}, State) ->
+    report_error("Checkpoint '~p' has been deactivated, last table copy deleted.\n",[Checkpoint]),
     {ok, State};
 
 handle_system_event({mnesia_up, Node}, State) ->
@@ -153,7 +155,7 @@ handle_system_event({mnesia_down, Node}, State) ->
     end;
 
 handle_system_event({mnesia_overload, Details}, State) ->
-    report_warning("Mnesia is overloaded: ~p~n", [Details]),
+    report_warning("Mnesia is overloaded: ~tw~n", [Details]),
     {ok, State}; 
 
 handle_system_event({mnesia_info, Format, Args}, State) ->
@@ -173,16 +175,16 @@ handle_system_event({mnesia_fatal, Format, Args, BinaryCore}, State) ->
     {ok, State#state{dumped_core = true}};
 
 handle_system_event({inconsistent_database, Reason, Node}, State) ->
-    report_error("mnesia_event got {inconsistent_database, ~w, ~w}~n",
+    report_error("mnesia_event got {inconsistent_database, ~tw, ~w}~n",
 		 [Reason, Node]),
     {ok, State}; 
 
 handle_system_event({mnesia_user, Event}, State) ->
-    report_info("User event: ~p~n", [Event]),
+    report_info("User event: ~tp~n", [Event]),
     {ok, State}; 
 
 handle_system_event(Msg, State) ->
-    report_error("mnesia_event got unexpected system event: ~p~n", [Msg]),
+    report_error("mnesia_event got unexpected system event: ~tp~n", [Msg]),
     {ok, State}.
 
 report_info(Format0, Args0) ->
@@ -235,8 +237,7 @@ report_fatal(Format, Args, BinaryCore, CoreDumped) ->
     end.
 
 core_file(CoreDir,BinaryCore,Format,Args) ->
-    %% Integers = tuple_to_list(date()) ++ tuple_to_list(time()),
-    Integers = tuple_to_list(now()),
+    Integers = tuple_to_list(erlang:timestamp()),
     Fun = fun(I) when I < 10 -> ["_0",I];
 	     (I) -> ["_",I]
 	  end,

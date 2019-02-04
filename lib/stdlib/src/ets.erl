@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -42,73 +43,512 @@
 
 -export([i/0, i/1, i/2, i/3]).
 
--export_type([tab/0, tid/0, match_spec/0]).
+-export_type([tab/0, tid/0, match_spec/0, comp_match_spec/0, match_pattern/0]).
 
 %%-----------------------------------------------------------------------------
 
+-type access()     :: public | protected | private.
 -type tab()        :: atom() | tid().
+-type type()       :: set | ordered_set | bag | duplicate_bag.
+-type continuation() :: '$end_of_table'
+                      | {tab(),integer(),integer(),comp_match_spec(),list(),integer()}
+                      | {tab(),_,_,integer(),comp_match_spec(),list(),integer(),integer()}.
 
-%% a similar definition is also in erl_types
--opaque tid()      :: integer().
+-opaque tid()      :: reference().
 
-%% these ones are also defined in erl_bif_types
 -type match_pattern() :: atom() | tuple().
 -type match_spec()    :: [{match_pattern(), [_], [_]}].
 
 %%-----------------------------------------------------------------------------
 
-%% The following functions used to be found in this module, but
-%% are now BIFs (i.e. implemented in C).
-%%
-%% all/0
-%% new/2
-%% delete/1
-%% delete/2
-%% first/1
-%% info/1
-%% info/2
-%% safe_fixtable/2
-%% lookup/2
-%% lookup_element/3
-%% insert/2
-%% is_compiled_ms/1
-%% last/1
-%% member/2
-%% next/2
-%% prev/2
-%% rename/2
-%% slot/2
-%% match/1
-%% match/2
-%% match/3
-%% match_object/1
-%% match_object/2
-%% match_object/3
-%% match_spec_compile/1
-%% match_spec_run_r/3
-%% select/1
-%% select/2
-%% select/3
-%% select_count/2
-%% select_reverse/1
-%% select_reverse/2
-%% select_reverse/3
-%% select_delete/2
-%% setopts/2
-%% update_counter/3
-%% update_element/3
-%%
+%%% BIFs
 
--opaque comp_match_spec() :: any().  %% this one is REALLY opaque
+-export([all/0, delete/1, delete/2, delete_all_objects/1,
+         delete_object/2, first/1, give_away/3, info/1, info/2,
+         insert/2, insert_new/2, is_compiled_ms/1, last/1, lookup/2,
+         lookup_element/3, match/1, match/2, match/3, match_object/1,
+         match_object/2, match_object/3, match_spec_compile/1,
+         match_spec_run_r/3, member/2, new/2, next/2, prev/2,
+         rename/2, safe_fixtable/2, select/1, select/2, select/3,
+         select_count/2, select_delete/2, select_replace/2, select_reverse/1,
+         select_reverse/2, select_reverse/3, setopts/2, slot/2,
+         take/2,
+         update_counter/3, update_counter/4, update_element/3,
+         whereis/1]).
 
--spec match_spec_run([tuple()], comp_match_spec()) -> [term()].
+%% internal exports
+-export([internal_request_all/0,
+         internal_delete_all/2,
+         internal_select_delete/2]).
+
+-spec all() -> [Tab] when
+      Tab :: tab().
+
+all() ->
+    receive_all(ets:internal_request_all(),
+                erlang:system_info(schedulers),
+                []).
+
+receive_all(_Ref, 0, All) ->
+    All;
+receive_all(Ref, N, All) ->
+    receive
+        {Ref, SchedAll} ->
+            receive_all(Ref, N-1, SchedAll ++ All)
+    end.
+
+-spec internal_request_all() -> reference().
+
+internal_request_all() ->
+    erlang:nif_error(undef).
+
+-spec delete(Tab) -> true when
+      Tab :: tab().
+
+delete(_) ->
+    erlang:nif_error(undef).
+
+-spec delete(Tab, Key) -> true when
+      Tab :: tab(),
+      Key :: term().
+
+delete(_, _) ->
+    erlang:nif_error(undef).
+
+-spec delete_all_objects(Tab) -> true when
+      Tab :: tab().
+
+delete_all_objects(Tab) ->
+    _ = ets:internal_delete_all(Tab, undefined),
+    true.
+
+-spec internal_delete_all(Tab, undefined) -> NumDeleted when
+      Tab :: tab(),
+      NumDeleted :: non_neg_integer().
+
+internal_delete_all(_, _) ->
+    erlang:nif_error(undef).
+
+-spec delete_object(Tab, Object) -> true when
+      Tab :: tab(),
+      Object :: tuple().
+
+delete_object(_, _) ->
+    erlang:nif_error(undef).
+
+-spec first(Tab) -> Key | '$end_of_table' when
+      Tab :: tab(),
+      Key :: term().
+
+first(_) ->
+    erlang:nif_error(undef).
+
+-spec give_away(Tab, Pid, GiftData) -> true when
+      Tab :: tab(),
+      Pid :: pid(),
+      GiftData :: term().
+
+give_away(_, _, _) ->
+    erlang:nif_error(undef).
+
+-spec info(Tab) -> InfoList | undefined when
+      Tab :: tab(),
+      InfoList :: [InfoTuple],
+      InfoTuple :: {compressed, boolean()}
+                 | {heir, pid() | none}
+                 | {id, tid()}
+                 | {keypos, pos_integer()}
+                 | {memory, non_neg_integer()}
+                 | {name, atom()}
+                 | {named_table, boolean()}
+                 | {node, node()}
+                 | {owner, pid()}
+                 | {protection, access()}
+                 | {size, non_neg_integer()}
+                 | {type, type()}
+		 | {write_concurrency, boolean()}
+		 | {read_concurrency, boolean()}.
+
+info(_) ->
+    erlang:nif_error(undef).
+
+-spec info(Tab, Item) -> Value | undefined when
+      Tab :: tab(),
+      Item :: compressed | fixed | heir | id | keypos | memory
+            | name | named_table | node | owner | protection
+            | safe_fixed | safe_fixed_monotonic_time | size | stats | type
+	    | write_concurrency | read_concurrency,
+      Value :: term().
+
+info(_, _) ->
+    erlang:nif_error(undef).
+
+-spec insert(Tab, ObjectOrObjects) -> true when
+      Tab :: tab(),
+      ObjectOrObjects :: tuple() | [tuple()].
+
+insert(_, _) ->
+    erlang:nif_error(undef).
+
+-spec insert_new(Tab, ObjectOrObjects) -> boolean() when
+      Tab :: tab(),
+      ObjectOrObjects :: tuple() | [tuple()].
+
+insert_new(_, _) ->
+    erlang:nif_error(undef).
+
+-spec is_compiled_ms(Term) -> boolean() when
+      Term :: term().
+
+is_compiled_ms(_) ->
+    erlang:nif_error(undef).
+
+-spec last(Tab) -> Key | '$end_of_table' when
+      Tab :: tab(),
+      Key :: term().
+
+last(_) ->
+    erlang:nif_error(undef).
+
+-spec lookup(Tab, Key) -> [Object] when
+      Tab :: tab(),
+      Key :: term(),
+      Object :: tuple().
+
+lookup(_, _) ->
+    erlang:nif_error(undef).
+
+-spec lookup_element(Tab, Key, Pos) -> Elem when
+      Tab :: tab(),
+      Key :: term(),
+      Pos :: pos_integer(),
+      Elem :: term() | [term()].
+
+lookup_element(_, _, _) ->
+    erlang:nif_error(undef).
+
+-spec match(Tab, Pattern) -> [Match] when
+      Tab :: tab(),
+      Pattern :: match_pattern(),
+      Match :: [term()].
+
+match(_, _) ->
+    erlang:nif_error(undef).
+
+-spec match(Tab, Pattern, Limit) -> {[Match], Continuation} |
+                                       '$end_of_table'  when
+      Tab :: tab(),
+      Pattern :: match_pattern(),
+      Limit :: pos_integer(),
+      Match :: [term()],
+      Continuation :: continuation().
+
+match(_, _, _) ->
+    erlang:nif_error(undef).
+
+-spec match(Continuation) -> {[Match], Continuation} |
+                                '$end_of_table'  when
+      Match :: [term()],
+      Continuation :: continuation().
+
+match(_) ->
+    erlang:nif_error(undef).
+
+-spec match_object(Tab, Pattern) -> [Object] when
+      Tab :: tab(),
+      Pattern :: match_pattern(),
+      Object :: tuple().
+
+match_object(_, _) ->
+    erlang:nif_error(undef).
+
+-spec match_object(Tab, Pattern, Limit) -> {[Object], Continuation} |
+                                           '$end_of_table' when
+      Tab :: tab(),
+      Pattern :: match_pattern(),
+      Limit :: pos_integer(),
+      Object :: tuple(),
+      Continuation :: continuation().
+
+match_object(_, _, _) ->
+    erlang:nif_error(undef).
+
+-spec match_object(Continuation) -> {[Object], Continuation} |
+                                    '$end_of_table' when
+      Object :: tuple(),
+      Continuation :: continuation().
+
+match_object(_) ->
+    erlang:nif_error(undef).
+
+-spec match_spec_compile(MatchSpec) -> CompiledMatchSpec when
+      MatchSpec :: match_spec(),
+      CompiledMatchSpec :: comp_match_spec().
+
+match_spec_compile(_) ->
+    erlang:nif_error(undef).
+
+-spec match_spec_run_r(List, CompiledMatchSpec, list()) -> list() when
+      List :: [term()],
+      CompiledMatchSpec :: comp_match_spec().
+
+match_spec_run_r(_, _, _) ->
+    erlang:nif_error(undef).
+
+-spec member(Tab, Key) -> boolean() when
+      Tab :: tab(),
+      Key :: term().
+
+member(_, _) ->
+    erlang:nif_error(undef).
+
+-spec new(Name, Options) -> tid() | atom() when
+      Name :: atom(),
+      Options :: [Option],
+      Option :: Type | Access | named_table | {keypos,Pos}
+              | {heir, Pid :: pid(), HeirData} | {heir, none} | Tweaks,
+      Type :: type(),
+      Access :: access(),
+      Tweaks :: {write_concurrency, boolean()}
+              | {read_concurrency, boolean()}
+              | compressed,
+      Pos :: pos_integer(),
+      HeirData :: term().
+
+new(_, _) ->
+    erlang:nif_error(undef).
+
+-spec next(Tab, Key1) -> Key2 | '$end_of_table' when
+      Tab :: tab(),
+      Key1 :: term(),
+      Key2 :: term().
+
+next(_, _) ->
+    erlang:nif_error(undef).
+
+-spec prev(Tab, Key1) -> Key2 | '$end_of_table' when
+      Tab :: tab(),
+      Key1 :: term(),
+      Key2 :: term().
+
+prev(_, _) ->
+    erlang:nif_error(undef).
+
+%% Shadowed by erl_bif_types: ets:rename/2
+-spec rename(Tab, Name) -> Name when
+      Tab :: tab(),
+      Name :: atom().
+
+rename(_, _) ->
+    erlang:nif_error(undef).
+
+-spec safe_fixtable(Tab, Fix) -> true when
+      Tab :: tab(),
+      Fix :: boolean().
+
+safe_fixtable(_, _) ->
+    erlang:nif_error(undef).
+
+-spec select(Tab, MatchSpec) -> [Match] when
+      Tab :: tab(),
+      MatchSpec :: match_spec(),
+      Match :: term().
+
+select(_, _) ->
+    erlang:nif_error(undef).
+
+-spec select(Tab, MatchSpec, Limit) -> {[Match],Continuation} |
+                                       '$end_of_table' when
+      Tab :: tab(),
+      MatchSpec :: match_spec(),
+      Limit :: pos_integer(),
+      Match :: term(),
+      Continuation :: continuation().
+
+select(_, _, _) ->
+    erlang:nif_error(undef).
+
+-spec select(Continuation) -> {[Match],Continuation} | '$end_of_table' when
+      Match :: term(),
+      Continuation :: continuation().
+
+select(_) ->
+    erlang:nif_error(undef).
+
+-spec select_count(Tab, MatchSpec) -> NumMatched when
+      Tab :: tab(),
+      MatchSpec :: match_spec(),
+      NumMatched :: non_neg_integer().
+
+select_count(_, _) ->
+    erlang:nif_error(undef).
+
+-spec select_delete(Tab, MatchSpec) -> NumDeleted when
+      Tab :: tab(),
+      MatchSpec :: match_spec(),
+      NumDeleted :: non_neg_integer().
+
+select_delete(Tab, [{'_',[],[true]}]) ->
+    ets:internal_delete_all(Tab, undefined);
+select_delete(Tab, MatchSpec) ->
+    ets:internal_select_delete(Tab, MatchSpec).
+
+-spec internal_select_delete(Tab, MatchSpec) -> NumDeleted when
+      Tab :: tab(),
+      MatchSpec :: match_spec(),
+      NumDeleted :: non_neg_integer().
+
+internal_select_delete(_, _) ->
+    erlang:nif_error(undef).
+
+-spec select_replace(Tab, MatchSpec) -> NumReplaced when
+      Tab :: tab(),
+      MatchSpec :: match_spec(),
+      NumReplaced :: non_neg_integer().
+
+select_replace(_, _) ->
+    erlang:nif_error(undef).
+
+-spec select_reverse(Tab, MatchSpec) -> [Match] when
+      Tab :: tab(),
+      MatchSpec :: match_spec(),
+      Match :: term().
+
+select_reverse(_, _) ->
+    erlang:nif_error(undef).
+
+-spec select_reverse(Tab, MatchSpec, Limit) -> {[Match],Continuation} |
+                                               '$end_of_table' when
+      Tab :: tab(),
+      MatchSpec :: match_spec(),
+      Limit :: pos_integer(),
+      Match :: term(),
+      Continuation :: continuation().
+
+select_reverse(_, _, _) ->
+    erlang:nif_error(undef).
+
+-spec select_reverse(Continuation) -> {[Match],Continuation} |
+                                      '$end_of_table' when
+      Continuation :: continuation(),
+      Match :: term().
+
+select_reverse(_) ->
+    erlang:nif_error(undef).
+
+-spec setopts(Tab, Opts) -> true when
+      Tab :: tab(),
+      Opts :: Opt | [Opt],
+      Opt :: {heir, pid(), HeirData} | {heir,none},
+      HeirData :: term().
+
+setopts(_, _) ->
+    erlang:nif_error(undef).
+
+-spec slot(Tab, I) -> [Object] | '$end_of_table' when
+      Tab :: tab(),
+      I :: non_neg_integer(),
+      Object :: tuple().
+
+slot(_, _) ->
+    erlang:nif_error(undef).
+
+-spec take(Tab, Key) -> [Object] when
+      Tab :: tab(),
+      Key :: term(),
+      Object :: tuple().
+
+take(_, _) ->
+    erlang:nif_error(undef).
+
+-spec update_counter(Tab, Key, UpdateOp) -> Result when
+      Tab :: tab(),
+      Key :: term(),
+      UpdateOp :: {Pos, Incr} | {Pos, Incr, Threshold, SetValue},
+      Pos :: integer(),
+      Incr :: integer(),
+      Threshold :: integer(),
+      SetValue :: integer(),
+      Result :: integer();
+                       (Tab, Key, [UpdateOp]) -> [Result] when
+      Tab :: tab(),
+      Key :: term(),
+      UpdateOp :: {Pos, Incr} | {Pos, Incr, Threshold, SetValue},
+      Pos :: integer(),
+      Incr :: integer(),
+      Threshold :: integer(),
+      SetValue :: integer(),
+      Result :: integer();
+                       (Tab, Key, Incr) -> Result when
+      Tab :: tab(),
+      Key :: term(),
+      Incr :: integer(),
+      Result :: integer().
+
+update_counter(_, _, _) ->
+    erlang:nif_error(undef).
+
+-spec update_counter(Tab, Key, UpdateOp, Default) -> Result when
+                        Tab :: tab(),
+                        Key :: term(),
+                        UpdateOp :: {Pos, Incr}
+                                  | {Pos, Incr, Threshold, SetValue},
+                        Pos :: integer(),
+                        Incr :: integer(),
+                        Threshold :: integer(),
+                        SetValue :: integer(),
+                        Result :: integer(),
+                        Default :: tuple();
+                    (Tab, Key, [UpdateOp], Default) -> [Result] when
+                        Tab :: tab(),
+                        Key :: term(),
+                        UpdateOp :: {Pos, Incr}
+                                  | {Pos, Incr, Threshold, SetValue},
+                        Pos :: integer(),
+                        Incr :: integer(),
+                        Threshold :: integer(),
+                        SetValue :: integer(),
+                        Result :: integer(),
+                        Default :: tuple();
+                    (Tab, Key, Incr, Default) -> Result when
+                        Tab :: tab(),
+                        Key :: term(),
+                        Incr :: integer(),
+                        Result :: integer(),
+                        Default :: tuple().
+
+update_counter(_, _, _, _) ->
+    erlang:nif_error(undef).
+
+-spec update_element(Tab, Key, ElementSpec :: {Pos, Value}) -> boolean() when
+      Tab :: tab(),
+      Key :: term(),
+      Pos :: pos_integer(),
+      Value :: term();
+                       (Tab, Key, ElementSpec :: [{Pos, Value}]) -> boolean() when
+      Tab :: tab(),
+      Key :: term(),
+      Pos :: pos_integer(),
+      Value :: term().
+
+update_element(_, _, _) ->
+    erlang:nif_error(undef).
+
+-spec whereis(TableName) -> tid() | undefined when
+    TableName :: atom().
+whereis(_) ->
+    erlang:nif_error(undef).
+
+%%% End of BIFs
+
+-opaque comp_match_spec() :: reference().
+
+-spec match_spec_run(List, CompiledMatchSpec) -> list() when
+      List :: [term()],
+      CompiledMatchSpec :: comp_match_spec().
 
 match_spec_run(List, CompiledMS) ->
     lists:reverse(ets:match_spec_run_r(List, CompiledMS, [])).
-
--type continuation() :: '$end_of_table'
-                      | {tab(),integer(),integer(),binary(),list(),integer()}
-                      | {tab(),_,_,integer(),binary(),list(),integer(),integer()}.
 
 -spec repair_continuation(Continuation, MatchSpec) -> Continuation when
       Continuation :: continuation(),
@@ -118,28 +558,28 @@ match_spec_run(List, CompiledMS) ->
 repair_continuation('$end_of_table', _) ->
     '$end_of_table';
 %% ordered_set
-repair_continuation(Untouched = {Table,Lastkey,EndCondition,N2,Bin,L2,N3,N4}, MS)
+repair_continuation(Untouched = {Table,Lastkey,EndCondition,N2,MSRef,L2,N3,N4}, MS)
   when %% (is_atom(Table) or is_integer(Table)),
        is_integer(N2),
-       byte_size(Bin) =:= 0,
+      %% is_reference(MSRef),
        is_list(L2),
        is_integer(N3),
        is_integer(N4) ->
-    case ets:is_compiled_ms(Bin) of
+    case ets:is_compiled_ms(MSRef) of
 	true ->
 	    Untouched;
 	false ->
 	    {Table,Lastkey,EndCondition,N2,ets:match_spec_compile(MS),L2,N3,N4}
     end;
 %% set/bag/duplicate_bag
-repair_continuation(Untouched = {Table,N1,N2,Bin,L,N3}, MS)
+repair_continuation(Untouched = {Table,N1,N2,MSRef,L,N3}, MS)
   when %% (is_atom(Table) or is_integer(Table)),
        is_integer(N1),
        is_integer(N2),
-       byte_size(Bin) =:= 0,
+      %% is_reference(MSRef),
        is_list(L),
        is_integer(N3) ->
-    case ets:is_compiled_ms(Bin) of
+    case ets:is_compiled_ms(MSRef) of
 	true ->
 	    Untouched;
 	false ->
@@ -157,13 +597,13 @@ fun2ms(ShellFun) when is_function(ShellFun) ->
             case ms_transform:transform_from_shell(
                    ?MODULE,Clauses,ImportList) of
                 {error,[{_,[{_,_,Code}|_]}|_],_} ->
-                    io:format("Error: ~s~n",
+                    io:format("Error: ~ts~n",
                               [ms_transform:format_error(Code)]),
                     {error,transform_error};
                 Else ->
                     Else
             end;
-        false ->
+        _ ->
             exit({badarg,{?MODULE,fun2ms,
                           [function,called,with,real,'fun',
                            should,be,transformed,with,
@@ -353,7 +793,8 @@ do_filter(Tab, Key, F, A, Ack) ->
 -record(filetab_options,
 	{
 	  object_count = false :: boolean(),
-	  md5sum       = false :: boolean()     
+	  md5sum       = false :: boolean(),
+	  sync         = false :: boolean()
 	 }).
 
 -spec tab2file(Tab, Filename) -> 'ok' | {'error', Reason} when
@@ -368,14 +809,14 @@ tab2file(Tab, File) ->
       Tab :: tab(),
       Filename :: file:name(),
       Options :: [Option],
-      Option :: {'extended_info', [ExtInfo]},
+      Option :: {'extended_info', [ExtInfo]} | {'sync', boolean()},
       ExtInfo :: 'md5sum' | 'object_count',
       Reason :: term().
 
 tab2file(Tab, File, Options) ->
     try
 	{ok, FtOptions} = parse_ft_options(Options),
-	file:delete(File),
+	_ = file:delete(File),
 	case file:read_file_info(File) of
 	    {error, enoent} -> ok;
 	    _ -> throw(eaccess)
@@ -406,14 +847,18 @@ tab2file(Tab, File, Options) ->
 		    {fun(Oldstate,Termlist) ->
 			     {NewState,BinList} = 
 				 md5terms(Oldstate,Termlist),
-			     disk_log:blog_terms(Name,BinList),
-			     NewState
+                             case disk_log:blog_terms(Name,BinList) of
+                                 ok -> NewState;
+                                 {error, Reason2} -> throw(Reason2)
+                             end
 		     end,
 		     erlang:md5_init()};
 		false ->
 		    {fun(_,Termlist) ->
-			     disk_log:log_terms(Name,Termlist),
-			     true
+                             case disk_log:log_terms(Name,Termlist) of
+                                 ok -> true;
+                                 {error, Reason2} -> throw(Reason2)
+                             end
 		     end, 
 		     true}
 	    end,
@@ -445,20 +890,29 @@ tab2file(Tab, File, Options) ->
 		List ->
 		    LogFun(NewState1,[['$end_of_table',List]])
 	    end,
+	    case FtOptions#filetab_options.sync of
+	        true ->
+		    case disk_log:sync(Name) of
+		        ok -> ok;
+			{error, Reason2} -> throw(Reason2)
+		    end;
+                false ->
+		    ok
+            end,
 	    disk_log:close(Name)
 	catch
 	    throw:TReason ->
-		disk_log:close(Name),
-		file:delete(File),
+		_ = disk_log:close(Name),
+		_ = file:delete(File),
 		throw(TReason);
 	    exit:ExReason ->
-		disk_log:close(Name),
-		file:delete(File),
+		_ = disk_log:close(Name),
+		_ = file:delete(File),
 		exit(ExReason);
-	    error:ErReason ->
-		disk_log:close(Name),
-		file:delete(File),
-	        erlang:raise(error,ErReason,erlang:get_stacktrace())
+	    error:ErReason:StackTrace ->
+		_ = disk_log:close(Name),
+		_ = file:delete(File),
+	        erlang:raise(error,ErReason,StackTrace)
 	end
     catch
 	throw:TReason2 ->
@@ -497,23 +951,24 @@ md5terms(State, [H|T]) ->
     {FinState, [B|TL]}.
 
 parse_ft_options(Options) when is_list(Options) ->
-    {Opt,Rest} = case (catch lists:keytake(extended_info,1,Options)) of
-		     false -> 
-			 {[],Options};
-		     {value,{extended_info,L},R} when is_list(L) ->
-			 {L,R}
-		 end,
-    case Rest of
-	[] ->
-	    parse_ft_info_options(#filetab_options{}, Opt);
-	Other ->
-	    throw({unknown_option, Other})
-    end;
-parse_ft_options(Malformed) ->
+    {ok, parse_ft_options(Options, #filetab_options{}, false)}.
+
+parse_ft_options([], FtOpt, _) ->
+    FtOpt;
+parse_ft_options([{sync,true} | Rest], FtOpt, EI) ->
+    parse_ft_options(Rest, FtOpt#filetab_options{sync = true}, EI);
+parse_ft_options([{sync,false} | Rest], FtOpt, EI) ->
+    parse_ft_options(Rest, FtOpt, EI);
+parse_ft_options([{extended_info,L} | Rest], FtOpt0, false) ->
+    FtOpt1 = parse_ft_info_options(FtOpt0, L),
+    parse_ft_options(Rest, FtOpt1, true);
+parse_ft_options([Other | _], _, _) ->
+    throw({unknown_option, Other});
+parse_ft_options(Malformed, _, _) ->
     throw({malformed_option, Malformed}).
 
 parse_ft_info_options(FtOpt,[]) ->
-    {ok,FtOpt};
+    FtOpt;
 parse_ft_info_options(FtOpt,[object_count | T]) ->
     parse_ft_info_options(FtOpt#filetab_options{object_count = true}, T);
 parse_ft_info_options(FtOpt,[md5sum | T]) ->
@@ -548,25 +1003,32 @@ file2tab(File, Opts) ->
     try
 	{ok,Verify,TabArg} = parse_f2t_opts(Opts,false,[]),
 	Name = make_ref(),
-	{ok, Major, Minor, FtOptions, MD5State, FullHeader, DLContext} = 
+        {ok, Name} =
 	    case disk_log:open([{name, Name}, 
 				{file, File}, 
 				{mode, read_only}]) of
 		{ok, Name} ->
-		    get_header_data(Name,Verify);
+                    {ok, Name};
 		{repaired, Name, _,_} -> %Uh? cannot happen?
 		    case Verify of
 			true ->
-			    disk_log:close(Name),
+			    _ = disk_log:close(Name),
 			    throw(badfile);
 			false ->
-			    get_header_data(Name,Verify)
+                            {ok, Name}
 		    end;
 		{error, Other1} ->
 		    throw({read_error, Other1});
 		Other2 ->
 		    throw(Other2)
 	    end,
+	{ok, Major, Minor, FtOptions, MD5State, FullHeader, DLContext} =
+            try get_header_data(Name, Verify)
+            catch
+                badfile ->
+                    _ = disk_log:close(Name),
+                    throw(badfile)
+            end,
 	try
 	    if  
 		Major > ?MAJOR_F2T_VERSION -> 
@@ -625,12 +1087,12 @@ file2tab(File, Opts) ->
 		exit:ExReason ->
 		    ets:delete(Tab),
 		    exit(ExReason);
-		error:ErReason ->
+		error:ErReason:StackTrace ->
 		    ets:delete(Tab),
-		    erlang:raise(error,ErReason,erlang:get_stacktrace())
+		    erlang:raise(error,ErReason,StackTrace)
 	    end
 	after
-	    disk_log:close(Name)
+	    _ = disk_log:close(Name)
 	end
     catch
 	throw:TReason2 ->
@@ -900,18 +1362,30 @@ create_tab(I, TabArg) ->
     {name, Name} = lists:keyfind(name, 1, I),
     {type, Type} = lists:keyfind(type, 1, I),
     {protection, P} = lists:keyfind(protection, 1, I),
-    {named_table, Val} = lists:keyfind(named_table, 1, I),
     {keypos, _Kp} = Keypos = lists:keyfind(keypos, 1, I),
     {size, Sz} = lists:keyfind(size, 1, I),
-    Comp = case lists:keyfind(compressed, 1, I) of
-	{compressed, true} -> [compressed];
-	{compressed, false} -> [];
-	false -> []
-    end,
+    L1 = [Type, P, Keypos],
+    L2 = case lists:keyfind(named_table, 1, I) of
+             {named_table, true} -> [named_table | L1];
+	     {named_table, false} -> L1
+	 end,
+    L3 = case lists:keyfind(compressed, 1, I) of
+	     {compressed, true} -> [compressed | L2];
+	     {compressed, false} -> L2;
+	     false -> L2
+	 end,
+    L4 = case lists:keyfind(write_concurrency, 1, I) of
+	     {write_concurrency, _}=Wcc -> [Wcc | L3];
+	     _ -> L3
+	 end,
+    L5 = case lists:keyfind(read_concurrency, 1, I) of
+	     {read_concurrency, _}=Rcc -> [Rcc | L4];
+	     false -> L4
+	 end,
     case TabArg of
         [] ->
 	    try
-		Tab = ets:new(Name, [Type, P, Keypos] ++ named_table(Val) ++ Comp),
+		Tab = ets:new(Name, L5),
 		{ok, Tab, Sz}
 	    catch _:_ ->
 		throw(cannot_create_table)
@@ -920,8 +1394,6 @@ create_tab(I, TabArg) ->
             {ok, TabArg, Sz}
     end.
 
-named_table(true) -> [named_table];
-named_table(false) -> [].
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% tabfile_info/1 reads the head information in an ets table dumped to
@@ -949,20 +1421,30 @@ named_table(false) -> [].
 tabfile_info(File) when is_list(File) ; is_atom(File) ->
     try
 	Name = make_ref(),
-	{ok, Major, Minor, _FtOptions, _MD5State, FullHeader, _DLContext} = 
+        {ok, Name} =
 	    case disk_log:open([{name, Name}, 
 				{file, File}, 
 				{mode, read_only}]) of
 		{ok, Name} ->
-		    get_header_data(Name,false);
+                    {ok, Name};
 		{repaired, Name, _,_} -> %Uh? cannot happen?
-		    get_header_data(Name,false);
+		    {ok, Name};
 		{error, Other1} ->
 		    throw({read_error, Other1});
 		Other2 ->
 		    throw(Other2)
 	    end,
-	disk_log:close(Name),
+	{ok, Major, Minor, _FtOptions, _MD5State, FullHeader, _DLContext} =
+            try get_header_data(Name, false)
+            catch
+                badfile ->
+                    _ = disk_log:close(Name),
+                    throw(badfile)
+            end,
+        case disk_log:close(Name) of
+            ok -> ok;
+            {error, Reason} -> throw(Reason)
+        end,
 	{value, N} = lists:keysearch(name, 1, FullHeader),
 	{value, Type} = lists:keysearch(type, 1, FullHeader),
 	{value, P} = lists:keysearch(protection, 1, FullHeader),
@@ -1238,26 +1720,33 @@ choice(Height, Width, P, Mode, Tab, Key, Turn, Opos) ->
 		  end,
 	    choice(Height, Width, P, Mode, Tab, Key, Turn, Opos);
 	[$/|Regexp]   -> %% from regexp
-	    case re:compile(nonl(Regexp)) of
+	    case re:compile(nonl(Regexp),[unicode]) of
 		{ok,Re} ->
 		    re_search(Height, Width, Tab, ets:first(Tab), Re, 1, 1);
 		{error,{ErrorString,_Pos}} ->
-		    io:format("~s\n", [ErrorString]),
+		    io:format("~ts\n", [ErrorString]),
 		    choice(Height, Width, P, Mode, Tab, Key, Turn, Opos)
 	    end;
+        eof ->
+            ok;
 	_  ->
 	    choice(Height, Width, P, Mode, Tab, Key, Turn, Opos)
     end.
 
 get_line(P, Default) ->
-    case io:get_line(P) of
+    case line_string(io:get_line(P)) of
 	"\n" ->
 	    Default;
 	L ->
 	    L
     end.
 
-nonl(S) -> string:strip(S, right, $\n).
+%% If the standard input is set to binary mode
+%% convert it to a list so we can properly match.
+line_string(Binary) when is_binary(Binary) -> unicode:characters_to_list(Binary);
+line_string(Other) -> Other.
+
+nonl(S) -> string:trim(S, trailing, "$\n").
 
 print_number(Tab, Key, Num) ->
     Os = ets:lookup(Tab, Key),
@@ -1286,7 +1775,7 @@ do_display_item(_Height, Width, I, Opos)  ->
     L = to_string(I),
     L2 = if
 	     length(L) > Width - 8 ->
-                 string:substr(L, 1, Width-13) ++ "  ...";
+                 string:slice(L, 0, Width-13) ++ "  ...";
 	     true ->
 		 L
 	 end,

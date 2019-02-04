@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  * 
- * Copyright Ericsson AB 1996-2011. All Rights Reserved.
+ * Copyright Ericsson AB 1996-2018. All Rights Reserved.
  * 
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
- * 
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  * 
  * %CopyrightEnd%
  *
@@ -324,7 +325,8 @@ int erl_call(int argc, char **argv)
       initWinSock();
 #endif
 
-      if (gethostname(h_hostname, EI_MAXHOSTNAMELEN) < 0) {
+      /* gethostname requires len to be max(hostname) + 1 */
+      if (gethostname(h_hostname, EI_MAXHOSTNAMELEN+1) < 0) {
 	  fprintf(stderr,"erl_call: failed to get host name: %d\n", errno);
 	  exit(1);
       }
@@ -515,6 +517,15 @@ int erl_call(int argc, char **argv)
       }
      
     }
+
+    /*
+     * If we loaded any module source code, we can free the buffer
+     * now. This buffer was allocated in read_stdin().
+     */
+    if (module != NULL) {
+        free(module);
+    }
+
     /*
      * Eval the Erlang functions read from stdin/
      */
@@ -543,7 +554,7 @@ int erl_call(int argc, char **argv)
 
 	  /* erl_format("[~w]", erl_mk_binary(evalbuf,len))) */
 
-	  if (ei_rpc(&ec, fd, "lib", "eval_str", p, i, &reply) < 0) {
+	  if (ei_rpc(&ec, fd, "erl_eval", "eval_str", p, i, &reply) < 0) {
 	      fprintf(stderr,"erl_call: evaluating input failed: %s\n",
 		      evalbuf);
 	      free(p);
@@ -793,8 +804,6 @@ static int get_module(char **mbuf, char **mname)
     *mname = (char *) ei_chk_calloc(i+1, sizeof(char));
     memcpy(*mname, start, i);
   }
-  if (*mbuf)
-      free(*mbuf);			/* Allocated in read_stdin() */
 
   return len;
 

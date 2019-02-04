@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2002-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2002-2017. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -25,12 +26,13 @@
 	 decode_ber_tlv/1,
 	 encode_ber_tlv/1]).
 
+-compile(no_native).
 -on_load(load_nif/0).
 
 -define(ASN1_NIF_VSN,1).
 
 load_nif() ->
-    LibBaseName = "asn1_erl_nif",
+    LibBaseName = "asn1rt_nif",
     PrivDir = code:priv_dir(asn1),
     LibName = case erlang:system_info(build_type) of
 		  opt ->
@@ -77,10 +79,31 @@ load_nif() ->
 	    Status
     end.
 
-encode_per_complete(_TagValueList) ->
+decode_ber_tlv(Binary) ->
+    case decode_ber_tlv_raw(Binary) of
+	{error,Reason} ->
+	    exit({error,{asn1,Reason}});
+	Other ->
+	    Other
+    end.
+
+encode_per_complete(TagValueList) ->
+    case encode_per_complete_raw(TagValueList) of
+	{error,Reason} -> handle_error(Reason, TagValueList);
+	Other when is_binary(Other) -> Other
+    end.
+
+handle_error([], _)->
+    exit({error,{asn1,enomem}});
+handle_error($1, L) ->			 % error in complete in driver
+    exit({error,{asn1,L}});
+handle_error(ErrL, L) ->
+    exit({error,{asn1,ErrL,L}}).
+
+encode_per_complete_raw(_TagValueList) ->
     erlang:nif_error({nif_not_loaded,module,?MODULE,line,?LINE}).
 
-decode_ber_tlv(_Binary) ->
+decode_ber_tlv_raw(_Binary) ->
     erlang:nif_error({nif_not_loaded,module,?MODULE,line,?LINE}).
 
 encode_ber_tlv(_TagValueList) ->

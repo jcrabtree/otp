@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1997-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -20,20 +21,137 @@
 
 %% Provides a common operating system interface.
 
--export([type/0, version/0, cmd/1, find_executable/1, find_executable/2]).
+-export([type/0, version/0, cmd/1, cmd/2, find_executable/1, find_executable/2]).
 
 -include("file.hrl").
 
--spec type() -> vxworks | {Osfamily, Osname} when
+-export_type([env_var_name/0, env_var_value/0, env_var_name_value/0]).
+
+-export([getenv/0, getenv/1, getenv/2, putenv/2, unsetenv/1]).
+
+%%% BIFs
+
+-export([get_env_var/1, getpid/0, list_env_vars/0, perf_counter/0,
+         perf_counter/1, set_env_var/2, set_signal/2, system_time/0,
+         system_time/1, timestamp/0, unset_env_var/1]).
+
+-type os_command() :: atom() | io_lib:chars().
+-type os_command_opts() :: #{ max_size => non_neg_integer() | infinity }.
+
+-export_type([os_command/0, os_command_opts/0]).
+
+-type env_var_name() :: nonempty_string().
+
+-type env_var_value() :: string().
+
+-type env_var_name_value() :: nonempty_string().
+
+-spec list_env_vars() -> [{env_var_name(), env_var_value()}].
+list_env_vars() ->
+    erlang:nif_error(undef).
+
+-spec get_env_var(VarName) -> Value | false when
+      VarName :: env_var_name(),
+      Value :: env_var_value().
+get_env_var(_VarName) ->
+    erlang:nif_error(undef).
+
+-spec getpid() -> Value when
+      Value :: string().
+
+getpid() ->
+    erlang:nif_error(undef).
+
+-spec perf_counter() -> Counter when
+      Counter :: integer().
+
+perf_counter() ->
+    erlang:nif_error(undef).
+
+-spec perf_counter(Unit) -> integer() when
+      Unit :: erlang:time_unit().
+
+perf_counter(Unit) ->
+      erlang:convert_time_unit(os:perf_counter(), perf_counter, Unit).
+
+-spec set_env_var(VarName, Value) -> true when
+      VarName :: env_var_name(),
+      Value :: env_var_value().
+set_env_var(_, _) ->
+    erlang:nif_error(undef).
+
+-spec system_time() -> integer().
+
+system_time() ->
+    erlang:nif_error(undef).
+
+-spec system_time(Unit) -> integer() when
+      Unit :: erlang:time_unit().
+
+system_time(_Unit) ->
+    erlang:nif_error(undef).
+
+-spec timestamp() -> Timestamp when
+      Timestamp :: erlang:timestamp().
+
+timestamp() ->
+    erlang:nif_error(undef).
+
+-spec unset_env_var(VarName) -> true when
+      VarName :: env_var_name().
+unset_env_var(_) ->
+    erlang:nif_error(undef).
+
+-spec set_signal(Signal, Option) -> 'ok' when
+      Signal :: 'sighup'  | 'sigquit' | 'sigabrt' | 'sigalrm' |
+                'sigterm' | 'sigusr1' | 'sigusr2' | 'sigchld' |
+                'sigstop' | 'sigtstp',
+      Option :: 'default' | 'handle' | 'ignore'.
+
+set_signal(_Signal, _Option) ->
+    erlang:nif_error(undef).
+
+%%% End of BIFs
+
+-spec getenv() -> [env_var_name_value()].
+getenv() ->
+    [lists:flatten([Key, $=, Value]) || {Key, Value} <- os:list_env_vars() ].
+
+-spec getenv(VarName) -> Value | false when
+      VarName :: env_var_name(),
+      Value :: env_var_value().
+getenv(VarName) ->
+    os:get_env_var(VarName).
+
+-spec getenv(VarName, DefaultValue) -> Value when
+      VarName :: env_var_name(),
+      DefaultValue :: env_var_value(),
+      Value :: env_var_value().
+getenv(VarName, DefaultValue) ->
+    case os:getenv(VarName) of
+        false ->
+           DefaultValue;
+        Value ->
+            Value
+    end.
+
+-spec putenv(VarName, Value) -> true when
+      VarName :: env_var_name(),
+      Value :: env_var_value().
+putenv(VarName, Value) ->
+    os:set_env_var(VarName, Value).
+
+-spec unsetenv(VarName) -> true when
+      VarName :: env_var_name().
+unsetenv(VarName) ->
+    os:unset_env_var(VarName).
+
+-spec type() -> {Osfamily, Osname} when
       Osfamily :: unix | win32,
       Osname :: atom().
 
 type() ->
-    case erlang:system_info(os_type) of
-	{vxworks, _} ->
-	    vxworks;
-	Else -> Else
-    end.
+    erlang:system_info(os_type).
 
 -spec version() -> VersionString | {Major, Minor, Release} when
       VersionString :: string(),
@@ -47,10 +165,7 @@ version() ->
       Name :: string(),
       Filename :: string().
 find_executable(Name) ->
-    case os:getenv("PATH") of
-	false -> find_executable(Name, []);
-	Path  -> find_executable(Name, Path)
-    end.
+    find_executable(Name, os:getenv("PATH", "")).
 
 -spec find_executable(Name, Path) -> Filename | 'false' when
       Name :: string(),
@@ -83,29 +198,18 @@ find_executable1(_Name, [], _Extensions) ->
 
 verify_executable(Name0, [Ext|Rest], OrigExtensions) ->
     Name1 = Name0 ++ Ext,
-    case os:type() of
-	vxworks ->
-	    %% We consider all existing VxWorks files to be executable
-	    case file:read_file_info(Name1) of
-		{ok, _} ->
-		    {ok, Name1};
-		_ ->
-		    verify_executable(Name0, Rest, OrigExtensions)
-	    end;
+    case file:read_file_info(Name1) of
+	{ok, #file_info{type=regular,mode=Mode}}
+	when Mode band 8#111 =/= 0 ->
+	    %% XXX This test for execution permission is not fool-proof
+	    %% on Unix, since we test if any execution bit is set.
+	    {ok, Name1};
 	_ ->
-	    case file:read_file_info(Name1) of
-		{ok, #file_info{type=regular,mode=Mode}}
-		when Mode band 8#111 =/= 0 ->
-		    %% XXX This test for execution permission is not fool-proof
-		    %% on Unix, since we test if any execution bit is set.
-		    {ok, Name1};
-		_ ->
-		    verify_executable(Name0, Rest, OrigExtensions)
-	    end
+	    verify_executable(Name0, Rest, OrigExtensions)
     end;
 verify_executable(Name, [], OrigExtensions) when OrigExtensions =/= [""] -> %% Windows
     %% Will only happen on windows, hence case insensitivity
-    case can_be_full_name(string:to_lower(Name),OrigExtensions) of 
+    case can_be_full_name(string:lowercase(Name),OrigExtensions) of
 	true ->
 	    verify_executable(Name,[""],[""]);
 	_ ->
@@ -129,7 +233,7 @@ split_path(Path) ->
 	{win32, _} ->
 	    {ok,Curr} = file:get_cwd(),
 	    split_path(Path, $;, [], [Curr]);
-	_ -> 
+	_ ->
 	    split_path(Path, $:, [], [])
     end.
 
@@ -154,202 +258,137 @@ reverse_element(List) ->
 extensions() ->
     case type() of
 	{win32, _} -> [".exe",".com",".cmd",".bat"];
-	{unix, _} -> [""];
-	vxworks -> [""]
+	{unix, _} -> [""]
     end.
 
 %% Executes the given command in the default shell for the operating system.
 -spec cmd(Command) -> string() when
-      Command :: atom() | io_lib:chars().
+      Command :: os_command().
 cmd(Cmd) ->
-    validate(Cmd),
-    case type() of
-	{unix, _} ->
-	    unix_cmd(Cmd);
-	{win32, Wtype} ->
-	    Command = case {os:getenv("COMSPEC"),Wtype} of
-			  {false,windows} -> lists:concat(["command.com /c", Cmd]);
-			  {false,_} -> lists:concat(["cmd /c", Cmd]);
-			  {Cspec,_} -> lists:concat([Cspec," /c",Cmd])
-		      end,
-	    Port = open_port({spawn, Command}, [stream, in, eof, hide]),
-	    get_data(Port, []);
-	%% VxWorks uses a 'sh -c hook' in 'vxcall.c' to run os:cmd.
-	vxworks ->
-	    Command = lists:concat(["sh -c '", Cmd, "'"]),
-	    Port = open_port({spawn, Command}, [stream, in, eof]),
-	    get_data(Port, [])
+    cmd(Cmd, #{ }).
+
+-spec cmd(Command, Options) -> string() when
+      Command :: os_command(),
+      Options :: os_command_opts().
+cmd(Cmd, Opts) ->
+    {SpawnCmd, SpawnOpts, SpawnInput, Eot} = mk_cmd(os:type(), validate(Cmd)),
+    Port = open_port({spawn, SpawnCmd}, [binary, stderr_to_stdout,
+                                         stream, in, hide | SpawnOpts]),
+    MonRef = erlang:monitor(port, Port),
+    true = port_command(Port, SpawnInput),
+    Bytes = get_data(Port, MonRef, Eot, [], 0, maps:get(max_size, Opts, infinity)),
+    demonitor(MonRef, [flush]),
+    String = unicode:characters_to_list(Bytes),
+    if  %% Convert to unicode list if possible otherwise return bytes
+	is_list(String) -> String;
+	true -> binary_to_list(Bytes)
     end.
 
-unix_cmd(Cmd) ->
-    Tag = make_ref(),
-    {Pid,Mref} = erlang:spawn_monitor(
-		   fun() ->
-			   process_flag(trap_exit, true),
-			   Port = start_port(),
-			   erlang:port_command(Port, mk_cmd(Cmd)),
-			   exit({Tag,unix_get_data(Port)})
-		   end),
-    receive
-	{'DOWN',Mref,_,Pid,{Tag,Result}} ->
-	    Result;
-	{'DOWN',Mref,_,Pid,Reason} ->
-	    exit(Reason)
-    end.
-
-%% The -s flag implies that only the positional parameters are set,
-%% and the commands are read from standard input. We set the 
-%% $1 parameter for easy identification of the resident shell.
-%%
--define(SHELL, "/bin/sh -s unix:cmd 2>&1").
--define(PORT_CREATOR_NAME, os_cmd_port_creator).
-
-%%
-%% Serializing open_port through a process to avoid smp lock contention
-%% when many concurrent os:cmd() want to do vfork (OTP-7890).
-%%
--spec start_port() -> port().
-start_port() ->
-    Ref = make_ref(),
-    Request = {Ref,self()},    
-    {Pid, Mon} = case whereis(?PORT_CREATOR_NAME) of
-		     undefined ->
-			 spawn_monitor(fun() ->
-					       start_port_srv(Request)
-				       end);
-		     P ->
-			 P ! Request,
-			 M = erlang:monitor(process, P),
-			 {P, M}
-		 end,
-    receive
-	{Ref, Port} when is_port(Port) ->
-	    erlang:demonitor(Mon, [flush]),
-	    Port;
-	{Ref, Error} ->
-	    erlang:demonitor(Mon, [flush]),
-	    exit(Error);
-	{'DOWN', Mon, process, Pid, _Reason} ->
-	    start_port()
-    end.
-
-start_port_srv(Request) ->
-    %% We don't want a group leader of some random application. Use
-    %% kernel_sup's group leader.
-    {group_leader, GL} = process_info(whereis(kernel_sup),
-				      group_leader),
-    true = group_leader(GL, self()),
-    process_flag(trap_exit, true),
-    StayAlive = try register(?PORT_CREATOR_NAME, self())
-		catch
-		    error:_ -> false
-		end,
-    start_port_srv_handle(Request),
-    case StayAlive of
-	true -> start_port_srv_loop();
-	false -> exiting
-    end.
-
-start_port_srv_handle({Ref,Client}) ->
-    Reply = try open_port({spawn, ?SHELL},[stream]) of
-		Port when is_port(Port) ->
-		    (catch port_connect(Port, Client)),
-		    unlink(Port),
-		    Port
-	    catch
-		error:Reason ->
-		    {Reason,erlang:get_stacktrace()}	    
-	    end,
-    Client ! {Ref,Reply}.
-
-
-start_port_srv_loop() ->
-    receive
-	{Ref, Client} = Request when is_reference(Ref),
-				     is_pid(Client) ->
-	    start_port_srv_handle(Request);
-	_Junk ->
-	    ignore
-    end,
-    start_port_srv_loop().
-
-%%
-%%  unix_get_data(Port) -> Result
-%%
-unix_get_data(Port) ->
-    unix_get_data(Port, []).
-
-unix_get_data(Port, Sofar) ->
-    receive
-	{Port,{data, Bytes}} ->
-	    case eot(Bytes) of
-		{done, Last} ->
-		    lists:flatten([Sofar|Last]);
-		more  ->
-		    unix_get_data(Port, [Sofar|Bytes])
-	    end;
-	{'EXIT', Port, _} ->
-	    lists:flatten(Sofar)
-    end.
-
-%%
-%% eot(String) -> more | {done, Result}
-%%
-eot(Bs) ->
-    eot(Bs, []).
-
-eot([4| _Bs], As) ->
-    {done, lists:reverse(As)};
-eot([B| Bs], As) ->
-    eot(Bs, [B| As]);
-eot([], _As) ->
-    more.
-
-%%
-%% mk_cmd(Cmd) -> {ok, ShellCommandString} | {error, ErrorString}
-%%
-%% We do not allow any input to Cmd (hence commands that want
-%% to read from standard input will return immediately).
-%% Standard error is redirected to standard output.
-%%
-%% We use ^D (= EOT = 4) to mark the end of the stream.
-%%
-mk_cmd(Cmd) when is_atom(Cmd) ->		% backward comp.
-    mk_cmd(atom_to_list(Cmd));
-mk_cmd(Cmd) ->
-    %% We insert a new line after the command, in case the command
-    %% contains a comment character.
-    io_lib:format("(~s\n) </dev/null; echo  \"\^D\"\n", [Cmd]).
-
+mk_cmd({win32,Wtype}, Cmd) ->
+    Command = case {os:getenv("COMSPEC"),Wtype} of
+                  {false,windows} -> lists:concat(["command.com /c", Cmd]);
+                  {false,_} -> lists:concat(["cmd /c", Cmd]);
+                  {Cspec,_} -> lists:concat([Cspec," /c",Cmd])
+              end,
+    {Command, [], [], <<>>};
+mk_cmd(_,Cmd) ->
+    %% Have to send command in like this in order to make sh commands like
+    %% cd and ulimit available
+    {"/bin/sh -s unix:cmd", [out],
+     %% We insert a new line after the command, in case the command
+     %% contains a comment character.
+     %%
+     %% The </dev/null closes stdin, which means that programs
+     %% that use a closed stdin as an termination indicator works.
+     %% An example of such a program is 'more'.
+     %%
+     %% The "echo ^D" is used to indicate that the program has executed
+     %% and we should return any output we have gotten. We cannot use
+     %% termination of the child or closing of stdin/stdout as then
+     %% starting background jobs from os:cmd will block os:cmd.
+     %%
+     %% I tried changing this to be "better", but got bombarded with
+     %% backwards incompatibility bug reports, so leave this as it is.
+     ["(", unicode:characters_to_binary(Cmd), "\n) </dev/null; echo \"\^D\"\n"],
+     <<$\^D>>}.
 
 validate(Atom) when is_atom(Atom) ->
-    ok;
+    validate(atom_to_list(Atom));
 validate(List) when is_list(List) ->
-    validate1(List).
+    case validate1(List) of
+        false ->
+            List;
+        true -> 
+            %% Had zeros at end; remove them...
+            string:trim(List, trailing, [0])
+    end.
 
-validate1([C|Rest]) when is_integer(C), 0 =< C, C < 256 ->
+validate1([0|Rest]) ->
+    validate2(Rest);
+validate1([C|Rest]) when is_integer(C), C > 0 ->
     validate1(Rest);
 validate1([List|Rest]) when is_list(List) ->
-    validate1(List),
-    validate1(Rest);
+    validate1(List) or validate1(Rest);
 validate1([]) ->
-    ok.
+    false.
 
-get_data(Port, Sofar) ->
+%% Ensure that the rest is zero only...
+validate2([]) ->
+    true;
+validate2([0|Rest]) ->
+    validate2(Rest);
+validate2([List|Rest]) when is_list(List) ->
+    validate2(List),
+    validate2(Rest).
+
+get_data(Port, MonRef, Eot, Sofar, Size, Max) ->
     receive
 	{Port, {data, Bytes}} ->
-	    get_data(Port, [Sofar|Bytes]);
-	{Port, eof} ->
-	    Port ! {self(), close}, 
-	    receive
-		{Port, closed} ->
-		    true
-	    end, 
-	    receive
-		{'EXIT',  Port,  _} -> 
-		    ok
-	    after 1 ->				% force context switch
-		    ok
-	    end, 
-	    lists:flatten(Sofar)
+            case eot(Bytes, Eot, Size, Max) of
+                more ->
+                    get_data(Port, MonRef, Eot, [Sofar, Bytes],
+                             Size + byte_size(Bytes), Max);
+                Last ->
+                    catch port_close(Port),
+                    flush_until_down(Port, MonRef),
+                    iolist_to_binary([Sofar, Last])
+            end;
+        {'DOWN', MonRef, _, _, _} ->
+	    flush_exit(Port),
+	    iolist_to_binary(Sofar)
+    end.
+
+eot(Bs, <<>>, Size, Max) when Size + byte_size(Bs) < Max ->
+    more;
+eot(Bs, <<>>, Size, Max) ->
+    binary:part(Bs, {0, Max - Size});
+eot(Bs, Eot, Size, Max) ->
+    case binary:match(Bs, Eot) of
+        {Pos, _} when Size + Pos < Max ->
+            binary:part(Bs,{0, Pos});
+        _ ->
+            eot(Bs, <<>>, Size, Max)
+    end.
+
+%% When port_close returns we know that all the
+%% messages sent have been sent and that the
+%% DOWN message is after them all.
+flush_until_down(Port, MonRef) ->
+    receive
+        {Port, {data, _Bytes}} ->
+            flush_until_down(Port, MonRef);
+        {'DOWN', MonRef, _, _, _} ->
+            flush_exit(Port)
+    end.
+
+%% The exit signal is always delivered before
+%% the down signal, so we can be sure that if there
+%% was an exit message sent, it will be in the
+%% mailbox now.
+flush_exit(Port) ->
+    receive
+        {'EXIT',  Port,  _} ->
+            ok
+    after 0 ->
+            ok
     end.

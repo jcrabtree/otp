@@ -1,61 +1,68 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2008-2010. All Rights Reserved.
+%% Copyright Ericsson AB 2008-2017. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
 
--module(dict_test_lib, [Mod,Equal]).
+-module(dict_test_lib).
 
--export([module/0,equal/2,empty/0,size/1,to_list/1,from_list/1,
-	 enter/3,delete/2,lookup/2]).
+-export([new/2]).
 
-module() ->
-    Mod.
+new(Mod, Eq) ->
+    fun (enter, {K,V,D}) -> enter(Mod, K, V, D);
+	(empty, []) -> empty(Mod);
+	(equal, {D1,D2}) -> Eq(D1, D2);
+	(from_list, L) -> from_list(Mod, L);
+	(module, []) -> Mod;
+	(size, D) -> Mod:size(D);
+	(is_empty, D) -> Mod:is_empty(D);
+        (iterator, S) -> Mod:iterator(S);
+        (iterator_from, {Start, S}) -> Mod:iterator_from(Start, S);
+        (next, I) -> Mod:next(I);
+	(to_list, D) -> to_list(Mod, D);
+	(erase, {K,D}) -> erase(Mod, K, D);
+	(take, {K,D}) -> take(Mod, K, D)
+    end.
 
-equal(X, Y) ->
-    Equal(X, Y).
-
-empty() ->
+empty(Mod) ->
     case erlang:function_exported(Mod, new, 0) of
 	false -> Mod:empty();
 	true -> Mod:new()
     end.
 
-size(S) ->
-    Mod:size(S).
+to_list(Mod, D) ->
+    Mod:to_list(D).
 
-to_list(S) ->
-    Mod:to_list(S).
-
-from_list(S) ->
+from_list(Mod, L) ->
     case erlang:function_exported(Mod, from_orddict, 1) of
 	false ->
-	    Mod:from_list(S);
+	    Mod:from_list(L);
 	true ->
 	    %% The gb_trees module has no from_list/1 function.
 	    %%
 	    %% The keys in S are not unique. To make sure
 	    %% that we pick the same key/value pairs as
 	    %% dict/orddict, first convert the list to an orddict.
-	    Orddict = orddict:from_list(S),
+	    Orddict = orddict:from_list(L),
 	    Mod:from_orddict(Orddict)
     end.
 
 %% Store new value into dictionary or update previous value in dictionary.
-enter(Key, Val, Dict) ->
+enter(Mod, Key, Val, Dict) ->
     case erlang:function_exported(Mod, store, 3) of
 	false ->
 	    Mod:enter(Key, Val, Dict);
@@ -63,21 +70,18 @@ enter(Key, Val, Dict) ->
 	    Mod:store(Key, Val, Dict)
     end.
 
-%% Delete an EXISTING key.
-delete(Key, Dict) ->
-    case erlang:function_exported(Mod, delete, 2) of
-	true -> Mod:delete(Key, Dict);
-	false -> Mod:erase(Key, Dict)
-    end.
+erase(Mod, Key, Val) when Mod =:= dict; Mod =:= orddict ->
+    Mod:erase(Key, Val);
+erase(gb_trees, Key, Val) ->
+    gb_trees:delete_any(Key, Val).
 
-%% -> none | {value,Value}
-lookup(Key, Dict) ->
-    case erlang:function_exported(Mod, lookup, 2) of
-	false ->
-	    case Mod:find(Key, Dict) of
-		error -> none;
-		{ok,Value} -> {value,Value}
-	    end;
-	true ->
-	    Mod:lookup(Key, Dict)
-    end.
+take(gb_trees, Key, Val) ->
+    Res = try
+	      gb_trees:take(Key, Val)
+	  catch
+	      error:_ ->
+		  error
+	  end,
+    Res = gb_trees:take_any(Key, Val);
+take(Mod, Key, Val) ->
+    Mod:take(Key, Val).

@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  * 
- * Copyright Ericsson AB 2001-2009. All Rights Reserved.
+ * Copyright Ericsson AB 2001-2016. All Rights Reserved.
  * 
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
- * 
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  * 
  * %CopyrightEnd%
  */
@@ -30,6 +31,25 @@ int ei_decode_fun(const char *buf, int *index, erlang_fun *p)
     const char *s = buf + *index;
     const char *s0 = s;
     int i, ix, ix0, n;
+    erlang_pid* p_pid;
+    char* p_module;
+    erlang_char_encoding* p_module_org_enc;
+    long* p_index;
+    long* p_uniq;
+    long* p_old_index;
+
+    if (p != NULL) {
+	p_pid = &p->pid;
+	p_module = &p->module[0];
+	p_module_org_enc = &p->module_org_enc;
+	p_index = &p->index;
+	p_uniq = &p->uniq;
+	p_old_index = &p->old_index;
+    }
+    else {
+	p_pid = NULL; p_module = NULL; p_module_org_enc = NULL;
+	p_index = NULL; p_uniq = NULL; p_old_index = NULL;
+    }
 
     switch (get8(s)) {
     case ERL_FUN_EXT:
@@ -39,16 +59,17 @@ int ei_decode_fun(const char *buf, int *index, erlang_fun *p)
 	n = get32be(s);
 	/* then the pid */
 	ix = 0;
-	if (ei_decode_pid(s, &ix, (p == NULL ? (erlang_pid*)NULL : &p->pid)) < 0)
+	if (ei_decode_pid(s, &ix, p_pid) < 0)
 	    return -1;
 	/* then the module (atom) */
-	if (ei_decode_atom(s, &ix, (p == NULL ? (char*)NULL : p->module)) < 0)
+	if (ei_decode_atom_as(s, &ix, p_module, MAXATOMLEN_UTF8, ERLANG_UTF8,
+			      p_module_org_enc, NULL) < 0)
 	    return -1;
 	/* then the index */
-	if (ei_decode_long(s, &ix, (p == NULL ? (long*)NULL : &p->index)) < 0)
+	if (ei_decode_long(s, &ix, p_index) < 0)
 	    return -1;
 	/* then the uniq */
-	if (ei_decode_long(s, &ix, (p == NULL ? (long*)NULL : &p->uniq)) < 0)
+	if (ei_decode_long(s, &ix, p_uniq) < 0)
 	    return -1;
 	/* finally the free vars */
 	ix0 = ix;
@@ -84,16 +105,17 @@ int ei_decode_fun(const char *buf, int *index, erlang_fun *p)
 	if (p != NULL) p->n_free_vars = i;
 	/* then the module (atom) */
 	ix = 0;
-	if (ei_decode_atom(s, &ix, (p == NULL ? (char*)NULL : p->module)) < 0)
+	if (ei_decode_atom_as(s, &ix, p_module, MAXATOMLEN_UTF8, ERLANG_UTF8,
+			      p_module_org_enc, NULL) < 0)
 	    return -1;
 	/* then the old_index */
-	if (ei_decode_long(s, &ix, (p == NULL ? (long*)NULL : &p->old_index)) < 0)
+	if (ei_decode_long(s, &ix, p_old_index) < 0)
 	    return -1;
 	/* then the old_uniq */
-	if (ei_decode_long(s, &ix, (p == NULL ? (long*)NULL : &p->uniq)) < 0)
+	if (ei_decode_long(s, &ix, p_uniq) < 0)
 	    return -1;
 	/* the the pid */
-	if (ei_decode_pid(s, &ix, (p == NULL ? (erlang_pid*)NULL : &p->pid)) < 0)
+	if (ei_decode_pid(s, &ix, p_pid) < 0)
 	    return -1;
 	/* finally the free vars */
 	s += ix;

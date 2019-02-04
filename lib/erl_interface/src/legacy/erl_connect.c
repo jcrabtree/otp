@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  * 
- * Copyright Ericsson AB 1996-2011. All Rights Reserved.
+ * Copyright Ericsson AB 1996-2016. All Rights Reserved.
  * 
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
- * 
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  * 
  * %CopyrightEnd%
  */
@@ -125,7 +126,7 @@ static ei_cnode erl_if_ec;
 
 int erl_connect_init(int this_node_number, char *cookie, short creation)
 {
-    char nn[MAXATOMLEN+1];
+    char nn[MAXATOMLEN];
 
     sprintf(nn, "c%d", this_node_number);
 
@@ -178,19 +179,17 @@ int erl_xconnect(Erl_IpAddr addr, char *alivename)
  *
  *  API: erl_close_connection()
  *
- *  Close a connection. FIXME call ei_close_connection() later. 
- *
  *  Returns 0 on success and -1 on failure.
  *
  ***************************************************************************/
 
 int erl_close_connection(int fd)
 {
-    return closesocket(fd);
+    return ei_close_connection(fd);
 }
 
 /*
- * Accept and initiate a connection from an other
+ * Accept and initiate a connection from another
  * Erlang node. Return a file descriptor at success,
  * otherwise -1;
  */
@@ -219,7 +218,10 @@ int erl_reg_send(int fd, char *server_name, ETERM *msg)
     ei_x_buff x;
     int r;
 
-    ei_x_new_with_version(&x);
+    if (ei_x_new_with_version(&x) < 0) {
+        erl_errno = ENOMEM;
+        return 0;
+    }
     if (ei_x_encode_term(&x, msg) < 0) {
 	erl_errno = EINVAL;
 	r = 0;
@@ -247,9 +249,13 @@ int erl_send(int fd, ETERM *to ,ETERM *msg)
 	erl_errno = EINVAL;
 	return -1;
     }
-    
-    strncpy(topid.node, (char *)ERL_PID_NODE(to), sizeof(topid.node));
-    topid.node[sizeof(topid.node)-1] = '\0';
+
+    if (to->uval.pidval.node.latin1) {
+	strcpy(topid.node, to->uval.pidval.node.latin1);
+    }
+    else {
+	strcpy(topid.node, to->uval.pidval.node.utf8);
+    }    
     topid.num = ERL_PID_NUMBER(to);
     topid.serial = ERL_PID_SERIAL(to);
     topid.creation = ERL_PID_CREATION(to);
@@ -263,7 +269,7 @@ static int erl_do_receive_msg(int fd, ei_x_buff* x, ErlMessage* emsg)
     erlang_msg msg;
 
     int r;
-    msg.from.node[0] = msg.to.node[0] = '\0';
+    msg.from.node[0] = msg.to.node[0] = msg.toname[0] = '\0';
     r = ei_do_receive_msg(fd, 0, &msg, x, 0);
 
     if (r == ERL_MSG) {
@@ -299,7 +305,7 @@ static int erl_do_receive_msg(int fd, ei_x_buff* x, ErlMessage* emsg)
 	emsg->to = erl_mk_pid(msg.to.node, msg.to.num, msg.to.serial, msg.to.creation);
     else
 	emsg->to = NULL;
-    memcpy(emsg->to_name, msg.toname, MAXATOMLEN+1);
+    strcpy(emsg->to_name, msg.toname);
     return r;
 }
 

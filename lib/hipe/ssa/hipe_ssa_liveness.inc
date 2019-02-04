@@ -1,22 +1,17 @@
 %% -*- Erlang -*-
 %% -*- erlang-indent-level: 2 -*-
 %%
-%% %CopyrightBegin%
-%% 
-%% Copyright Ericsson AB 2004-2009. All Rights Reserved.
-%% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
-%% 
-%% %CopyrightEnd%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
@@ -39,6 +34,15 @@
 	 ssa_liveness__livein/2]).
 %%	 ssa_liveness__livein/3],
 %%	 ssa_liveness__liveout/2]).
+-type set(E) :: gb_sets:set(E).
+-type liveness(Label, Var) ::
+	#{Label => {{Gen          :: set(Var),
+		     Kill         :: set(Var),
+		     {TotalDirGen :: set(Var),
+		      DirGen      :: gb_trees:tree(Label, set(Var))}},
+		    LiveIn        :: set(Var),
+		    LiveOut       :: set(Var),
+		    Successors    :: [Label]}}.
 -endif.
 %% -ifdef(DEBUG_LIVENESS).
 %% -export([pp_liveness/1]).
@@ -261,21 +265,15 @@ update_directed_gen({Pred, Var}, Map)->
 %%
 %% liveness
 %%
+-compile({inline, [liveness_lookup/2, liveness_update/3]}).
 
 liveness_init(List) ->
-  liveness_init1(List, gb_trees:empty()).
+  maps:from_list(List).
 
-liveness_init1([{Label, Info}|Left], Map) ->
-  liveness_init1(Left, gb_trees:insert(Label, Info, Map));
-liveness_init1([], Map) ->
-  Map.
-
-liveness_lookup(Label, Map) ->
-  {value, Info} = gb_trees:lookup(Label, Map),
-  Info.
-
-liveness_update(Label, NewInfo, Map) ->
-  gb_trees:update(Label, NewInfo, Map).
+liveness_lookup(Label, Liveness) ->
+  maps:get(Label, Liveness).
+liveness_update(Label, Val, Liveness) ->
+  maps:update(Label, Val, Liveness).
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

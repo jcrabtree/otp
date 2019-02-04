@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 1996-2010. All Rights Reserved.
+ * Copyright Ericsson AB 1996-2017. All Rights Reserved.
  *
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  * %CopyrightEnd%
  */
@@ -26,6 +27,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#if defined(HAVE_ISFINITE)
+#include <math.h>
+#endif
 
 #include "ei_locking.h"
 #include "ei_resolve.h"
@@ -36,6 +40,7 @@
 #include "erl_error.h"
 #include "erl_internal.h"
 #include "ei_internal.h"
+#include "putget.h"
 
 #define ERL_IS_BYTE(x) (ERL_IS_INTEGER(x) && (ERL_INT_VALUE(x) & ~0xFF) == 0)
 
@@ -124,6 +129,15 @@ ETERM *erl_mk_float (double d)
 {
     ETERM *ep;
 
+#if defined(HAVE_ISFINITE)
+    /* Erlang does not handle Inf and NaN, so we return an error
+     * rather than letting the Erlang VM complain about a bad external
+     * term. */
+    if(!isfinite(d)) {
+        return NULL;
+    }
+#endif
+
     ep = erl_alloc_eterm(ERL_FLOAT);
     ERL_COUNT(ep) = 1;
     ERL_FLOAT_VALUE(ep) = d;
@@ -142,15 +156,78 @@ ETERM *erl_mk_atom (const char *s)
 
   ep = erl_alloc_eterm(ERL_ATOM);
   ERL_COUNT(ep) = 1;
-  ERL_ATOM_SIZE(ep) = strlen(s);
-  if ((ERL_ATOM_PTR(ep) = strsave(s)) == NULL)
-  {
+  if (erl_atom_init_latin1(&ep->uval.aval.d, s) == NULL) {
       erl_free_term(ep);
       erl_errno = ENOMEM;
       return NULL;
   }
   return ep;
 } 
+
+char* erl_atom_ptr_latin1(Erl_Atom_data* a)
+{
+    if (a->latin1 == NULL) {
+	erlang_char_encoding enc;
+	a->lenL = utf8_to_latin1(NULL, a->utf8, a->lenU, a->lenU, &enc);
+	if (a->lenL < 0) {
+	    a->lenL = 0;
+	    return NULL;
+	}
+	if (enc == ERLANG_ASCII) {
+	    a->latin1 = a->utf8; 
+	}
+	else {
+	    a->latin1 = malloc(a->lenL+1);
+	    utf8_to_latin1(a->latin1, a->utf8, a->lenU, a->lenL, NULL);
+	    a->latin1[a->lenL] = '\0';
+	}
+    }
+    return a->latin1;
+}
+
+char* erl_atom_ptr_utf8(Erl_Atom_data* a)
+{
+    if (a->utf8 == NULL) {
+        erlang_char_encoding enc;
+        a->lenU = latin1_to_utf8(NULL, a->latin1, a->lenL, a->lenL*2, &enc);
+        if (enc == ERLANG_ASCII) {
+            a->utf8 = a->latin1;
+        }
+        else {
+            a->utf8 = malloc(a->lenU + 1);
+            latin1_to_utf8(a->utf8, a->latin1, a->lenL, a->lenU, NULL);
+            a->utf8[a->lenU] = '\0';
+        }
+    }
+    return a->utf8;
+}
+
+int erl_atom_size_latin1(Erl_Atom_data* a)
+{
+    if (a->latin1 == NULL) {
+	erl_atom_ptr_latin1(a);
+    }
+    return a->lenL;
+}
+int erl_atom_size_utf8(Erl_Atom_data* a)
+{
+    if (a->utf8 == NULL) {
+	erl_atom_ptr_utf8(a);
+    }
+    return a->lenU;
+}
+char* erl_atom_init_latin1(Erl_Atom_data* a, const char* s)
+{
+    a->lenL = strlen(s);
+    if ((a->latin1 = strsave(s)) == NULL)
+    {
+	return NULL;
+    }
+    a->utf8 = NULL;
+    a->lenU = 0;
+    return a->latin1;
+}
+
 
 /*
  * Given a string as input, creates a list.
@@ -208,12 +285,19 @@ ETERM *erl_mk_pid(const char *node,
 
     ep = erl_alloc_eterm(ERL_PID);
     ERL_COUNT(ep) = 1;
-    if ((ERL_PID_NODE(ep) = strsave(node)) == NULL)
+    if (erl_atom_init_latin1(&ep->uval.pidval.node, node) == NULL)
     {	     
 	erl_free_term(ep);
 	erl_errno = ENOMEM;
 	return NULL;
     }
+    erl_mk_pid_helper(ep, number, serial, creation & 0x03);
+    return ep;
+}
+
+void erl_mk_pid_helper(ETERM *ep, unsigned int number, 
+		       unsigned int serial, unsigned int creation)
+{
     ERL_PID_NUMBER(ep)   = number & 0x7fff; /* 15 bits */
     if (ei_internal_use_r9_pids_ports()) {
 	ERL_PID_SERIAL(ep)   = serial & 0x07;  /* 3 bits */
@@ -221,8 +305,7 @@ ETERM *erl_mk_pid(const char *node,
     else {
 	ERL_PID_SERIAL(ep)   = serial & 0x1fff;  /* 13 bits */
     }
-    ERL_PID_CREATION(ep) = creation & 0x03; /* 2 bits */
-    return ep;
+    ERL_PID_CREATION(ep) = creation; /* 32 bits */
 }
 
 /*
@@ -239,48 +322,54 @@ ETERM *erl_mk_port(const char *node,
 
     ep = erl_alloc_eterm(ERL_PORT);
     ERL_COUNT(ep) = 1;
-    if ((ERL_PORT_NODE(ep) = strsave(node)) == NULL)
+    if (erl_atom_init_latin1(&ep->uval.portval.node, node) == NULL)
     {	     
 	erl_free_term(ep);
 	erl_errno = ENOMEM;
 	return NULL;
     }
+    erl_mk_port_helper(ep, number, creation);
+    return ep;
+}
+
+void erl_mk_port_helper(ETERM* ep, unsigned number, unsigned int creation)
+{
     if (ei_internal_use_r9_pids_ports()) {
 	ERL_PORT_NUMBER(ep)   = number & 0x3ffff; /* 18 bits */
     }
     else {
 	ERL_PORT_NUMBER(ep)   = number & 0x0fffffff; /* 18 bits */
     }
-    ERL_PORT_CREATION(ep) = creation & 0x03; /* 2 bits */
-    return ep;
+    ERL_PORT_CREATION(ep) = creation; /* 32 bits */
 }
 
 /*
  * Create any kind of reference.
  */
-ETERM *__erl_mk_reference (const char *node,
+ETERM *__erl_mk_reference (ETERM* t,
+			   const char *node,
 			   size_t len,
 			   unsigned int n[],
-			   unsigned char creation)
+			   unsigned int creation)
 {
-    ETERM * t;
-
-    if (node == NULL) return NULL;
-
-    t = erl_alloc_eterm(ERL_REF);
-    ERL_COUNT(t) = 1;
-
-    if ((ERL_REF_NODE(t) = strsave(node)) == NULL)
-    {	     
-	erl_free_term(t);
-	erl_errno = ENOMEM;
-	return NULL;
+    if (t == NULL) {
+	if (node == NULL) return NULL;
+    
+	t = erl_alloc_eterm(ERL_REF);
+	ERL_COUNT(t) = 1;
+    
+	if (erl_atom_init_latin1(&t->uval.refval.node, node) == NULL)
+	{	     
+	    erl_free_term(t);
+	    erl_errno = ENOMEM;
+	    return NULL;
+	}
     }
     ERL_REF_LEN(t) = len;
     ERL_REF_NUMBERS(t)[0]   = n[0] & 0x3ffff; /* 18 bits */
     ERL_REF_NUMBERS(t)[1]   = n[1];
     ERL_REF_NUMBERS(t)[2]   = n[2];
-    ERL_REF_CREATION(t) = creation & 0x03; /* 2 bits */
+    ERL_REF_CREATION(t) = creation; /* 32 bits */
 
     return t;
 }
@@ -294,7 +383,7 @@ ETERM *erl_mk_ref (const char *node,
 {
     unsigned int n[3] = {0, 0, 0};
     n[0] = number;
-    return __erl_mk_reference(node, 1, n, creation);
+    return __erl_mk_reference(NULL, node, 1, n, creation);
 }
 
 /*
@@ -307,7 +396,7 @@ erl_mk_long_ref (const char *node,
 {
     unsigned int n[3] = {0, 0, 0};
     n[0] = n3; n[1] = n2; n[2] = n1;
-    return __erl_mk_reference(node, 3, n, creation);
+    return __erl_mk_reference(NULL, node, 3, n, creation);
 }
 
 /*
@@ -616,7 +705,7 @@ int erl_length(const ETERM *ep)
     return n;
 }
 
-
+
 /***********************************************************************
  * I o l i s t   f u n c t i o n s
  *
@@ -758,6 +847,28 @@ int erl_iolist_length (const ETERM* term)
 	return -1;
 }
 
+static int erl_atom_copy(Erl_Atom_data* dst, const Erl_Atom_data* src)
+{
+    if (src->latin1 == src->utf8) {
+	dst->latin1 = dst->utf8 = strsave(src->latin1);
+	dst->lenL = dst->lenU = strlen(src->latin1);
+    }
+    else if (src->latin1) {
+	dst->latin1 = strsave(src->latin1);
+	dst->lenL = strlen(src->latin1);
+	dst->utf8 = NULL;
+	dst->lenU = 0;
+    }
+    else {
+	dst->utf8 = strsave(src->utf8);
+	dst->lenU = strlen(src->utf8);
+	dst->latin1 = NULL;
+	dst->lenL = 0;
+    }
+    return (dst->latin1 != NULL || dst->utf8 == NULL);
+}
+
+
 /*
  * Return a brand NEW COPY of an ETERM.
  */
@@ -796,9 +907,7 @@ ETERM *erl_copy_term(const ETERM *ep)
 	ERL_FLOAT_VALUE(cp) = ERL_FLOAT_VALUE(ep);
 	break;
     case ERL_ATOM:
-	ERL_ATOM_SIZE(cp) = ERL_ATOM_SIZE(ep);
-	ERL_ATOM_PTR(cp) = strsave(ERL_ATOM_PTR(ep));
-	if (ERL_ATOM_PTR(cp) == NULL)
+	if (!erl_atom_copy(&cp->uval.aval.d, &ep->uval.aval.d))
 	{
 	    erl_free_term(cp);
 	    erl_errno = ENOMEM;
@@ -810,17 +919,17 @@ ETERM *erl_copy_term(const ETERM *ep)
            name and plug in. Somewhat ugly (also done with port and
            ref below). */
 	memcpy(&cp->uval.pidval, &ep->uval.pidval, sizeof(Erl_Pid));
-	ERL_PID_NODE(cp) = strsave(ERL_PID_NODE(ep));
+	erl_atom_copy(&cp->uval.pidval.node, &ep->uval.pidval.node);
 	ERL_COUNT(cp) = 1;
 	break;
     case ERL_PORT:
 	memcpy(&cp->uval.portval, &ep->uval.portval, sizeof(Erl_Port));
-	ERL_PORT_NODE(cp) = strsave(ERL_PORT_NODE(ep));
+	erl_atom_copy(&cp->uval.portval.node, &ep->uval.portval.node);
 	ERL_COUNT(cp) = 1;
 	break;
     case ERL_REF:
 	memcpy(&cp->uval.refval, &ep->uval.refval, sizeof(Erl_Ref));
-	ERL_REF_NODE(cp) = strsave(ERL_REF_NODE(ep));
+	erl_atom_copy(&cp->uval.refval.node, &ep->uval.refval.node);
 	ERL_COUNT(cp) = 1;
 	break;
     case ERL_LIST:
@@ -883,29 +992,29 @@ int erl_print_term(FILE *fp, const ETERM *ep)
     j = i = doquote = 0;
     switch(ERL_TYPE(ep)) 
     {
-    case ERL_ATOM:
+    case ERL_ATOM: {
+	char* adata = ERL_ATOM_PTR(ep);
 	/* FIXME: what if some weird locale is in use? */
-	if (!islower((int)ERL_ATOM_PTR(ep)[0]))
+	if (!islower(adata[0]))
 	    doquote = 1;
 
 	for (i = 0; !doquote && i < ERL_ATOM_SIZE(ep); i++) 
 	{
-	    doquote = !(isalnum((int)ERL_ATOM_PTR(ep)[i]) 
-			|| (ERL_ATOM_PTR(ep)[i] == '_'));
+	    doquote = !(isalnum(adata[i]) || (adata[i] == '_'));
 	}
 
 	if (doquote) {
 	    putc('\'', fp);
 	    ch_written++; 
 	}
-	fputs(ERL_ATOM_PTR(ep), fp);
+	fputs(adata, fp);
 	ch_written += ERL_ATOM_SIZE(ep);	
 	if (doquote) {
 	    putc('\'', fp);
 	    ch_written++;
 	}
 	break;
-
+    }
     case ERL_VARIABLE:
 	if (!isupper((int)ERL_VAR_NAME(ep)[0])) {
 	    doquote = 1;

@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2008-2012. All Rights Reserved.
+ * Copyright Ericsson AB 2008-2018. All Rights Reserved.
  *
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  * %CopyrightEnd% 
 */
@@ -27,46 +28,51 @@
 #include "wxe_macros.h"
 #include "wxe_derived_dest.h"
 
+#if !wxCHECK_VERSION(2,9,0)
+#define wxPenJoin int
+#define wxPenCap int
+#define wxImageResizeQuality int
+#define wxPolygonFillMode int
+#define wxMappingMode int
+#define wxRasterOperationMode int
+#define wxFloodFillStyle int
+#endif
 void WxeApp::wxe_dispatch(wxeCommand& Ecmd)
 {
  char * bp = Ecmd.buffer;
+ int op = Ecmd.op;
+ Ecmd.op = -1;
  wxeMemEnv *memenv = getMemEnv(Ecmd.port);
-  wxeReturn rt = wxeReturn(WXE_DRV_PORT, Ecmd.caller, true);
+ wxeReturn rt = wxeReturn(WXE_DRV_PORT, Ecmd.caller, true);
  try {
- switch (Ecmd.op)
+ switch (op)
 {
   case DESTROY_OBJECT: {
-     wxObject *This = (wxObject *) getPtr(bp,memenv);      if(This) {       ((WxeApp *) wxTheApp)->clearPtr((void *) This);
-       delete This; }
-  } break;
+     void *This = getPtr(bp,memenv);
+     wxeRefData *refd = getRefData(This);
+     if(This && refd) {
+       if(recurse_level > 1 && refd->type != 8) {
+          delayed_delete->Append(Ecmd.Save(op));
+       } else {
+          delete_object(This, refd);
+          ((WxeApp *) wxTheApp)->clearPtr(This);}
+  } } break;
   case WXE_REGISTER_OBJECT: {
      registerPid(bp, Ecmd.caller, memenv);
      rt.addAtom("ok");
      break;
  }
  case WXE_BIN_INCR:
-   driver_binary_inc_refc(Ecmd.bin[0]->bin);
+   driver_binary_inc_refc(Ecmd.bin[0].bin);
    break;
  case WXE_BIN_DECR:
-   driver_binary_dec_refc(Ecmd.bin[0]->bin);
+   driver_binary_dec_refc(Ecmd.bin[0].bin);
    break;
  case WXE_INIT_OPENGL:
-  wxe_initOpenGL(rt, bp);
+  wxe_initOpenGL(&rt, bp);
    break;
-case 98:  { // wxeEvtListener::wxeEvtListener
-  wxeEvtListener *Result = new wxeEvtListener(Ecmd.port);
-  rt.addRef(getRef((void *)Result,memenv), "wxeEvtListener");
-  break;
-}
-case 99:  { // wxeEvtListener::destroy
-  wxObject *This = (wxObject *) getPtr(bp,memenv); 
-  rt.addAtom("ok");
-  delete This; 
-  break;
-} 
 
-case 100: { // wxEvtHandler::Connect 
-  wxeEvtListener *Listener = (wxeEvtListener *) getPtr(bp,memenv); bp += 4;
+case 100: { // wxEvtHandler::Connect
   wxEvtHandler *This = (wxEvtHandler *) getPtr(bp, memenv); bp += 4;
   int * winid  = (int *) bp; bp += 4;
   int * lastId = (int *) bp; bp += 4;
@@ -77,20 +83,22 @@ case 100: { // wxEvtHandler::Connect
   int * eventTypeLen = (int *) bp; bp += 4;
   int * class_nameLen = (int *) bp; bp += 4;
 
-  if(*haveUserData) {    
-      userData = new wxeErlTerm(Ecmd.bin[0]);
+  if(*haveUserData) {
+      userData = new wxeErlTerm(&Ecmd.bin[0]);
   }
 
   int eventType = wxeEventTypeFromAtom(bp); bp += *eventTypeLen;
   char *class_name = bp; bp+= *class_nameLen;
   if(eventType > 0 ) {
-     wxeCallbackData * Evt_cb = new wxeCallbackData(Ecmd.caller,(void *) This,
-     		       	      	    		    class_name,*fun_cb, 
-		                                    *skip, userData);
-     This->Connect((int) *winid,(int) *lastId,eventType, 
-	           (wxObjectEventFunction)(wxEventFunction) &wxeEvtListener::forward, 
-	           Evt_cb, Listener);
-     rt.addAtom("ok");
+    wxeEvtListener * Evt_cb = new wxeEvtListener(Ecmd.caller,getRef(This, memenv),
+                                                 class_name,*fun_cb,
+                                                 *skip, userData, Ecmd.port);
+    This->Connect((int) *winid,(int) *lastId,eventType,
+	          (wxObjectEventFunction)(wxEventFunction) &wxeEvtListener::forward,
+	          Evt_cb, Evt_cb);
+    rt.addAtom("ok");
+    rt.addRef(getRef((void *)Evt_cb,memenv), "wxeEvtListener");
+    rt.addTupleCount(2);
   } else {
     rt.addAtom("badarg");
     rt.addAtom("event_type");
@@ -98,7 +106,7 @@ case 100: { // wxEvtHandler::Connect
   }
   break;
 }
-case 101: { // wxEvtHandler::Disconnect 
+case 101: { // wxEvtHandler::Disconnect
   wxeEvtListener *Listener = (wxeEvtListener *) getPtr(bp,memenv); bp += 4;
   wxEvtHandler *This = (wxEvtHandler *) getPtr(bp, memenv); bp += 4;
   int * winid  = (int *) bp; bp += 4;
@@ -107,15 +115,19 @@ case 101: { // wxEvtHandler::Disconnect
 
   int eventType = wxeEventTypeFromAtom(bp); bp += *eventTypeLen;
   if(eventType > 0) {
+    if(recurse_level > 1) {
+      delayed_delete->Append(Ecmd.Save(op));
+    } else {
      bool Result = This->Disconnect((int) *winid,(int) *lastId,eventType,
-  				    (wxObjectEventFunction)(wxEventFunction) 
-				    &wxeEvtListener::forward, 
-				    NULL, Listener);
+                                    (wxObjectEventFunction)(wxEventFunction)
+                                    &wxeEvtListener::forward,
+                                    NULL, Listener);
      rt.addBool(Result);
+    }
   } else {
     rt.addAtom("badarg");
     rt.addAtom("event_type");
-    rt.addTupleCount(2);    
+    rt.addTupleCount(2);
   }
   break;
 }
@@ -149,7 +161,7 @@ case wxWindow_new_3: { // wxWindow::wxWindow
  style = (long)*(int *) bp; bp += 4;
   } break;
  }};
- wxWindow * Result = new EwxWindow(parent,(wxWindowID) *id,pos,size,style);
+ wxWindow * Result = new EwxWindow(parent,*id,pos,size,style);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxWindow");
  break;
@@ -303,6 +315,15 @@ case wxWindow_Disable: { // wxWindow::Disable
  rt.addBool(Result);
  break;
 }
+#if wxCHECK_VERSION(2,8,10)
+case wxWindow_DragAcceptFiles: { // wxWindow::DragAcceptFiles
+ wxWindow *This = (wxWindow *) getPtr(bp,memenv); bp += 4;
+ bool * accept = (bool *) bp; bp += 4;
+ if(!This) throw wxe_badarg(0);
+ This->DragAcceptFiles(*accept);
+ break;
+}
+#endif
 case wxWindow_Enable: { // wxWindow::Enable
  bool enable=true;
  wxWindow *This = (wxWindow *) getPtr(bp,memenv); bp += 4;
@@ -326,7 +347,7 @@ case wxWindow_FindWindow_1_0: { // wxWindow::FindWindow
  wxWindow *This = (wxWindow *) getPtr(bp,memenv); bp += 4;
  int * winid = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxWindow * Result = (wxWindow*)This->FindWindow((long) *winid);
+ wxWindow * Result = (wxWindow*)This->FindWindow(*winid);
  rt.addRef(getRef((void *)Result,memenv), "wxWindow");
  break;
 }
@@ -349,7 +370,7 @@ case wxWindow_FindWindowById: { // wxWindow::FindWindowById
 parent = (wxWindow *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
- wxWindow * Result = (wxWindow*)wxWindow::FindWindowById((long) *winid,parent);
+ wxWindow * Result = (wxWindow*)wxWindow::FindWindowById(*winid,parent);
  rt.addRef(getRef((void *)Result,memenv), "wxWindow");
  break;
 }
@@ -509,7 +530,7 @@ case wxWindow_GetExtraStyle: { // wxWindow::GetExtraStyle
 case wxWindow_GetFont: { // wxWindow::GetFont
  wxWindow *This = (wxWindow *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- wxFont * Result = new wxFont(This->GetFont()); newPtr((void *) Result,3, memenv);;
+ wxFont * Result = new EwxFont(This->GetFont()); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxFont");
  break;
 }
@@ -615,7 +636,7 @@ case wxWindow_GetScrollPos: { // wxWindow::GetScrollPos
  wxWindow *This = (wxWindow *) getPtr(bp,memenv); bp += 4;
  int * orient = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->GetScrollPos((int) *orient);
+ int Result = This->GetScrollPos(*orient);
  rt.addInt(Result);
  break;
 }
@@ -623,7 +644,7 @@ case wxWindow_GetScrollRange: { // wxWindow::GetScrollRange
  wxWindow *This = (wxWindow *) getPtr(bp,memenv); bp += 4;
  int * orient = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->GetScrollRange((int) *orient);
+ int Result = This->GetScrollRange(*orient);
  rt.addInt(Result);
  break;
 }
@@ -631,7 +652,7 @@ case wxWindow_GetScrollThumb: { // wxWindow::GetScrollThumb
  wxWindow *This = (wxWindow *) getPtr(bp,memenv); bp += 4;
  int * orient = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->GetScrollThumb((int) *orient);
+ int Result = This->GetScrollThumb(*orient);
  rt.addInt(Result);
  break;
 }
@@ -719,7 +740,7 @@ case wxWindow_HasScrollbar: { // wxWindow::HasScrollbar
  wxWindow *This = (wxWindow *) getPtr(bp,memenv); bp += 4;
  int * orient = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->HasScrollbar((int) *orient);
+ bool Result = This->HasScrollbar(*orient);
  rt.addBool(Result);
  break;
 }
@@ -767,7 +788,7 @@ case wxWindow_IsExposed_2: { // wxWindow::IsExposed
  int * x = (int *) bp; bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->IsExposed((int) *x,(int) *y);
+ bool Result = This->IsExposed(*x,*y);
  rt.addBool(Result);
  break;
 }
@@ -778,7 +799,7 @@ case wxWindow_IsExposed_4: { // wxWindow::IsExposed
  int * w = (int *) bp; bp += 4;
  int * h = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->IsExposed((int) *x,(int) *y,(int) *w,(int) *h);
+ bool Result = This->IsExposed(*x,*y,*w,*h);
  rt.addBool(Result);
  break;
 }
@@ -877,7 +898,7 @@ case wxWindow_Move_3: { // wxWindow::Move
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->Move((int) *x,(int) *y,flags);
+ This->Move(*x,*y,flags);
  break;
 }
 case wxWindow_Move_2: { // wxWindow::Move
@@ -975,7 +996,7 @@ case wxWindow_PopupMenu_3: { // wxWindow::PopupMenu
  int * x = (int *) bp; bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->PopupMenu(menu,(int) *x,(int) *y);
+ bool Result = This->PopupMenu(menu,*x,*y);
  rt.addBool(Result);
  break;
 }
@@ -1071,7 +1092,7 @@ case wxWindow_ScrollLines: { // wxWindow::ScrollLines
  wxWindow *This = (wxWindow *) getPtr(bp,memenv); bp += 4;
  int * lines = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->ScrollLines((int) *lines);
+ bool Result = This->ScrollLines(*lines);
  rt.addBool(Result);
  break;
 }
@@ -1079,7 +1100,7 @@ case wxWindow_ScrollPages: { // wxWindow::ScrollPages
  wxWindow *This = (wxWindow *) getPtr(bp,memenv); bp += 4;
  int * pages = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->ScrollPages((int) *pages);
+ bool Result = This->ScrollPages(*pages);
  rt.addBool(Result);
  break;
 }
@@ -1100,7 +1121,7 @@ case wxWindow_ScrollWindow: { // wxWindow::ScrollWindow
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->ScrollWindow((int) *dx,(int) *dy,rect);
+ This->ScrollWindow(*dx,*dy,rect);
  break;
 }
 case wxWindow_SetAcceleratorTable: { // wxWindow::SetAcceleratorTable
@@ -1114,7 +1135,7 @@ case wxWindow_SetAutoLayout: { // wxWindow::SetAutoLayout
  wxWindow *This = (wxWindow *) getPtr(bp,memenv); bp += 4;
  bool * autoLayout = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetAutoLayout((bool) *autoLayout);
+ This->SetAutoLayout(*autoLayout);
  break;
 }
 case wxWindow_SetBackgroundColour: { // wxWindow::SetBackgroundColour
@@ -1133,7 +1154,7 @@ case wxWindow_SetBackgroundStyle: { // wxWindow::SetBackgroundStyle
  wxWindow *This = (wxWindow *) getPtr(bp,memenv); bp += 4;
  wxBackgroundStyle style = *(wxBackgroundStyle *) bp; bp += 4;;
  if(!This) throw wxe_badarg(0);
- bool Result = This->SetBackgroundStyle((wxBackgroundStyle) style);
+ bool Result = This->SetBackgroundStyle(style);
  rt.addBool(Result);
  break;
 }
@@ -1149,7 +1170,7 @@ case wxWindow_SetClientSize_2: { // wxWindow::SetClientSize
  int * width = (int *) bp; bp += 4;
  int * height = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetClientSize((int) *width,(int) *height);
+ This->SetClientSize(*width,*height);
  break;
 }
 case wxWindow_SetClientSize_1_0: { // wxWindow::SetClientSize
@@ -1245,7 +1266,7 @@ case wxWindow_SetExtraStyle: { // wxWindow::SetExtraStyle
  wxWindow *This = (wxWindow *) getPtr(bp,memenv); bp += 4;
  int * exStyle = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetExtraStyle((long) *exStyle);
+ This->SetExtraStyle(*exStyle);
  break;
 }
 case wxWindow_SetFocus: { // wxWindow::SetFocus
@@ -1293,7 +1314,7 @@ case wxWindow_SetId: { // wxWindow::SetId
  wxWindow *This = (wxWindow *) getPtr(bp,memenv); bp += 4;
  int * winid = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetId((wxWindowID) *winid);
+ This->SetId(*winid);
  break;
 }
 case wxWindow_SetLabel: { // wxWindow::SetLabel
@@ -1335,7 +1356,7 @@ case wxWindow_SetScrollbar: { // wxWindow::SetScrollbar
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->SetScrollbar((int) *orient,(int) *pos,(int) *thumbVisible,(int) *range,refresh);
+ This->SetScrollbar(*orient,*pos,*thumbVisible,*range,refresh);
  break;
 }
 case wxWindow_SetScrollPos: { // wxWindow::SetScrollPos
@@ -1350,7 +1371,7 @@ case wxWindow_SetScrollPos: { // wxWindow::SetScrollPos
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->SetScrollPos((int) *orient,(int) *pos,refresh);
+ This->SetScrollPos(*orient,*pos,refresh);
  break;
 }
 case wxWindow_SetSize_5: { // wxWindow::SetSize
@@ -1367,7 +1388,7 @@ case wxWindow_SetSize_5: { // wxWindow::SetSize
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->SetSize((int) *x,(int) *y,(int) *width,(int) *height,sizeFlags);
+ This->SetSize(*x,*y,*width,*height,sizeFlags);
  break;
 }
 case wxWindow_SetSize_2_0: { // wxWindow::SetSize
@@ -1375,7 +1396,7 @@ case wxWindow_SetSize_2_0: { // wxWindow::SetSize
  int * width = (int *) bp; bp += 4;
  int * height = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetSize((int) *width,(int) *height);
+ This->SetSize(*width,*height);
  break;
 }
 case wxWindow_SetSize_1: { // wxWindow::SetSize
@@ -1429,7 +1450,7 @@ case wxWindow_SetSizeHints_3: { // wxWindow::SetSizeHints
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->SetSizeHints((int) *minW,(int) *minH,maxW,maxH,incW,incH);
+ This->SetSizeHints(*minW,*minH,maxW,maxH,incW,incH);
  break;
 }
 case wxWindow_SetSizeHints_2: { // wxWindow::SetSizeHints
@@ -1488,7 +1509,7 @@ case wxWindow_SetThemeEnabled: { // wxWindow::SetThemeEnabled
  wxWindow *This = (wxWindow *) getPtr(bp,memenv); bp += 4;
  bool * enableTheme = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetThemeEnabled((bool) *enableTheme);
+ This->SetThemeEnabled(*enableTheme);
  break;
 }
 case wxWindow_SetToolTip_1_0: { // wxWindow::SetToolTip
@@ -1521,7 +1542,7 @@ case wxWindow_SetVirtualSize_2: { // wxWindow::SetVirtualSize
  int * x = (int *) bp; bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetVirtualSize((int) *x,(int) *y);
+ This->SetVirtualSize(*x,*y);
  break;
 }
 case wxWindow_SetVirtualSizeHints_3: { // wxWindow::SetVirtualSizeHints
@@ -1540,7 +1561,7 @@ case wxWindow_SetVirtualSizeHints_3: { // wxWindow::SetVirtualSizeHints
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->SetVirtualSizeHints((int) *minW,(int) *minH,maxW,maxH);
+ This->SetVirtualSizeHints(*minW,*minH,maxW,maxH);
  break;
 }
 case wxWindow_SetVirtualSizeHints_2: { // wxWindow::SetVirtualSizeHints
@@ -1566,21 +1587,21 @@ case wxWindow_SetWindowStyle: { // wxWindow::SetWindowStyle
  wxWindow *This = (wxWindow *) getPtr(bp,memenv); bp += 4;
  int * style = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetWindowStyle((long) *style);
+ This->SetWindowStyle(*style);
  break;
 }
 case wxWindow_SetWindowStyleFlag: { // wxWindow::SetWindowStyleFlag
  wxWindow *This = (wxWindow *) getPtr(bp,memenv); bp += 4;
  int * style = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetWindowStyleFlag((long) *style);
+ This->SetWindowStyleFlag(*style);
  break;
 }
 case wxWindow_SetWindowVariant: { // wxWindow::SetWindowVariant
  wxWindow *This = (wxWindow *) getPtr(bp,memenv); bp += 4;
  wxWindowVariant variant = *(wxWindowVariant *) bp; bp += 4;;
  if(!This) throw wxe_badarg(0);
- This->SetWindowVariant((wxWindowVariant) variant);
+ This->SetWindowVariant(variant);
  break;
 }
 case wxWindow_ShouldInheritColours: { // wxWindow::ShouldInheritColours
@@ -1655,13 +1676,59 @@ case wxWindow_WarpPointer: { // wxWindow::WarpPointer
  int * x = (int *) bp; bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->WarpPointer((int) *x,(int) *y);
+ This->WarpPointer(*x,*y);
  break;
 }
+#if wxCHECK_VERSION(2,8,12)
+case wxWindow_SetTransparent: { // wxWindow::SetTransparent
+ wxWindow *This = (wxWindow *) getPtr(bp,memenv); bp += 4;
+ int * alpha = (int *) bp; bp += 4;
+ if(!This) throw wxe_badarg(0);
+ bool Result = This->SetTransparent(*alpha);
+ rt.addBool(Result);
+ break;
+}
+#endif
+#if wxCHECK_VERSION(2,8,12)
+case wxWindow_CanSetTransparent: { // wxWindow::CanSetTransparent
+ wxWindow *This = (wxWindow *) getPtr(bp,memenv); bp += 4;
+ if(!This) throw wxe_badarg(0);
+ bool Result = This->CanSetTransparent();
+ rt.addBool(Result);
+ break;
+}
+#endif
+#if wxCHECK_VERSION(3,0,0)
+case wxWindow_IsDoubleBuffered: { // wxWindow::IsDoubleBuffered
+ wxWindow *This = (wxWindow *) getPtr(bp,memenv); bp += 4;
+ if(!This) throw wxe_badarg(0);
+ bool Result = This->IsDoubleBuffered();
+ rt.addBool(Result);
+ break;
+}
+#endif
+#if wxCHECK_VERSION(3,0,0) && !defined(__WXMAC__)
+case wxWindow_SetDoubleBuffered: { // wxWindow::SetDoubleBuffered
+ wxWindow *This = (wxWindow *) getPtr(bp,memenv); bp += 4;
+ bool * on = (bool *) bp; bp += 4;
+ if(!This) throw wxe_badarg(0);
+ This->SetDoubleBuffered(*on);
+ break;
+}
+#endif
+#if wxCHECK_VERSION(2,9,5)
+case wxWindow_GetContentScaleFactor: { // wxWindow::GetContentScaleFactor
+ wxWindow *This = (wxWindow *) getPtr(bp,memenv); bp += 4;
+ if(!This) throw wxe_badarg(0);
+ double Result = This->GetContentScaleFactor();
+ rt.addFloat(Result);
+ break;
+}
+#endif
 case wxTopLevelWindow_GetIcon: { // wxTopLevelWindow::GetIcon
  wxTopLevelWindow *This = (wxTopLevelWindow *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- const wxIcon * Result = &This->GetIcon();
+ const wxIcon * Result = new EwxIcon(This->GetIcon()); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxIcon");
  break;
 }
@@ -1813,7 +1880,7 @@ case wxTopLevelWindow_ShowFullScreen: { // wxTopLevelWindow::ShowFullScreen
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->ShowFullScreen((bool) *show,style);
+ bool Result = This->ShowFullScreen(*show,style);
  rt.addBool(Result);
  break;
 }
@@ -1843,7 +1910,7 @@ case wxFrame_new_4: { // wxFrame::wxFrame
  style = (long)*(int *) bp; bp += 4;
   } break;
  }};
- wxFrame * Result = new EwxFrame(parent,(wxWindowID) *id,title,pos,size,style);
+ wxFrame * Result = new EwxFrame(parent,*id,title,pos,size,style);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxFrame");
  break;
@@ -1882,7 +1949,7 @@ case wxFrame_Create: { // wxFrame::Create
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(parent,(wxWindowID) *id,title,pos,size,style);
+ bool Result = This->Create(parent,*id,title,pos,size,style);
  rt.addBool(Result);
  break;
 }
@@ -1965,7 +2032,7 @@ case wxFrame_ProcessCommand: { // wxFrame::ProcessCommand
  wxFrame *This = (wxFrame *) getPtr(bp,memenv); bp += 4;
  int * winid = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->ProcessCommand((int) *winid);
+ bool Result = This->ProcessCommand(*winid);
  rt.addBool(Result);
  break;
 }
@@ -1993,7 +2060,7 @@ case wxFrame_SetStatusBarPane: { // wxFrame::SetStatusBarPane
  wxFrame *This = (wxFrame *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetStatusBarPane((int) *n);
+ This->SetStatusBarPane(*n);
  break;
 }
 case wxFrame_SetStatusText: { // wxFrame::SetStatusText
@@ -2058,7 +2125,7 @@ case wxMiniFrame_new_4: { // wxMiniFrame::wxMiniFrame
  style = (long)*(int *) bp; bp += 4;
   } break;
  }};
- wxMiniFrame * Result = new EwxMiniFrame(parent,(wxWindowID) *id,title,pos,size,style);
+ wxMiniFrame * Result = new EwxMiniFrame(parent,*id,title,pos,size,style);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxMiniFrame");
  break;
@@ -2091,7 +2158,7 @@ case wxMiniFrame_Create: { // wxMiniFrame::Create
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(parent,(wxWindowID) *id,title,pos,size,style);
+ bool Result = This->Create(parent,*id,title,pos,size,style);
  rt.addBool(Result);
  break;
 }
@@ -2128,7 +2195,7 @@ case wxSplashScreen_new_6: { // wxSplashScreen::wxSplashScreen
  style = (long)*(int *) bp; bp += 4;
   } break;
  }};
- wxSplashScreen * Result = new EwxSplashScreen(*bitmap,(long) *splashStyle,(int) *milliseconds,parent,(wxWindowID) *id,pos,size,style);
+ wxSplashScreen * Result = new EwxSplashScreen(*bitmap,*splashStyle,*milliseconds,parent,*id,pos,size,style);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxSplashScreen");
  break;
@@ -2166,7 +2233,7 @@ case wxPanel_new_6: { // wxPanel::wxPanel
  style = (long)*(int *) bp; bp += 4;
   } break;
  }};
- wxPanel * Result = new EwxPanel(parent,(int) *x,(int) *y,(int) *width,(int) *height,style);
+ wxPanel * Result = new EwxPanel(parent,*x,*y,*width,*height,style);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxPanel");
  break;
@@ -2207,6 +2274,12 @@ case wxPanel_InitDialog: { // wxPanel::InitDialog
  wxPanel *This = (wxPanel *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
  This->InitDialog();
+ break;
+}
+case wxPanel_SetFocusIgnoringChildren: { // wxPanel::SetFocusIgnoringChildren
+ wxPanel *This = (wxPanel *) getPtr(bp,memenv); bp += 4;
+ if(!This) throw wxe_badarg(0);
+ This->SetFocusIgnoringChildren();
  break;
 }
 case wxScrolledWindow_new_0: { // wxScrolledWindow::wxScrolledWindow
@@ -2254,7 +2327,7 @@ case wxScrolledWindow_CalcScrolledPosition_4: { // wxScrolledWindow::CalcScrolle
  int * x = (int *) bp; bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->CalcScrolledPosition((int) *x,(int) *y,&xx,&yy);
+ This->CalcScrolledPosition(*x,*y,&xx,&yy);
  rt.addInt(xx);
  rt.addInt(yy);
  rt.addTupleCount(2);
@@ -2277,7 +2350,7 @@ case wxScrolledWindow_CalcUnscrolledPosition_4: { // wxScrolledWindow::CalcUnscr
  int * x = (int *) bp; bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->CalcUnscrolledPosition((int) *x,(int) *y,&xx,&yy);
+ This->CalcUnscrolledPosition(*x,*y,&xx,&yy);
  rt.addInt(xx);
  rt.addInt(yy);
  rt.addTupleCount(2);
@@ -2298,7 +2371,7 @@ case wxScrolledWindow_EnableScrolling: { // wxScrolledWindow::EnableScrolling
  bool * x_scrolling = (bool *) bp; bp += 4;
  bool * y_scrolling = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->EnableScrolling((bool) *x_scrolling,(bool) *y_scrolling);
+ This->EnableScrolling(*x_scrolling,*y_scrolling);
  break;
 }
 case wxScrolledWindow_GetScrollPixelsPerUnit: { // wxScrolledWindow::GetScrollPixelsPerUnit
@@ -2342,7 +2415,7 @@ case wxScrolledWindow_Scroll: { // wxScrolledWindow::Scroll
  int * x = (int *) bp; bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->Scroll((int) *x,(int) *y);
+ This->Scroll(*x,*y);
  break;
 }
 case wxScrolledWindow_SetScrollbars: { // wxScrolledWindow::SetScrollbars
@@ -2367,7 +2440,7 @@ case wxScrolledWindow_SetScrollbars: { // wxScrolledWindow::SetScrollbars
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->SetScrollbars((int) *pixelsPerUnitX,(int) *pixelsPerUnitY,(int) *noUnitsX,(int) *noUnitsY,xPos,yPos,noRefresh);
+ This->SetScrollbars(*pixelsPerUnitX,*pixelsPerUnitY,*noUnitsX,*noUnitsY,xPos,yPos,noRefresh);
  break;
 }
 case wxScrolledWindow_SetScrollRate: { // wxScrolledWindow::SetScrollRate
@@ -2375,7 +2448,7 @@ case wxScrolledWindow_SetScrollRate: { // wxScrolledWindow::SetScrollRate
  int * xstep = (int *) bp; bp += 4;
  int * ystep = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetScrollRate((int) *xstep,(int) *ystep);
+ This->SetScrollRate(*xstep,*ystep);
  break;
 }
 case wxScrolledWindow_SetTargetWindow: { // wxScrolledWindow::SetTargetWindow
@@ -2427,7 +2500,7 @@ case wxSashWindow_GetSashVisible: { // wxSashWindow::GetSashVisible
  wxSashWindow *This = (wxSashWindow *) getPtr(bp,memenv); bp += 4;
  wxSashEdgePosition edge = *(wxSashEdgePosition *) bp; bp += 4;;
  if(!This) throw wxe_badarg(0);
- bool Result = This->GetSashVisible((wxSashEdgePosition) edge);
+ bool Result = This->GetSashVisible(edge);
  rt.addBool(Result);
  break;
 }
@@ -2463,28 +2536,28 @@ case wxSashWindow_SetMaximumSizeX: { // wxSashWindow::SetMaximumSizeX
  wxSashWindow *This = (wxSashWindow *) getPtr(bp,memenv); bp += 4;
  int * max = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetMaximumSizeX((int) *max);
+ This->SetMaximumSizeX(*max);
  break;
 }
 case wxSashWindow_SetMaximumSizeY: { // wxSashWindow::SetMaximumSizeY
  wxSashWindow *This = (wxSashWindow *) getPtr(bp,memenv); bp += 4;
  int * max = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetMaximumSizeY((int) *max);
+ This->SetMaximumSizeY(*max);
  break;
 }
 case wxSashWindow_SetMinimumSizeX: { // wxSashWindow::SetMinimumSizeX
  wxSashWindow *This = (wxSashWindow *) getPtr(bp,memenv); bp += 4;
  int * min = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetMinimumSizeX((int) *min);
+ This->SetMinimumSizeX(*min);
  break;
 }
 case wxSashWindow_SetMinimumSizeY: { // wxSashWindow::SetMinimumSizeY
  wxSashWindow *This = (wxSashWindow *) getPtr(bp,memenv); bp += 4;
  int * min = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetMinimumSizeY((int) *min);
+ This->SetMinimumSizeY(*min);
  break;
 }
 case wxSashWindow_SetSashVisible: { // wxSashWindow::SetSashVisible
@@ -2492,7 +2565,7 @@ case wxSashWindow_SetSashVisible: { // wxSashWindow::SetSashVisible
  wxSashEdgePosition edge = *(wxSashEdgePosition *) bp; bp += 4;;
  bool * sash = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetSashVisible((wxSashEdgePosition) edge,(bool) *sash);
+ This->SetSashVisible(edge,*sash);
  break;
 }
 case wxSashLayoutWindow_new_0: { // wxSashLayoutWindow::wxSashLayoutWindow
@@ -2583,7 +2656,7 @@ case wxSashLayoutWindow_SetAlignment: { // wxSashLayoutWindow::SetAlignment
  wxSashLayoutWindow *This = (wxSashLayoutWindow *) getPtr(bp,memenv); bp += 4;
  wxLayoutAlignment align = *(wxLayoutAlignment *) bp; bp += 4;;
  if(!This) throw wxe_badarg(0);
- This->SetAlignment((wxLayoutAlignment) align);
+ This->SetAlignment(align);
  break;
 }
 case wxSashLayoutWindow_SetDefaultSize: { // wxSashLayoutWindow::SetDefaultSize
@@ -2599,7 +2672,7 @@ case wxSashLayoutWindow_SetOrientation: { // wxSashLayoutWindow::SetOrientation
  wxSashLayoutWindow *This = (wxSashLayoutWindow *) getPtr(bp,memenv); bp += 4;
  wxLayoutOrientation orient = *(wxLayoutOrientation *) bp; bp += 4;;
  if(!This) throw wxe_badarg(0);
- This->SetOrientation((wxLayoutOrientation) orient);
+ This->SetOrientation(orient);
  break;
 }
 case wxGrid_new_0: { // wxGrid::wxGrid
@@ -2631,7 +2704,7 @@ case wxGrid_new_3: { // wxGrid::wxGrid
  style = (long)*(int *) bp; bp += 4;
   } break;
  }};
- wxGrid * Result = new EwxGrid(parent,(wxWindowID) *id,pos,size,style);
+ wxGrid * Result = new EwxGrid(parent,*id,pos,size,style);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxGrid");
  break;
@@ -2655,7 +2728,7 @@ case wxGrid_new_4: { // wxGrid::wxGrid
  style = (long)*(int *) bp; bp += 4;
   } break;
  }};
- wxGrid * Result = new EwxGrid(parent,(int) *x,(int) *y,w,h,style);
+ wxGrid * Result = new EwxGrid(parent,*x,*y,w,h,style);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxGrid");
  break;
@@ -2712,7 +2785,7 @@ case wxGrid_AutoSizeColumn: { // wxGrid::AutoSizeColumn
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->AutoSizeColumn((int) *col,setAsMin);
+ This->AutoSizeColumn(*col,setAsMin);
  break;
 }
 case wxGrid_AutoSizeColumns: { // wxGrid::AutoSizeColumns
@@ -2738,7 +2811,7 @@ case wxGrid_AutoSizeRow: { // wxGrid::AutoSizeRow
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->AutoSizeRow((int) *row,setAsMin);
+ This->AutoSizeRow(*row,setAsMin);
  break;
 }
 case wxGrid_AutoSizeRows: { // wxGrid::AutoSizeRows
@@ -2806,7 +2879,7 @@ case wxGrid_CellToRect_2: { // wxGrid::CellToRect
  int * row = (int *) bp; bp += 4;
  int * col = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxRect Result = This->CellToRect((int) *row,(int) *col);
+ wxRect Result = This->CellToRect(*row,*col);
  rt.add(Result);
  break;
 }
@@ -2844,7 +2917,7 @@ selmode = *(wxGrid::wxGridSelectionModes *) bp; bp += 4;;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->CreateGrid((int) *numRows,(int) *numCols,(wxGrid::wxGridSelectionModes) selmode);
+ bool Result = This->CreateGrid(*numRows,*numCols,selmode);
  rt.addBool(Result);
  break;
 }
@@ -2972,7 +3045,7 @@ case wxGrid_EnableEditing: { // wxGrid::EnableEditing
  wxGrid *This = (wxGrid *) getPtr(bp,memenv); bp += 4;
  bool * edit = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->EnableEditing((bool) *edit);
+ This->EnableEditing(*edit);
  break;
 }
 case wxGrid_EnableGridLines: { // wxGrid::EnableGridLines
@@ -3020,7 +3093,7 @@ case wxGrid_GetCellAlignment: { // wxGrid::GetCellAlignment
  int * row = (int *) bp; bp += 4;
  int * col = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->GetCellAlignment((int) *row,(int) *col,&horiz,&vert);
+ This->GetCellAlignment(*row,*col,&horiz,&vert);
  rt.addInt(horiz);
  rt.addInt(vert);
  rt.addTupleCount(2);
@@ -3031,7 +3104,7 @@ case wxGrid_GetCellBackgroundColour: { // wxGrid::GetCellBackgroundColour
  int * row = (int *) bp; bp += 4;
  int * col = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxColour Result = This->GetCellBackgroundColour((int) *row,(int) *col);
+ wxColour Result = This->GetCellBackgroundColour(*row,*col);
  rt.add(Result);
  break;
 }
@@ -3040,7 +3113,7 @@ case wxGrid_GetCellEditor: { // wxGrid::GetCellEditor
  int * row = (int *) bp; bp += 4;
  int * col = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxGridCellEditor * Result = (wxGridCellEditor*)This->GetCellEditor((int) *row,(int) *col);
+ wxGridCellEditor * Result = (wxGridCellEditor*)This->GetCellEditor(*row,*col);
  rt.addRef(getRef((void *)Result,memenv), "wxGridCellEditor");
  break;
 }
@@ -3049,7 +3122,7 @@ case wxGrid_GetCellFont: { // wxGrid::GetCellFont
  int * row = (int *) bp; bp += 4;
  int * col = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxFont * Result = new wxFont(This->GetCellFont((int) *row,(int) *col)); newPtr((void *) Result,3, memenv);;
+ wxFont * Result = new EwxFont(This->GetCellFont(*row,*col)); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxFont");
  break;
 }
@@ -3058,7 +3131,7 @@ case wxGrid_GetCellRenderer: { // wxGrid::GetCellRenderer
  int * row = (int *) bp; bp += 4;
  int * col = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxGridCellRenderer * Result = (wxGridCellRenderer*)This->GetCellRenderer((int) *row,(int) *col);
+ wxGridCellRenderer * Result = (wxGridCellRenderer*)This->GetCellRenderer(*row,*col);
  rt.addRef(getRef((void *)Result,memenv), "wxGridCellRenderer");
  break;
 }
@@ -3067,7 +3140,7 @@ case wxGrid_GetCellTextColour: { // wxGrid::GetCellTextColour
  int * row = (int *) bp; bp += 4;
  int * col = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxColour Result = This->GetCellTextColour((int) *row,(int) *col);
+ wxColour Result = This->GetCellTextColour(*row,*col);
  rt.add(Result);
  break;
 }
@@ -3076,7 +3149,7 @@ case wxGrid_GetCellValue_2: { // wxGrid::GetCellValue
  int * row = (int *) bp; bp += 4;
  int * col = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxString Result = This->GetCellValue((int) *row,(int) *col);
+ wxString Result = This->GetCellValue(*row,*col);
  rt.add(Result);
  break;
 }
@@ -3112,7 +3185,7 @@ case wxGrid_GetColLabelValue: { // wxGrid::GetColLabelValue
  wxGrid *This = (wxGrid *) getPtr(bp,memenv); bp += 4;
  int * col = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxString Result = This->GetColLabelValue((int) *col);
+ wxString Result = This->GetColLabelValue(*col);
  rt.add(Result);
  break;
 }
@@ -3144,7 +3217,7 @@ case wxGrid_GetDefaultCellBackgroundColour: { // wxGrid::GetDefaultCellBackgroun
 case wxGrid_GetDefaultCellFont: { // wxGrid::GetDefaultCellFont
  wxGrid *This = (wxGrid *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- wxFont * Result = new wxFont(This->GetDefaultCellFont()); newPtr((void *) Result,3, memenv);;
+ wxFont * Result = new EwxFont(This->GetDefaultCellFont()); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxFont");
  break;
 }
@@ -3181,7 +3254,7 @@ case wxGrid_GetDefaultEditorForCell_2: { // wxGrid::GetDefaultEditorForCell
  int * row = (int *) bp; bp += 4;
  int * col = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxGridCellEditor * Result = (wxGridCellEditor*)This->GetDefaultEditorForCell((int) *row,(int) *col);
+ wxGridCellEditor * Result = (wxGridCellEditor*)This->GetDefaultEditorForCell(*row,*col);
  rt.addRef(getRef((void *)Result,memenv), "wxGridCellEditor");
  break;
 }
@@ -3217,7 +3290,7 @@ case wxGrid_GetDefaultRendererForCell: { // wxGrid::GetDefaultRendererForCell
  int * row = (int *) bp; bp += 4;
  int * col = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxGridCellRenderer * Result = (wxGridCellRenderer*)This->GetDefaultRendererForCell((int) *row,(int) *col);
+ wxGridCellRenderer * Result = (wxGridCellRenderer*)This->GetDefaultRendererForCell(*row,*col);
  rt.addRef(getRef((void *)Result,memenv), "wxGridCellRenderer");
  break;
 }
@@ -3283,7 +3356,7 @@ case wxGrid_GetLabelBackgroundColour: { // wxGrid::GetLabelBackgroundColour
 case wxGrid_GetLabelFont: { // wxGrid::GetLabelFont
  wxGrid *This = (wxGrid *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- wxFont * Result = new wxFont(This->GetLabelFont()); newPtr((void *) Result,3, memenv);;
+ wxFont * Result = new EwxFont(This->GetLabelFont()); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxFont");
  break;
 }
@@ -3313,7 +3386,7 @@ case wxGrid_GetOrCreateCellAttr: { // wxGrid::GetOrCreateCellAttr
  int * row = (int *) bp; bp += 4;
  int * col = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxGridCellAttr * Result = (wxGridCellAttr*)This->GetOrCreateCellAttr((int) *row,(int) *col);
+ wxGridCellAttr * Result = (wxGridCellAttr*)This->GetOrCreateCellAttr(*row,*col);
  rt.addRef(getRef((void *)Result,memenv), "wxGridCellAttr");
  break;
 }
@@ -3346,7 +3419,7 @@ case wxGrid_GetRowLabelValue: { // wxGrid::GetRowLabelValue
  wxGrid *This = (wxGrid *) getPtr(bp,memenv); bp += 4;
  int * row = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxString Result = This->GetRowLabelValue((int) *row);
+ wxString Result = This->GetRowLabelValue(*row);
  rt.add(Result);
  break;
 }
@@ -3354,7 +3427,7 @@ case wxGrid_GetRowSize: { // wxGrid::GetRowSize
  wxGrid *This = (wxGrid *) getPtr(bp,memenv); bp += 4;
  int * row = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->GetRowSize((int) *row);
+ int Result = This->GetRowSize(*row);
  rt.addInt(Result);
  break;
 }
@@ -3541,7 +3614,7 @@ case wxGrid_IsInSelection_2: { // wxGrid::IsInSelection
  int * row = (int *) bp; bp += 4;
  int * col = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->IsInSelection((int) *row,(int) *col);
+ bool Result = This->IsInSelection(*row,*col);
  rt.addBool(Result);
  break;
 }
@@ -3560,7 +3633,7 @@ case wxGrid_IsReadOnly: { // wxGrid::IsReadOnly
  int * row = (int *) bp; bp += 4;
  int * col = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->IsReadOnly((int) *row,(int) *col);
+ bool Result = This->IsReadOnly(*row,*col);
  rt.addBool(Result);
  break;
 }
@@ -3583,7 +3656,7 @@ case wxGrid_IsVisible_3: { // wxGrid::IsVisible
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->IsVisible((int) *row,(int) *col,wholeCellVisible);
+ bool Result = This->IsVisible(*row,*col,wholeCellVisible);
  rt.addBool(Result);
  break;
 }
@@ -3609,7 +3682,7 @@ case wxGrid_MakeCellVisible_2: { // wxGrid::MakeCellVisible
  int * row = (int *) bp; bp += 4;
  int * col = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->MakeCellVisible((int) *row,(int) *col);
+ This->MakeCellVisible(*row,*col);
  break;
 }
 case wxGrid_MakeCellVisible_1: { // wxGrid::MakeCellVisible
@@ -3625,7 +3698,7 @@ case wxGrid_MoveCursorDown: { // wxGrid::MoveCursorDown
  wxGrid *This = (wxGrid *) getPtr(bp,memenv); bp += 4;
  bool * expandSelection = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->MoveCursorDown((bool) *expandSelection);
+ bool Result = This->MoveCursorDown(*expandSelection);
  rt.addBool(Result);
  break;
 }
@@ -3633,7 +3706,7 @@ case wxGrid_MoveCursorLeft: { // wxGrid::MoveCursorLeft
  wxGrid *This = (wxGrid *) getPtr(bp,memenv); bp += 4;
  bool * expandSelection = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->MoveCursorLeft((bool) *expandSelection);
+ bool Result = This->MoveCursorLeft(*expandSelection);
  rt.addBool(Result);
  break;
 }
@@ -3641,7 +3714,7 @@ case wxGrid_MoveCursorRight: { // wxGrid::MoveCursorRight
  wxGrid *This = (wxGrid *) getPtr(bp,memenv); bp += 4;
  bool * expandSelection = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->MoveCursorRight((bool) *expandSelection);
+ bool Result = This->MoveCursorRight(*expandSelection);
  rt.addBool(Result);
  break;
 }
@@ -3649,7 +3722,7 @@ case wxGrid_MoveCursorUp: { // wxGrid::MoveCursorUp
  wxGrid *This = (wxGrid *) getPtr(bp,memenv); bp += 4;
  bool * expandSelection = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->MoveCursorUp((bool) *expandSelection);
+ bool Result = This->MoveCursorUp(*expandSelection);
  rt.addBool(Result);
  break;
 }
@@ -3657,7 +3730,7 @@ case wxGrid_MoveCursorDownBlock: { // wxGrid::MoveCursorDownBlock
  wxGrid *This = (wxGrid *) getPtr(bp,memenv); bp += 4;
  bool * expandSelection = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->MoveCursorDownBlock((bool) *expandSelection);
+ bool Result = This->MoveCursorDownBlock(*expandSelection);
  rt.addBool(Result);
  break;
 }
@@ -3665,7 +3738,7 @@ case wxGrid_MoveCursorLeftBlock: { // wxGrid::MoveCursorLeftBlock
  wxGrid *This = (wxGrid *) getPtr(bp,memenv); bp += 4;
  bool * expandSelection = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->MoveCursorLeftBlock((bool) *expandSelection);
+ bool Result = This->MoveCursorLeftBlock(*expandSelection);
  rt.addBool(Result);
  break;
 }
@@ -3673,7 +3746,7 @@ case wxGrid_MoveCursorRightBlock: { // wxGrid::MoveCursorRightBlock
  wxGrid *This = (wxGrid *) getPtr(bp,memenv); bp += 4;
  bool * expandSelection = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->MoveCursorRightBlock((bool) *expandSelection);
+ bool Result = This->MoveCursorRightBlock(*expandSelection);
  rt.addBool(Result);
  break;
 }
@@ -3681,7 +3754,7 @@ case wxGrid_MoveCursorUpBlock: { // wxGrid::MoveCursorUpBlock
  wxGrid *This = (wxGrid *) getPtr(bp,memenv); bp += 4;
  bool * expandSelection = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->MoveCursorUpBlock((bool) *expandSelection);
+ bool Result = This->MoveCursorUpBlock(*expandSelection);
  rt.addBool(Result);
  break;
 }
@@ -3736,7 +3809,7 @@ case wxGrid_SelectBlock_5: { // wxGrid::SelectBlock
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->SelectBlock((int) *topRow,(int) *leftCol,(int) *bottomRow,(int) *rightCol,addToSelected);
+ This->SelectBlock(*topRow,*leftCol,*bottomRow,*rightCol,addToSelected);
  break;
 }
 case wxGrid_SelectBlock_3: { // wxGrid::SelectBlock
@@ -3768,7 +3841,7 @@ case wxGrid_SelectCol: { // wxGrid::SelectCol
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->SelectCol((int) *col,addToSelected);
+ This->SelectCol(*col,addToSelected);
  break;
 }
 case wxGrid_SelectRow: { // wxGrid::SelectRow
@@ -3781,7 +3854,7 @@ case wxGrid_SelectRow: { // wxGrid::SelectRow
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->SelectRow((int) *row,addToSelected);
+ This->SelectRow(*row,addToSelected);
  break;
 }
 case wxGrid_SetCellAlignment_4: { // wxGrid::SetCellAlignment
@@ -3791,7 +3864,7 @@ case wxGrid_SetCellAlignment_4: { // wxGrid::SetCellAlignment
  int * horiz = (int *) bp; bp += 4;
  int * vert = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetCellAlignment((int) *row,(int) *col,(int) *horiz,(int) *vert);
+ This->SetCellAlignment(*row,*col,*horiz,*vert);
  break;
 }
 case wxGrid_SetCellAlignment_3: { // wxGrid::SetCellAlignment
@@ -3800,14 +3873,14 @@ case wxGrid_SetCellAlignment_3: { // wxGrid::SetCellAlignment
  int * row = (int *) bp; bp += 4;
  int * col = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetCellAlignment((int) *align,(int) *row,(int) *col);
+ This->SetCellAlignment(*align,*row,*col);
  break;
 }
 case wxGrid_SetCellAlignment_1: { // wxGrid::SetCellAlignment
  wxGrid *This = (wxGrid *) getPtr(bp,memenv); bp += 4;
  int * align = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetCellAlignment((int) *align);
+ This->SetCellAlignment(*align);
  break;
 }
 case wxGrid_SetCellBackgroundColour_3_0: { // wxGrid::SetCellBackgroundColour
@@ -3820,7 +3893,7 @@ case wxGrid_SetCellBackgroundColour_3_0: { // wxGrid::SetCellBackgroundColour
  int * valA = (int *) bp; bp += 4;
  wxColour val = wxColour(*valR,*valG,*valB,*valA);
  if(!This) throw wxe_badarg(0);
- This->SetCellBackgroundColour((int) *row,(int) *col,val);
+ This->SetCellBackgroundColour(*row,*col,val);
  break;
 }
 case wxGrid_SetCellBackgroundColour_1: { // wxGrid::SetCellBackgroundColour
@@ -3844,7 +3917,7 @@ case wxGrid_SetCellBackgroundColour_3_1: { // wxGrid::SetCellBackgroundColour
  int * row = (int *) bp; bp += 4;
  int * col = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetCellBackgroundColour(colour,(int) *row,(int) *col);
+ This->SetCellBackgroundColour(colour,*row,*col);
  break;
 }
 case wxGrid_SetCellEditor: { // wxGrid::SetCellEditor
@@ -3853,7 +3926,7 @@ case wxGrid_SetCellEditor: { // wxGrid::SetCellEditor
  int * col = (int *) bp; bp += 4;
  wxGridCellEditor *editor = (wxGridCellEditor *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetCellEditor((int) *row,(int) *col,editor);
+ This->SetCellEditor(*row,*col,editor);
  break;
 }
 case wxGrid_SetCellFont: { // wxGrid::SetCellFont
@@ -3862,7 +3935,7 @@ case wxGrid_SetCellFont: { // wxGrid::SetCellFont
  int * col = (int *) bp; bp += 4;
  wxFont *val = (wxFont *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetCellFont((int) *row,(int) *col,*val);
+ This->SetCellFont(*row,*col,*val);
  break;
 }
 case wxGrid_SetCellRenderer: { // wxGrid::SetCellRenderer
@@ -3871,7 +3944,7 @@ case wxGrid_SetCellRenderer: { // wxGrid::SetCellRenderer
  int * col = (int *) bp; bp += 4;
  wxGridCellRenderer *renderer = (wxGridCellRenderer *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetCellRenderer((int) *row,(int) *col,renderer);
+ This->SetCellRenderer(*row,*col,renderer);
  break;
 }
 case wxGrid_SetCellTextColour_3_0: { // wxGrid::SetCellTextColour
@@ -3884,7 +3957,7 @@ case wxGrid_SetCellTextColour_3_0: { // wxGrid::SetCellTextColour
  int * valA = (int *) bp; bp += 4;
  wxColour val = wxColour(*valR,*valG,*valB,*valA);
  if(!This) throw wxe_badarg(0);
- This->SetCellTextColour((int) *row,(int) *col,val);
+ This->SetCellTextColour(*row,*col,val);
  break;
 }
 case wxGrid_SetCellTextColour_3_1: { // wxGrid::SetCellTextColour
@@ -3897,7 +3970,7 @@ case wxGrid_SetCellTextColour_3_1: { // wxGrid::SetCellTextColour
  int * row = (int *) bp; bp += 4;
  int * col = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetCellTextColour(val,(int) *row,(int) *col);
+ This->SetCellTextColour(val,*row,*col);
  break;
 }
 case wxGrid_SetCellTextColour_1: { // wxGrid::SetCellTextColour
@@ -3919,7 +3992,7 @@ case wxGrid_SetCellValue_3_0: { // wxGrid::SetCellValue
  wxString s = wxString(bp, wxConvUTF8);
  bp += *sLen+((8-((0+ *sLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- This->SetCellValue((int) *row,(int) *col,s);
+ This->SetCellValue(*row,*col,s);
  break;
 }
 case wxGrid_SetCellValue_2: { // wxGrid::SetCellValue
@@ -3942,7 +4015,7 @@ case wxGrid_SetCellValue_3_1: { // wxGrid::SetCellValue
  int * row = (int *) bp; bp += 4;
  int * col = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetCellValue(val,(int) *row,(int) *col);
+ This->SetCellValue(val,*row,*col);
  break;
 }
 case wxGrid_SetColAttr: { // wxGrid::SetColAttr
@@ -3950,21 +4023,21 @@ case wxGrid_SetColAttr: { // wxGrid::SetColAttr
  int * col = (int *) bp; bp += 4;
  wxGridCellAttr *attr = (wxGridCellAttr *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetColAttr((int) *col,attr);
+ This->SetColAttr(*col,attr);
  break;
 }
 case wxGrid_SetColFormatBool: { // wxGrid::SetColFormatBool
  wxGrid *This = (wxGrid *) getPtr(bp,memenv); bp += 4;
  int * col = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetColFormatBool((int) *col);
+ This->SetColFormatBool(*col);
  break;
 }
 case wxGrid_SetColFormatNumber: { // wxGrid::SetColFormatNumber
  wxGrid *This = (wxGrid *) getPtr(bp,memenv); bp += 4;
  int * col = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetColFormatNumber((int) *col);
+ This->SetColFormatNumber(*col);
  break;
 }
 case wxGrid_SetColFormatFloat: { // wxGrid::SetColFormatFloat
@@ -3981,7 +4054,7 @@ case wxGrid_SetColFormatFloat: { // wxGrid::SetColFormatFloat
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->SetColFormatFloat((int) *col,width,precision);
+ This->SetColFormatFloat(*col,width,precision);
  break;
 }
 case wxGrid_SetColFormatCustom: { // wxGrid::SetColFormatCustom
@@ -3991,7 +4064,7 @@ case wxGrid_SetColFormatCustom: { // wxGrid::SetColFormatCustom
  wxString typeName = wxString(bp, wxConvUTF8);
  bp += *typeNameLen+((8-((4+ *typeNameLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- This->SetColFormatCustom((int) *col,typeName);
+ This->SetColFormatCustom(*col,typeName);
  break;
 }
 case wxGrid_SetColLabelAlignment: { // wxGrid::SetColLabelAlignment
@@ -3999,14 +4072,14 @@ case wxGrid_SetColLabelAlignment: { // wxGrid::SetColLabelAlignment
  int * horiz = (int *) bp; bp += 4;
  int * vert = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetColLabelAlignment((int) *horiz,(int) *vert);
+ This->SetColLabelAlignment(*horiz,*vert);
  break;
 }
 case wxGrid_SetColLabelSize: { // wxGrid::SetColLabelSize
  wxGrid *This = (wxGrid *) getPtr(bp,memenv); bp += 4;
  int * height = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetColLabelSize((int) *height);
+ This->SetColLabelSize(*height);
  break;
 }
 case wxGrid_SetColLabelValue: { // wxGrid::SetColLabelValue
@@ -4016,7 +4089,7 @@ case wxGrid_SetColLabelValue: { // wxGrid::SetColLabelValue
  wxString val = wxString(bp, wxConvUTF8);
  bp += *valLen+((8-((4+ *valLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- This->SetColLabelValue((int) *col,val);
+ This->SetColLabelValue(*col,val);
  break;
 }
 case wxGrid_SetColMinimalWidth: { // wxGrid::SetColMinimalWidth
@@ -4024,14 +4097,14 @@ case wxGrid_SetColMinimalWidth: { // wxGrid::SetColMinimalWidth
  int * col = (int *) bp; bp += 4;
  int * width = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetColMinimalWidth((int) *col,(int) *width);
+ This->SetColMinimalWidth(*col,*width);
  break;
 }
 case wxGrid_SetColMinimalAcceptableWidth: { // wxGrid::SetColMinimalAcceptableWidth
  wxGrid *This = (wxGrid *) getPtr(bp,memenv); bp += 4;
  int * width = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetColMinimalAcceptableWidth((int) *width);
+ This->SetColMinimalAcceptableWidth(*width);
  break;
 }
 case wxGrid_SetColSize: { // wxGrid::SetColSize
@@ -4039,7 +4112,7 @@ case wxGrid_SetColSize: { // wxGrid::SetColSize
  int * col = (int *) bp; bp += 4;
  int * width = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetColSize((int) *col,(int) *width);
+ This->SetColSize(*col,*width);
  break;
 }
 case wxGrid_SetDefaultCellAlignment: { // wxGrid::SetDefaultCellAlignment
@@ -4047,7 +4120,7 @@ case wxGrid_SetDefaultCellAlignment: { // wxGrid::SetDefaultCellAlignment
  int * horiz = (int *) bp; bp += 4;
  int * vert = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetDefaultCellAlignment((int) *horiz,(int) *vert);
+ This->SetDefaultCellAlignment(*horiz,*vert);
  break;
 }
 case wxGrid_SetDefaultCellBackgroundColour: { // wxGrid::SetDefaultCellBackgroundColour
@@ -4103,7 +4176,7 @@ case wxGrid_SetDefaultColSize: { // wxGrid::SetDefaultColSize
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->SetDefaultColSize((int) *width,resizeExistingCols);
+ This->SetDefaultColSize(*width,resizeExistingCols);
  break;
 }
 case wxGrid_SetDefaultRowSize: { // wxGrid::SetDefaultRowSize
@@ -4116,7 +4189,7 @@ case wxGrid_SetDefaultRowSize: { // wxGrid::SetDefaultRowSize
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->SetDefaultRowSize((int) *height,resizeExistingRows);
+ This->SetDefaultRowSize(*height,resizeExistingRows);
  break;
 }
 case wxGrid_SetGridCursor: { // wxGrid::SetGridCursor
@@ -4124,7 +4197,7 @@ case wxGrid_SetGridCursor: { // wxGrid::SetGridCursor
  int * row = (int *) bp; bp += 4;
  int * col = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetGridCursor((int) *row,(int) *col);
+ This->SetGridCursor(*row,*col);
  break;
 }
 case wxGrid_SetGridLineColour: { // wxGrid::SetGridLineColour
@@ -4172,7 +4245,7 @@ case wxGrid_SetMargins: { // wxGrid::SetMargins
  int * extraWidth = (int *) bp; bp += 4;
  int * extraHeight = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetMargins((int) *extraWidth,(int) *extraHeight);
+ This->SetMargins(*extraWidth,*extraHeight);
  break;
 }
 case wxGrid_SetReadOnly: { // wxGrid::SetReadOnly
@@ -4187,7 +4260,7 @@ case wxGrid_SetReadOnly: { // wxGrid::SetReadOnly
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->SetReadOnly((int) *row,(int) *col,isReadOnly);
+ This->SetReadOnly(*row,*col,isReadOnly);
  break;
 }
 case wxGrid_SetRowAttr: { // wxGrid::SetRowAttr
@@ -4195,7 +4268,7 @@ case wxGrid_SetRowAttr: { // wxGrid::SetRowAttr
  int * row = (int *) bp; bp += 4;
  wxGridCellAttr *attr = (wxGridCellAttr *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetRowAttr((int) *row,attr);
+ This->SetRowAttr(*row,attr);
  break;
 }
 case wxGrid_SetRowLabelAlignment: { // wxGrid::SetRowLabelAlignment
@@ -4203,14 +4276,14 @@ case wxGrid_SetRowLabelAlignment: { // wxGrid::SetRowLabelAlignment
  int * horiz = (int *) bp; bp += 4;
  int * vert = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetRowLabelAlignment((int) *horiz,(int) *vert);
+ This->SetRowLabelAlignment(*horiz,*vert);
  break;
 }
 case wxGrid_SetRowLabelSize: { // wxGrid::SetRowLabelSize
  wxGrid *This = (wxGrid *) getPtr(bp,memenv); bp += 4;
  int * width = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetRowLabelSize((int) *width);
+ This->SetRowLabelSize(*width);
  break;
 }
 case wxGrid_SetRowLabelValue: { // wxGrid::SetRowLabelValue
@@ -4220,7 +4293,7 @@ case wxGrid_SetRowLabelValue: { // wxGrid::SetRowLabelValue
  wxString val = wxString(bp, wxConvUTF8);
  bp += *valLen+((8-((4+ *valLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- This->SetRowLabelValue((int) *row,val);
+ This->SetRowLabelValue(*row,val);
  break;
 }
 case wxGrid_SetRowMinimalHeight: { // wxGrid::SetRowMinimalHeight
@@ -4228,14 +4301,14 @@ case wxGrid_SetRowMinimalHeight: { // wxGrid::SetRowMinimalHeight
  int * row = (int *) bp; bp += 4;
  int * width = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetRowMinimalHeight((int) *row,(int) *width);
+ This->SetRowMinimalHeight(*row,*width);
  break;
 }
 case wxGrid_SetRowMinimalAcceptableHeight: { // wxGrid::SetRowMinimalAcceptableHeight
  wxGrid *This = (wxGrid *) getPtr(bp,memenv); bp += 4;
  int * width = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetRowMinimalAcceptableHeight((int) *width);
+ This->SetRowMinimalAcceptableHeight(*width);
  break;
 }
 case wxGrid_SetRowSize: { // wxGrid::SetRowSize
@@ -4243,21 +4316,21 @@ case wxGrid_SetRowSize: { // wxGrid::SetRowSize
  int * row = (int *) bp; bp += 4;
  int * height = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetRowSize((int) *row,(int) *height);
+ This->SetRowSize(*row,*height);
  break;
 }
 case wxGrid_SetScrollLineX: { // wxGrid::SetScrollLineX
  wxGrid *This = (wxGrid *) getPtr(bp,memenv); bp += 4;
  int * x = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetScrollLineX((int) *x);
+ This->SetScrollLineX(*x);
  break;
 }
 case wxGrid_SetScrollLineY: { // wxGrid::SetScrollLineY
  wxGrid *This = (wxGrid *) getPtr(bp,memenv); bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetScrollLineY((int) *y);
+ This->SetScrollLineY(*y);
  break;
 }
 case wxGrid_SetSelectionBackground: { // wxGrid::SetSelectionBackground
@@ -4286,7 +4359,7 @@ case wxGrid_SetSelectionMode: { // wxGrid::SetSelectionMode
  wxGrid *This = (wxGrid *) getPtr(bp,memenv); bp += 4;
  wxGrid::wxGridSelectionModes selmode = *(wxGrid::wxGridSelectionModes *) bp; bp += 4;;
  if(!This) throw wxe_badarg(0);
- This->SetSelectionMode((wxGrid::wxGridSelectionModes) selmode);
+ This->SetSelectionMode(selmode);
  break;
 }
 case wxGrid_ShowCellEditControl: { // wxGrid::ShowCellEditControl
@@ -4305,7 +4378,7 @@ case wxGrid_XToCol: { // wxGrid::XToCol
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- int Result = This->XToCol((int) *x,clipToMinMax);
+ int Result = This->XToCol(*x,clipToMinMax);
  rt.addInt(Result);
  break;
 }
@@ -4313,7 +4386,7 @@ case wxGrid_XToEdgeOfCol: { // wxGrid::XToEdgeOfCol
  wxGrid *This = (wxGrid *) getPtr(bp,memenv); bp += 4;
  int * x = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->XToEdgeOfCol((int) *x);
+ int Result = This->XToEdgeOfCol(*x);
  rt.addInt(Result);
  break;
 }
@@ -4321,7 +4394,7 @@ case wxGrid_YToEdgeOfRow: { // wxGrid::YToEdgeOfRow
  wxGrid *This = (wxGrid *) getPtr(bp,memenv); bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->YToEdgeOfRow((int) *y);
+ int Result = This->YToEdgeOfRow(*y);
  rt.addInt(Result);
  break;
 }
@@ -4329,7 +4402,7 @@ case wxGrid_YToRow: { // wxGrid::YToRow
  wxGrid *This = (wxGrid *) getPtr(bp,memenv); bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->YToRow((int) *y);
+ int Result = This->YToRow(*y);
  rt.addInt(Result);
  break;
 }
@@ -4347,7 +4420,7 @@ case wxGridCellRenderer_Draw: { // wxGridCellRenderer::Draw
  int * col = (int *) bp; bp += 4;
  bool * isSelected = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->Draw(*grid,*attr,*dc,rect,(int) *row,(int) *col,(bool) *isSelected);
+ This->Draw(*grid,*attr,*dc,rect,*row,*col,*isSelected);
  break;
 }
 case wxGridCellRenderer_GetBestSize: { // wxGridCellRenderer::GetBestSize
@@ -4358,7 +4431,7 @@ case wxGridCellRenderer_GetBestSize: { // wxGridCellRenderer::GetBestSize
  int * row = (int *) bp; bp += 4;
  int * col = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxSize Result = This->GetBestSize(*grid,*attr,*dc,(int) *row,(int) *col);
+ wxSize Result = This->GetBestSize(*grid,*attr,*dc,*row,*col);
  rt.add(Result);
  break;
 }
@@ -4368,7 +4441,7 @@ case wxGridCellEditor_Create: { // wxGridCellEditor::Create
  int * id = (int *) bp; bp += 4;
  wxEvtHandler *evtHandler = (wxEvtHandler *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- This->Create(parent,(wxWindowID) *id,evtHandler);
+ This->Create(parent,*id,evtHandler);
  break;
 }
 case wxGridCellEditor_IsCreated: { // wxGridCellEditor::IsCreated
@@ -4399,9 +4472,10 @@ attr = (wxGridCellAttr *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->Show((bool) *show,attr);
+ This->Show(*show,attr);
  break;
 }
+#if !wxCHECK_VERSION(2,9,0)
 case wxGridCellEditor_PaintBackground: { // wxGridCellEditor::PaintBackground
  wxGridCellEditor *This = (wxGridCellEditor *) getPtr(bp,memenv); bp += 4;
  int * rectCellX = (int *) bp; bp += 4;
@@ -4414,25 +4488,28 @@ case wxGridCellEditor_PaintBackground: { // wxGridCellEditor::PaintBackground
  This->PaintBackground(rectCell,attr);
  break;
 }
+#endif
 case wxGridCellEditor_BeginEdit: { // wxGridCellEditor::BeginEdit
  wxGridCellEditor *This = (wxGridCellEditor *) getPtr(bp,memenv); bp += 4;
  int * row = (int *) bp; bp += 4;
  int * col = (int *) bp; bp += 4;
  wxGrid *grid = (wxGrid *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- This->BeginEdit((int) *row,(int) *col,grid);
+ This->BeginEdit(*row,*col,grid);
  break;
 }
+#if !wxCHECK_VERSION(2,9,0)
 case wxGridCellEditor_EndEdit: { // wxGridCellEditor::EndEdit
  wxGridCellEditor *This = (wxGridCellEditor *) getPtr(bp,memenv); bp += 4;
  int * row = (int *) bp; bp += 4;
  int * col = (int *) bp; bp += 4;
  wxGrid *grid = (wxGrid *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->EndEdit((int) *row,(int) *col,grid);
+ bool Result = This->EndEdit(*row,*col,grid);
  rt.addBool(Result);
  break;
 }
+#endif
 case wxGridCellEditor_Reset: { // wxGridCellEditor::Reset
  wxGridCellEditor *This = (wxGridCellEditor *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
@@ -4552,14 +4629,14 @@ case wxGridCellFloatRenderer_SetPrecision: { // wxGridCellFloatRenderer::SetPrec
  wxGridCellFloatRenderer *This = (wxGridCellFloatRenderer *) getPtr(bp,memenv); bp += 4;
  int * precision = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetPrecision((int) *precision);
+ This->SetPrecision(*precision);
  break;
 }
 case wxGridCellFloatRenderer_SetWidth: { // wxGridCellFloatRenderer::SetWidth
  wxGridCellFloatRenderer *This = (wxGridCellFloatRenderer *) getPtr(bp,memenv); bp += 4;
  int * width = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetWidth((int) *width);
+ This->SetWidth(*width);
  break;
 }
 case wxGridCellFloatRenderer_destroy: { // wxGridCellFloatRenderer::destroy
@@ -4753,7 +4830,7 @@ case wxGridCellAttr_SetAlignment: { // wxGridCellAttr::SetAlignment
  int * hAlign = (int *) bp; bp += 4;
  int * vAlign = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetAlignment((int) *hAlign,(int) *vAlign);
+ This->SetAlignment(*hAlign,*vAlign);
  break;
 }
 case wxGridCellAttr_SetReadOnly: { // wxGridCellAttr::SetReadOnly
@@ -4863,7 +4940,7 @@ case wxGridCellAttr_GetRenderer: { // wxGridCellAttr::GetRenderer
  int * row = (int *) bp; bp += 4;
  int * col = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxGridCellRenderer * Result = (wxGridCellRenderer*)This->GetRenderer(grid,(int) *row,(int) *col);
+ wxGridCellRenderer * Result = (wxGridCellRenderer*)This->GetRenderer(grid,*row,*col);
  rt.addRef(getRef((void *)Result,memenv), "wxGridCellRenderer");
  break;
 }
@@ -4873,7 +4950,7 @@ case wxGridCellAttr_GetEditor: { // wxGridCellAttr::GetEditor
  int * row = (int *) bp; bp += 4;
  int * col = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxGridCellEditor * Result = (wxGridCellEditor*)This->GetEditor(grid,(int) *row,(int) *col);
+ wxGridCellEditor * Result = (wxGridCellEditor*)This->GetEditor(grid,*row,*col);
  rt.addRef(getRef((void *)Result,memenv), "wxGridCellEditor");
  break;
 }
@@ -4892,7 +4969,7 @@ case wxGridCellAttr_SetDefAttr: { // wxGridCellAttr::SetDefAttr
  break;
 }
 case wxDC_Blit: { // wxDC::Blit
- int rop=wxCOPY;
+ wxRasterOperationMode rop=wxCOPY;
  bool useMask=false;
  wxPoint srcPtMask= wxDefaultPosition;
  wxDC *This = (wxDC *) getPtr(bp,memenv); bp += 4;
@@ -4908,7 +4985,7 @@ case wxDC_Blit: { // wxDC::Blit
  wxPoint srcPt = wxPoint(*srcPtX,*srcPtY);
  while( * (int*) bp) { switch (* (int*) bp) {
   case 1: {bp += 4;
- rop = (int)*(int *) bp; bp += 4;
+rop = *(wxRasterOperationMode *) bp; bp += 4;;
   } break;
   case 2: {bp += 4;
  useMask = *(bool *) bp; bp += 4;
@@ -4930,7 +5007,7 @@ case wxDC_CalcBoundingBox: { // wxDC::CalcBoundingBox
  int * x = (int *) bp; bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->CalcBoundingBox((wxCoord) *x,(wxCoord) *y);
+ This->CalcBoundingBox(*x,*y);
  break;
 }
 case wxDC_Clear: { // wxDC::Clear
@@ -4939,12 +5016,14 @@ case wxDC_Clear: { // wxDC::Clear
  This->Clear();
  break;
 }
+#if !wxCHECK_VERSION(2,9,0)
 case wxDC_ComputeScaleAndOrigin: { // wxDC::ComputeScaleAndOrigin
  wxDC *This = (wxDC *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
  This->ComputeScaleAndOrigin();
  break;
 }
+#endif
 case wxDC_CrossHair: { // wxDC::CrossHair
  wxDC *This = (wxDC *) getPtr(bp,memenv); bp += 4;
  int * ptX = (int *) bp; bp += 4;
@@ -4964,7 +5043,7 @@ case wxDC_DeviceToLogicalX: { // wxDC::DeviceToLogicalX
  wxDC *This = (wxDC *) getPtr(bp,memenv); bp += 4;
  int * x = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxCoord Result = This->DeviceToLogicalX((wxCoord) *x);
+ wxCoord Result = This->DeviceToLogicalX(*x);
  rt.addInt(Result);
  break;
 }
@@ -4972,7 +5051,7 @@ case wxDC_DeviceToLogicalXRel: { // wxDC::DeviceToLogicalXRel
  wxDC *This = (wxDC *) getPtr(bp,memenv); bp += 4;
  int * x = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxCoord Result = This->DeviceToLogicalXRel((wxCoord) *x);
+ wxCoord Result = This->DeviceToLogicalXRel(*x);
  rt.addInt(Result);
  break;
 }
@@ -4980,7 +5059,7 @@ case wxDC_DeviceToLogicalY: { // wxDC::DeviceToLogicalY
  wxDC *This = (wxDC *) getPtr(bp,memenv); bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxCoord Result = This->DeviceToLogicalY((wxCoord) *y);
+ wxCoord Result = This->DeviceToLogicalY(*y);
  rt.addInt(Result);
  break;
 }
@@ -4988,7 +5067,7 @@ case wxDC_DeviceToLogicalYRel: { // wxDC::DeviceToLogicalYRel
  wxDC *This = (wxDC *) getPtr(bp,memenv); bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxCoord Result = This->DeviceToLogicalYRel((wxCoord) *y);
+ wxCoord Result = This->DeviceToLogicalYRel(*y);
  rt.addInt(Result);
  break;
 }
@@ -5041,7 +5120,7 @@ case wxDC_DrawCircle: { // wxDC::DrawCircle
  wxPoint pt = wxPoint(*ptX,*ptY);
  int * radius = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->DrawCircle(pt,(wxCoord) *radius);
+ This->DrawCircle(pt,*radius);
  break;
 }
 case wxDC_DrawEllipse_2: { // wxDC::DrawEllipse
@@ -5079,7 +5158,7 @@ case wxDC_DrawEllipticArc: { // wxDC::DrawEllipticArc
  double * sa = (double *) bp; bp += 8;
  double * ea = (double *) bp; bp += 8;
  if(!This) throw wxe_badarg(0);
- This->DrawEllipticArc(pt,sz,(double) *sa,(double) *ea);
+ This->DrawEllipticArc(pt,sz,*sa,*ea);
  break;
 }
 case wxDC_DrawIcon: { // wxDC::DrawIcon
@@ -5155,7 +5234,7 @@ case wxDC_DrawLines: { // wxDC::DrawLines
 case wxDC_DrawPolygon: { // wxDC::DrawPolygon
  wxCoord xoffset=0;
  wxCoord yoffset=0;
- int fillStyle=wxODDEVEN_RULE;
+ wxPolygonFillMode fillStyle=wxODDEVEN_RULE;
  wxDC *This = (wxDC *) getPtr(bp,memenv); bp += 4;
  int * pointsLen = (int *) bp; bp += 4;
  wxPoint *points;
@@ -5172,7 +5251,7 @@ case wxDC_DrawPolygon: { // wxDC::DrawPolygon
  yoffset = (wxCoord)*(int *) bp; bp += 4;
   } break;
   case 3: {bp += 4;
- fillStyle = (int)*(int *) bp; bp += 4;
+fillStyle = *(wxPolygonFillMode *) bp; bp += 4;;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
@@ -5222,7 +5301,7 @@ case wxDC_DrawRotatedText: { // wxDC::DrawRotatedText
  wxPoint pt = wxPoint(*ptX,*ptY);
  double * angle = (double *) bp; bp += 8;
  if(!This) throw wxe_badarg(0);
- This->DrawRotatedText(text,pt,(double) *angle);
+ This->DrawRotatedText(text,pt,*angle);
  break;
 }
 case wxDC_DrawRoundedRectangle_3: { // wxDC::DrawRoundedRectangle
@@ -5236,7 +5315,7 @@ case wxDC_DrawRoundedRectangle_3: { // wxDC::DrawRoundedRectangle
  bp += 4; /* Align */
  double * radius = (double *) bp; bp += 8;
  if(!This) throw wxe_badarg(0);
- This->DrawRoundedRectangle(pt,sz,(double) *radius);
+ This->DrawRoundedRectangle(pt,sz,*radius);
  break;
 }
 case wxDC_DrawRoundedRectangle_2: { // wxDC::DrawRoundedRectangle
@@ -5249,7 +5328,7 @@ case wxDC_DrawRoundedRectangle_2: { // wxDC::DrawRoundedRectangle
  bp += 4; /* Align */
  double * radius = (double *) bp; bp += 8;
  if(!This) throw wxe_badarg(0);
- This->DrawRoundedRectangle(r,(double) *radius);
+ This->DrawRoundedRectangle(r,*radius);
  break;
 }
 case wxDC_DrawText: { // wxDC::DrawText
@@ -5277,7 +5356,7 @@ case wxDC_EndPage: { // wxDC::EndPage
  break;
 }
 case wxDC_FloodFill: { // wxDC::FloodFill
- int style=wxFLOOD_SURFACE;
+ wxFloodFillStyle style=wxFLOOD_SURFACE;
  wxDC *This = (wxDC *) getPtr(bp,memenv); bp += 4;
  int * ptX = (int *) bp; bp += 4;
  int * ptY = (int *) bp; bp += 4;
@@ -5290,7 +5369,7 @@ case wxDC_FloodFill: { // wxDC::FloodFill
  bp += 4; /* Align */
  while( * (int*) bp) { switch (* (int*) bp) {
   case 1: {bp += 4;
- style = (int)*(int *) bp; bp += 4;
+style = *(wxFloodFillStyle *) bp; bp += 4;;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
@@ -5516,6 +5595,7 @@ case wxDC_GetUserScale: { // wxDC::GetUserScale
  wxDC *This = (wxDC *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
  This->GetUserScale(&x,&y);
+ rt.ensureFloatCount(3);
  rt.addFloat(x);
  rt.addFloat(y);
  rt.addTupleCount(2);
@@ -5591,14 +5671,14 @@ nDirection = *(wxDirection *) bp; bp += 4;;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->GradientFillLinear(rect,initialColour,destColour,(wxDirection) nDirection);
+ This->GradientFillLinear(rect,initialColour,destColour,nDirection);
  break;
 }
 case wxDC_LogicalToDeviceX: { // wxDC::LogicalToDeviceX
  wxDC *This = (wxDC *) getPtr(bp,memenv); bp += 4;
  int * x = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxCoord Result = This->LogicalToDeviceX((wxCoord) *x);
+ wxCoord Result = This->LogicalToDeviceX(*x);
  rt.addInt(Result);
  break;
 }
@@ -5606,7 +5686,7 @@ case wxDC_LogicalToDeviceXRel: { // wxDC::LogicalToDeviceXRel
  wxDC *This = (wxDC *) getPtr(bp,memenv); bp += 4;
  int * x = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxCoord Result = This->LogicalToDeviceXRel((wxCoord) *x);
+ wxCoord Result = This->LogicalToDeviceXRel(*x);
  rt.addInt(Result);
  break;
 }
@@ -5614,7 +5694,7 @@ case wxDC_LogicalToDeviceY: { // wxDC::LogicalToDeviceY
  wxDC *This = (wxDC *) getPtr(bp,memenv); bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxCoord Result = This->LogicalToDeviceY((wxCoord) *y);
+ wxCoord Result = This->LogicalToDeviceY(*y);
  rt.addInt(Result);
  break;
 }
@@ -5622,7 +5702,7 @@ case wxDC_LogicalToDeviceYRel: { // wxDC::LogicalToDeviceYRel
  wxDC *This = (wxDC *) getPtr(bp,memenv); bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxCoord Result = This->LogicalToDeviceYRel((wxCoord) *y);
+ wxCoord Result = This->LogicalToDeviceYRel(*y);
  rt.addInt(Result);
  break;
 }
@@ -5672,7 +5752,7 @@ case wxDC_SetAxisOrientation: { // wxDC::SetAxisOrientation
  bool * xLeftRight = (bool *) bp; bp += 4;
  bool * yBottomUp = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetAxisOrientation((bool) *xLeftRight,(bool) *yBottomUp);
+ This->SetAxisOrientation(*xLeftRight,*yBottomUp);
  break;
 }
 case wxDC_SetBackground: { // wxDC::SetBackground
@@ -5686,7 +5766,7 @@ case wxDC_SetBackgroundMode: { // wxDC::SetBackgroundMode
  wxDC *This = (wxDC *) getPtr(bp,memenv); bp += 4;
  int * mode = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetBackgroundMode((int) *mode);
+ This->SetBackgroundMode(*mode);
  break;
 }
 case wxDC_SetBrush: { // wxDC::SetBrush
@@ -5731,7 +5811,7 @@ case wxDC_SetDeviceOrigin: { // wxDC::SetDeviceOrigin
  int * x = (int *) bp; bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetDeviceOrigin((wxCoord) *x,(wxCoord) *y);
+ This->SetDeviceOrigin(*x,*y);
  break;
 }
 case wxDC_SetFont: { // wxDC::SetFont
@@ -5745,21 +5825,21 @@ case wxDC_SetLayoutDirection: { // wxDC::SetLayoutDirection
  wxDC *This = (wxDC *) getPtr(bp,memenv); bp += 4;
  wxLayoutDirection dir = *(wxLayoutDirection *) bp; bp += 4;;
  if(!This) throw wxe_badarg(0);
- This->SetLayoutDirection((wxLayoutDirection) dir);
+ This->SetLayoutDirection(dir);
  break;
 }
 case wxDC_SetLogicalFunction: { // wxDC::SetLogicalFunction
  wxDC *This = (wxDC *) getPtr(bp,memenv); bp += 4;
- int * function = (int *) bp; bp += 4;
+ wxRasterOperationMode function = *(wxRasterOperationMode *) bp; bp += 4;;
  if(!This) throw wxe_badarg(0);
- This->SetLogicalFunction((int) *function);
+ This->SetLogicalFunction(function);
  break;
 }
 case wxDC_SetMapMode: { // wxDC::SetMapMode
  wxDC *This = (wxDC *) getPtr(bp,memenv); bp += 4;
- int * mode = (int *) bp; bp += 4;
+ wxMappingMode mode = *(wxMappingMode *) bp; bp += 4;;
  if(!This) throw wxe_badarg(0);
- This->SetMapMode((int) *mode);
+ This->SetMapMode(mode);
  break;
 }
 case wxDC_SetPalette: { // wxDC::SetPalette
@@ -5804,7 +5884,7 @@ case wxDC_SetUserScale: { // wxDC::SetUserScale
  double * x = (double *) bp; bp += 8;
  double * y = (double *) bp; bp += 8;
  if(!This) throw wxe_badarg(0);
- This->SetUserScale((double) *x,(double) *y);
+ This->SetUserScale(*x,*y);
  break;
 }
 case wxDC_StartDoc: { // wxDC::StartDoc
@@ -5826,96 +5906,108 @@ case wxDC_StartPage: { // wxDC::StartPage
 case wxMirrorDC_new: { // wxMirrorDC::wxMirrorDC
  wxDC *dc = (wxDC *) getPtr(bp,memenv); bp += 4;
  bool * mirror = (bool *) bp; bp += 4;
- wxMirrorDC * Result = new EwxMirrorDC(*dc,(bool) *mirror);
- newPtr((void *) Result, 1, memenv);
+ wxMirrorDC * Result = new EwxMirrorDC(*dc,*mirror);
+ newPtr((void *) Result, 8, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxMirrorDC");
  break;
 }
 case wxScreenDC_new: { // wxScreenDC::wxScreenDC
  wxScreenDC * Result = new EwxScreenDC();
- newPtr((void *) Result, 1, memenv);
+ newPtr((void *) Result, 8, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxScreenDC");
  break;
 }
+#if wxUSE_POSTSCRIPT
 case wxPostScriptDC_new_0: { // wxPostScriptDC::wxPostScriptDC
  wxPostScriptDC * Result = new EwxPostScriptDC();
- newPtr((void *) Result, 1, memenv);
+ newPtr((void *) Result, 8, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxPostScriptDC");
  break;
 }
 case wxPostScriptDC_new_1: { // wxPostScriptDC::wxPostScriptDC
  wxPrintData *printData = (wxPrintData *) getPtr(bp,memenv); bp += 4;
  wxPostScriptDC * Result = new EwxPostScriptDC(*printData);
- newPtr((void *) Result, 1, memenv);
+ newPtr((void *) Result, 8, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxPostScriptDC");
  break;
 }
+#if !wxCHECK_VERSION(2,9,0)
 case wxPostScriptDC_SetResolution: { // wxPostScriptDC::SetResolution
  int * ppi = (int *) bp; bp += 4;
- wxPostScriptDC::SetResolution((int) *ppi);
+ wxPostScriptDC::SetResolution(*ppi);
  break;
 }
+#endif
+#if !wxCHECK_VERSION(2,9,0)
 case wxPostScriptDC_GetResolution: { // wxPostScriptDC::GetResolution
  int Result = wxPostScriptDC::GetResolution();
  rt.addInt(Result);
  break;
 }
+#endif
+#endif // wxUSE_POSTSCRIPT
+#if !wxCHECK_VERSION(2,9,0)
 case wxWindowDC_new_0: { // wxWindowDC::wxWindowDC
  wxWindowDC * Result = new EwxWindowDC();
- newPtr((void *) Result, 1, memenv);
+ newPtr((void *) Result, 8, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxWindowDC");
  break;
 }
+#endif
 case wxWindowDC_new_1: { // wxWindowDC::wxWindowDC
  wxWindow *win = (wxWindow *) getPtr(bp,memenv); bp += 4;
  wxWindowDC * Result = new EwxWindowDC(win);
- newPtr((void *) Result, 1, memenv);
+ newPtr((void *) Result, 8, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxWindowDC");
  break;
 }
+#if !wxCHECK_VERSION(2,9,0)
 case wxClientDC_new_0: { // wxClientDC::wxClientDC
  wxClientDC * Result = new EwxClientDC();
- newPtr((void *) Result, 1, memenv);
+ newPtr((void *) Result, 8, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxClientDC");
  break;
 }
+#endif
 case wxClientDC_new_1: { // wxClientDC::wxClientDC
  wxWindow *win = (wxWindow *) getPtr(bp,memenv); bp += 4;
  wxClientDC * Result = new EwxClientDC(win);
- newPtr((void *) Result, 1, memenv);
+ newPtr((void *) Result, 8, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxClientDC");
  break;
 }
+#if !wxCHECK_VERSION(2,9,0)
 case wxPaintDC_new_0: { // wxPaintDC::wxPaintDC
  wxPaintDC * Result = new EwxPaintDC();
- newPtr((void *) Result, 1, memenv);
+ newPtr((void *) Result, 8, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxPaintDC");
  break;
 }
+#endif
 case wxPaintDC_new_1: { // wxPaintDC::wxPaintDC
  wxWindow *win = (wxWindow *) getPtr(bp,memenv); bp += 4;
  wxPaintDC * Result = new EwxPaintDC(win);
- newPtr((void *) Result, 1, memenv);
+ newPtr((void *) Result, 8, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxPaintDC");
  break;
 }
 case wxMemoryDC_new_1_0: { // wxMemoryDC::wxMemoryDC
  wxBitmap *bitmap = (wxBitmap *) getPtr(bp,memenv); bp += 4;
  wxMemoryDC * Result = new EwxMemoryDC(*bitmap);
- newPtr((void *) Result, 1, memenv);
+ newPtr((void *) Result, 8, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxMemoryDC");
  break;
 }
 case wxMemoryDC_new_1_1: { // wxMemoryDC::wxMemoryDC
  wxDC * dc = (wxDC *) getPtr(bp,memenv); bp += 4;
  wxMemoryDC * Result = new EwxMemoryDC(dc);
- newPtr((void *) Result, 1, memenv);
+ newPtr((void *) Result, 8, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxMemoryDC");
  break;
 }
 case wxMemoryDC_new_0: { // wxMemoryDC::wxMemoryDC
  wxMemoryDC * Result = new EwxMemoryDC();
- newPtr((void *) Result, 1, memenv);
+ newPtr((void *) Result, 8, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxMemoryDC");
  break;
 }
@@ -5935,7 +6027,7 @@ case wxMemoryDC_SelectObjectAsSource: { // wxMemoryDC::SelectObjectAsSource
 }
 case wxBufferedDC_new_0: { // wxBufferedDC::wxBufferedDC
  wxBufferedDC * Result = new EwxBufferedDC();
- newPtr((void *) Result, 1, memenv);
+ newPtr((void *) Result, 8, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxBufferedDC");
  break;
 }
@@ -5953,7 +6045,7 @@ buffer = (wxBitmap *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  wxBufferedDC * Result = new EwxBufferedDC(dc,*buffer,style);
- newPtr((void *) Result, 1, memenv);
+ newPtr((void *) Result, 8, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxBufferedDC");
  break;
 }
@@ -5970,7 +6062,7 @@ case wxBufferedDC_new_3: { // wxBufferedDC::wxBufferedDC
   } break;
  }};
  wxBufferedDC * Result = new EwxBufferedDC(dc,area,style);
- newPtr((void *) Result, 1, memenv);
+ newPtr((void *) Result, 8, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxBufferedDC");
  break;
 }
@@ -6017,7 +6109,7 @@ case wxBufferedPaintDC_new_3: { // wxBufferedPaintDC::wxBufferedPaintDC
   } break;
  }};
  wxBufferedPaintDC * Result = new EwxBufferedPaintDC(window,*buffer,style);
- newPtr((void *) Result, 1, memenv);
+ newPtr((void *) Result, 8, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxBufferedPaintDC");
  break;
 }
@@ -6031,7 +6123,7 @@ case wxBufferedPaintDC_new_2: { // wxBufferedPaintDC::wxBufferedPaintDC
   } break;
  }};
  wxBufferedPaintDC * Result = new EwxBufferedPaintDC(window,style);
- newPtr((void *) Result, 1, memenv);
+ newPtr((void *) Result, 8, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxBufferedPaintDC");
  break;
 }
@@ -6055,25 +6147,25 @@ case wxGraphicsObject_IsNull: { // wxGraphicsObject::IsNull
 case wxGraphicsContext_Create_1_1: { // wxGraphicsContext::Create
  wxWindowDC * dc = (wxWindowDC *) getPtr(bp,memenv); bp += 4;
  wxGraphicsContext * Result = (wxGraphicsContext*)wxGraphicsContext::Create(*dc);
- rt.addRef(getRef((void *)Result,memenv), "wxGraphicsContext");
+ rt.addRef(getRef((void *)Result,memenv,8), "wxGraphicsContext");
  break;
 }
 case wxGraphicsContext_Create_1_0: { // wxGraphicsContext::Create
  wxWindow *window = (wxWindow *) getPtr(bp,memenv); bp += 4;
  wxGraphicsContext * Result = (wxGraphicsContext*)wxGraphicsContext::Create(window);
- rt.addRef(getRef((void *)Result,memenv), "wxGraphicsContext");
+ rt.addRef(getRef((void *)Result,memenv,8), "wxGraphicsContext");
  break;
 }
 case wxGraphicsContext_Create_0: { // wxGraphicsContext::Create
  wxGraphicsContext * Result = (wxGraphicsContext*)wxGraphicsContext::Create();
- rt.addRef(getRef((void *)Result,memenv), "wxGraphicsContext");
+ rt.addRef(getRef((void *)Result,memenv,8), "wxGraphicsContext");
  break;
 }
 case wxGraphicsContext_CreatePen: { // wxGraphicsContext::CreatePen
  wxGraphicsContext *This = (wxGraphicsContext *) getPtr(bp,memenv); bp += 4;
  wxPen *pen = (wxPen *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- wxGraphicsPen * Result = new wxGraphicsPen(This->CreatePen(*pen)); newPtr((void *) Result,3, memenv);;
+ wxGraphicsPen * Result = new wxGraphicsPen(This->CreatePen(*pen)); newPtr((void *) Result,4, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxGraphicsPen");
  break;
 }
@@ -6081,7 +6173,7 @@ case wxGraphicsContext_CreateBrush: { // wxGraphicsContext::CreateBrush
  wxGraphicsContext *This = (wxGraphicsContext *) getPtr(bp,memenv); bp += 4;
  wxBrush *brush = (wxBrush *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- wxGraphicsBrush * Result = new wxGraphicsBrush(This->CreateBrush(*brush)); newPtr((void *) Result,3, memenv);;
+ wxGraphicsBrush * Result = new wxGraphicsBrush(This->CreateBrush(*brush)); newPtr((void *) Result,4, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxGraphicsBrush");
  break;
 }
@@ -6104,7 +6196,7 @@ case wxGraphicsContext_CreateRadialGradientBrush: { // wxGraphicsContext::Create
  int * cColorA = (int *) bp; bp += 4;
  wxColour cColor = wxColour(*cColorR,*cColorG,*cColorB,*cColorA);
  if(!This) throw wxe_badarg(0);
- wxGraphicsBrush * Result = new wxGraphicsBrush(This->CreateRadialGradientBrush((wxDouble) *xo,(wxDouble) *yo,(wxDouble) *xc,(wxDouble) *yc,(wxDouble) *radius,oColor,cColor)); newPtr((void *) Result,3, memenv);;
+ wxGraphicsBrush * Result = new wxGraphicsBrush(This->CreateRadialGradientBrush(*xo,*yo,*xc,*yc,*radius,oColor,cColor)); newPtr((void *) Result,4, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxGraphicsBrush");
  break;
 }
@@ -6126,7 +6218,7 @@ case wxGraphicsContext_CreateLinearGradientBrush: { // wxGraphicsContext::Create
  int * c2A = (int *) bp; bp += 4;
  wxColour c2 = wxColour(*c2R,*c2G,*c2B,*c2A);
  if(!This) throw wxe_badarg(0);
- wxGraphicsBrush * Result = new wxGraphicsBrush(This->CreateLinearGradientBrush((wxDouble) *x1,(wxDouble) *y1,(wxDouble) *x2,(wxDouble) *y2,c1,c2)); newPtr((void *) Result,3, memenv);;
+ wxGraphicsBrush * Result = new wxGraphicsBrush(This->CreateLinearGradientBrush(*x1,*y1,*x2,*y2,c1,c2)); newPtr((void *) Result,4, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxGraphicsBrush");
  break;
 }
@@ -6145,7 +6237,7 @@ case wxGraphicsContext_CreateFont: { // wxGraphicsContext::CreateFont
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxGraphicsFont * Result = new wxGraphicsFont(This->CreateFont(*font,col)); newPtr((void *) Result,3, memenv);;
+ wxGraphicsFont * Result = new wxGraphicsFont(This->CreateFont(*font,col)); newPtr((void *) Result,4, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxGraphicsFont");
  break;
 }
@@ -6185,14 +6277,14 @@ case wxGraphicsContext_CreateMatrix: { // wxGraphicsContext::CreateMatrix
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxGraphicsMatrix * Result = new wxGraphicsMatrix(This->CreateMatrix(a,b,c,d,tx,ty)); newPtr((void *) Result,3, memenv);;
+ wxGraphicsMatrix * Result = new wxGraphicsMatrix(This->CreateMatrix(a,b,c,d,tx,ty)); newPtr((void *) Result,4, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxGraphicsMatrix");
  break;
 }
 case wxGraphicsContext_CreatePath: { // wxGraphicsContext::CreatePath
  wxGraphicsContext *This = (wxGraphicsContext *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- wxGraphicsPath * Result = new wxGraphicsPath(This->CreatePath()); newPtr((void *) Result,3, memenv);;
+ wxGraphicsPath * Result = new wxGraphicsPath(This->CreatePath()); newPtr((void *) Result,4, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxGraphicsPath");
  break;
 }
@@ -6211,7 +6303,7 @@ case wxGraphicsContext_Clip_4: { // wxGraphicsContext::Clip
  wxDouble * w = (wxDouble *) bp; bp += 8;
  wxDouble * h = (wxDouble *) bp; bp += 8;
  if(!This) throw wxe_badarg(0);
- This->Clip((wxDouble) *x,(wxDouble) *y,(wxDouble) *w,(wxDouble) *h);
+ This->Clip(*x,*y,*w,*h);
  break;
 }
 case wxGraphicsContext_ResetClip: { // wxGraphicsContext::ResetClip
@@ -6228,7 +6320,7 @@ case wxGraphicsContext_DrawBitmap: { // wxGraphicsContext::DrawBitmap
  wxDouble * w = (wxDouble *) bp; bp += 8;
  wxDouble * h = (wxDouble *) bp; bp += 8;
  if(!This) throw wxe_badarg(0);
- This->DrawBitmap(*bmp,(wxDouble) *x,(wxDouble) *y,(wxDouble) *w,(wxDouble) *h);
+ This->DrawBitmap(*bmp,*x,*y,*w,*h);
  break;
 }
 case wxGraphicsContext_DrawEllipse: { // wxGraphicsContext::DrawEllipse
@@ -6239,7 +6331,7 @@ case wxGraphicsContext_DrawEllipse: { // wxGraphicsContext::DrawEllipse
  wxDouble * w = (wxDouble *) bp; bp += 8;
  wxDouble * h = (wxDouble *) bp; bp += 8;
  if(!This) throw wxe_badarg(0);
- This->DrawEllipse((wxDouble) *x,(wxDouble) *y,(wxDouble) *w,(wxDouble) *h);
+ This->DrawEllipse(*x,*y,*w,*h);
  break;
 }
 case wxGraphicsContext_DrawIcon: { // wxGraphicsContext::DrawIcon
@@ -6250,11 +6342,11 @@ case wxGraphicsContext_DrawIcon: { // wxGraphicsContext::DrawIcon
  wxDouble * w = (wxDouble *) bp; bp += 8;
  wxDouble * h = (wxDouble *) bp; bp += 8;
  if(!This) throw wxe_badarg(0);
- This->DrawIcon(*icon,(wxDouble) *x,(wxDouble) *y,(wxDouble) *w,(wxDouble) *h);
+ This->DrawIcon(*icon,*x,*y,*w,*h);
  break;
 }
 case wxGraphicsContext_DrawLines: { // wxGraphicsContext::DrawLines
- int fillStyle=wxODDEVEN_RULE;
+ wxPolygonFillMode fillStyle=wxODDEVEN_RULE;
  wxGraphicsContext *This = (wxGraphicsContext *) getPtr(bp,memenv); bp += 4;
  int * pointsLen = (int *) bp; bp += 4;
  wxPoint2DDouble *points;
@@ -6265,7 +6357,7 @@ case wxGraphicsContext_DrawLines: { // wxGraphicsContext::DrawLines
    points[i] = wxPoint2DDouble(x,y);}
  while( * (int*) bp) { switch (* (int*) bp) {
   case 1: {bp += 4;
- fillStyle = (int)*(int *) bp; bp += 4;
+fillStyle = *(wxPolygonFillMode *) bp; bp += 4;;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
@@ -6274,12 +6366,12 @@ case wxGraphicsContext_DrawLines: { // wxGraphicsContext::DrawLines
  break;
 }
 case wxGraphicsContext_DrawPath: { // wxGraphicsContext::DrawPath
- int fillStyle=wxODDEVEN_RULE;
+ wxPolygonFillMode fillStyle=wxODDEVEN_RULE;
  wxGraphicsContext *This = (wxGraphicsContext *) getPtr(bp,memenv); bp += 4;
  wxGraphicsPath *path = (wxGraphicsPath *) getPtr(bp,memenv); bp += 4;
  while( * (int*) bp) { switch (* (int*) bp) {
   case 1: {bp += 4;
- fillStyle = (int)*(int *) bp; bp += 4;
+fillStyle = *(wxPolygonFillMode *) bp; bp += 4;;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
@@ -6294,7 +6386,7 @@ case wxGraphicsContext_DrawRectangle: { // wxGraphicsContext::DrawRectangle
  wxDouble * w = (wxDouble *) bp; bp += 8;
  wxDouble * h = (wxDouble *) bp; bp += 8;
  if(!This) throw wxe_badarg(0);
- This->DrawRectangle((wxDouble) *x,(wxDouble) *y,(wxDouble) *w,(wxDouble) *h);
+ This->DrawRectangle(*x,*y,*w,*h);
  break;
 }
 case wxGraphicsContext_DrawRoundedRectangle: { // wxGraphicsContext::DrawRoundedRectangle
@@ -6306,7 +6398,7 @@ case wxGraphicsContext_DrawRoundedRectangle: { // wxGraphicsContext::DrawRounded
  wxDouble * h = (wxDouble *) bp; bp += 8;
  wxDouble * radius = (wxDouble *) bp; bp += 8;
  if(!This) throw wxe_badarg(0);
- This->DrawRoundedRectangle((wxDouble) *x,(wxDouble) *y,(wxDouble) *w,(wxDouble) *h,(wxDouble) *radius);
+ This->DrawRoundedRectangle(*x,*y,*w,*h,*radius);
  break;
 }
 case wxGraphicsContext_DrawText_3: { // wxGraphicsContext::DrawText
@@ -6317,7 +6409,7 @@ case wxGraphicsContext_DrawText_3: { // wxGraphicsContext::DrawText
  wxDouble * x = (wxDouble *) bp; bp += 8;
  wxDouble * y = (wxDouble *) bp; bp += 8;
  if(!This) throw wxe_badarg(0);
- This->DrawText(str,(wxDouble) *x,(wxDouble) *y);
+ This->DrawText(str,*x,*y);
  break;
 }
 case wxGraphicsContext_DrawText_4_0: { // wxGraphicsContext::DrawText
@@ -6329,7 +6421,7 @@ case wxGraphicsContext_DrawText_4_0: { // wxGraphicsContext::DrawText
  wxDouble * y = (wxDouble *) bp; bp += 8;
  wxDouble * angle = (wxDouble *) bp; bp += 8;
  if(!This) throw wxe_badarg(0);
- This->DrawText(str,(wxDouble) *x,(wxDouble) *y,(wxDouble) *angle);
+ This->DrawText(str,*x,*y,*angle);
  break;
 }
 case wxGraphicsContext_DrawText_4_1: { // wxGraphicsContext::DrawText
@@ -6341,7 +6433,7 @@ case wxGraphicsContext_DrawText_4_1: { // wxGraphicsContext::DrawText
  wxDouble * y = (wxDouble *) bp; bp += 8;
  wxGraphicsBrush *backgroundBrush = (wxGraphicsBrush *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- This->DrawText(str,(wxDouble) *x,(wxDouble) *y,*backgroundBrush);
+ This->DrawText(str,*x,*y,*backgroundBrush);
  break;
 }
 case wxGraphicsContext_DrawText_5: { // wxGraphicsContext::DrawText
@@ -6354,16 +6446,16 @@ case wxGraphicsContext_DrawText_5: { // wxGraphicsContext::DrawText
  wxDouble * angle = (wxDouble *) bp; bp += 8;
  wxGraphicsBrush *backgroundBrush = (wxGraphicsBrush *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- This->DrawText(str,(wxDouble) *x,(wxDouble) *y,(wxDouble) *angle,*backgroundBrush);
+ This->DrawText(str,*x,*y,*angle,*backgroundBrush);
  break;
 }
 case wxGraphicsContext_FillPath: { // wxGraphicsContext::FillPath
- int fillStyle=wxODDEVEN_RULE;
+ wxPolygonFillMode fillStyle=wxODDEVEN_RULE;
  wxGraphicsContext *This = (wxGraphicsContext *) getPtr(bp,memenv); bp += 4;
  wxGraphicsPath *path = (wxGraphicsPath *) getPtr(bp,memenv); bp += 4;
  while( * (int*) bp) { switch (* (int*) bp) {
   case 1: {bp += 4;
- fillStyle = (int)*(int *) bp; bp += 4;
+fillStyle = *(wxPolygonFillMode *) bp; bp += 4;;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
@@ -6399,6 +6491,7 @@ case wxGraphicsContext_GetTextExtent: { // wxGraphicsContext::GetTextExtent
  bp += *textLen+((8-((0+ *textLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
  This->GetTextExtent(text,&width,&height,&descent,&externalLeading);
+ rt.ensureFloatCount(5);
  rt.addFloat(width);
  rt.addFloat(height);
  rt.addFloat(descent);
@@ -6411,7 +6504,7 @@ case wxGraphicsContext_Rotate: { // wxGraphicsContext::Rotate
  bp += 4; /* Align */
  wxDouble * angle = (wxDouble *) bp; bp += 8;
  if(!This) throw wxe_badarg(0);
- This->Rotate((wxDouble) *angle);
+ This->Rotate(*angle);
  break;
 }
 case wxGraphicsContext_Scale: { // wxGraphicsContext::Scale
@@ -6420,7 +6513,7 @@ case wxGraphicsContext_Scale: { // wxGraphicsContext::Scale
  wxDouble * xScale = (wxDouble *) bp; bp += 8;
  wxDouble * yScale = (wxDouble *) bp; bp += 8;
  if(!This) throw wxe_badarg(0);
- This->Scale((wxDouble) *xScale,(wxDouble) *yScale);
+ This->Scale(*xScale,*yScale);
  break;
 }
 case wxGraphicsContext_Translate: { // wxGraphicsContext::Translate
@@ -6429,13 +6522,13 @@ case wxGraphicsContext_Translate: { // wxGraphicsContext::Translate
  wxDouble * dx = (wxDouble *) bp; bp += 8;
  wxDouble * dy = (wxDouble *) bp; bp += 8;
  if(!This) throw wxe_badarg(0);
- This->Translate((wxDouble) *dx,(wxDouble) *dy);
+ This->Translate(*dx,*dy);
  break;
 }
 case wxGraphicsContext_GetTransform: { // wxGraphicsContext::GetTransform
  wxGraphicsContext *This = (wxGraphicsContext *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- wxGraphicsMatrix * Result = new wxGraphicsMatrix(This->GetTransform()); newPtr((void *) Result,3, memenv);;
+ wxGraphicsMatrix * Result = new wxGraphicsMatrix(This->GetTransform()); newPtr((void *) Result,4, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxGraphicsMatrix");
  break;
 }
@@ -6508,7 +6601,7 @@ case wxGraphicsContext_StrokeLine: { // wxGraphicsContext::StrokeLine
  wxDouble * x2 = (wxDouble *) bp; bp += 8;
  wxDouble * y2 = (wxDouble *) bp; bp += 8;
  if(!This) throw wxe_badarg(0);
- This->StrokeLine((wxDouble) *x1,(wxDouble) *y1,(wxDouble) *x2,(wxDouble) *y2);
+ This->StrokeLine(*x1,*y1,*x2,*y2);
  break;
 }
 case wxGraphicsContext_StrokeLines: { // wxGraphicsContext::StrokeLines
@@ -6544,6 +6637,7 @@ case wxGraphicsMatrix_Get: { // wxGraphicsMatrix::Get
  wxGraphicsMatrix *This = (wxGraphicsMatrix *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
  This->Get(&a,&b,&c,&d,&tx,&ty);
+ rt.ensureFloatCount(7);
  rt.addFloat(a);
  rt.addFloat(b);
  rt.addFloat(c);
@@ -6579,7 +6673,7 @@ case wxGraphicsMatrix_Rotate: { // wxGraphicsMatrix::Rotate
  bp += 4; /* Align */
  wxDouble * angle = (wxDouble *) bp; bp += 8;
  if(!This) throw wxe_badarg(0);
- This->Rotate((wxDouble) *angle);
+ This->Rotate(*angle);
  break;
 }
 case wxGraphicsMatrix_Scale: { // wxGraphicsMatrix::Scale
@@ -6588,7 +6682,7 @@ case wxGraphicsMatrix_Scale: { // wxGraphicsMatrix::Scale
  wxDouble * xScale = (wxDouble *) bp; bp += 8;
  wxDouble * yScale = (wxDouble *) bp; bp += 8;
  if(!This) throw wxe_badarg(0);
- This->Scale((wxDouble) *xScale,(wxDouble) *yScale);
+ This->Scale(*xScale,*yScale);
  break;
 }
 case wxGraphicsMatrix_Translate: { // wxGraphicsMatrix::Translate
@@ -6597,7 +6691,7 @@ case wxGraphicsMatrix_Translate: { // wxGraphicsMatrix::Translate
  wxDouble * dx = (wxDouble *) bp; bp += 8;
  wxDouble * dy = (wxDouble *) bp; bp += 8;
  if(!This) throw wxe_badarg(0);
- This->Translate((wxDouble) *dx,(wxDouble) *dy);
+ This->Translate(*dx,*dy);
  break;
 }
 case wxGraphicsMatrix_Set: { // wxGraphicsMatrix::Set
@@ -6645,6 +6739,7 @@ case wxGraphicsMatrix_TransformPoint: { // wxGraphicsMatrix::TransformPoint
  wxGraphicsMatrix *This = (wxGraphicsMatrix *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
  This->TransformPoint(&x,&y);
+ rt.ensureFloatCount(3);
  rt.addFloat(x);
  rt.addFloat(y);
  rt.addTupleCount(2);
@@ -6656,6 +6751,7 @@ case wxGraphicsMatrix_TransformDistance: { // wxGraphicsMatrix::TransformDistanc
  wxGraphicsMatrix *This = (wxGraphicsMatrix *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
  This->TransformDistance(&dx,&dy);
+ rt.ensureFloatCount(3);
  rt.addFloat(dx);
  rt.addFloat(dy);
  rt.addTupleCount(2);
@@ -6669,7 +6765,7 @@ case wxGraphicsPath_MoveToPoint_2: { // wxGraphicsPath::MoveToPoint
  wxDouble * x = (wxDouble *) bp; bp += 8;
  wxDouble * y = (wxDouble *) bp; bp += 8;
  if(!This) throw wxe_badarg(0);
- This->MoveToPoint((wxDouble) *x,(wxDouble) *y);
+ This->MoveToPoint(*x,*y);
  break;
 }
 case wxGraphicsPath_MoveToPoint_1: { // wxGraphicsPath::MoveToPoint
@@ -6692,7 +6788,7 @@ case wxGraphicsPath_AddArc_6: { // wxGraphicsPath::AddArc
  wxDouble * endAngle = (wxDouble *) bp; bp += 8;
  bool * clockwise = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->AddArc((wxDouble) *x,(wxDouble) *y,(wxDouble) *r,(wxDouble) *startAngle,(wxDouble) *endAngle,(bool) *clockwise);
+ This->AddArc(*x,*y,*r,*startAngle,*endAngle,*clockwise);
  break;
 }
 case wxGraphicsPath_AddArc_5: { // wxGraphicsPath::AddArc
@@ -6706,7 +6802,7 @@ case wxGraphicsPath_AddArc_5: { // wxGraphicsPath::AddArc
  wxDouble * endAngle = (wxDouble *) bp; bp += 8;
  bool * clockwise = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->AddArc(c,(wxDouble) *r,(wxDouble) *startAngle,(wxDouble) *endAngle,(bool) *clockwise);
+ This->AddArc(c,*r,*startAngle,*endAngle,*clockwise);
  break;
 }
 case wxGraphicsPath_AddArcToPoint: { // wxGraphicsPath::AddArcToPoint
@@ -6718,7 +6814,7 @@ case wxGraphicsPath_AddArcToPoint: { // wxGraphicsPath::AddArcToPoint
  wxDouble * y2 = (wxDouble *) bp; bp += 8;
  wxDouble * r = (wxDouble *) bp; bp += 8;
  if(!This) throw wxe_badarg(0);
- This->AddArcToPoint((wxDouble) *x1,(wxDouble) *y1,(wxDouble) *x2,(wxDouble) *y2,(wxDouble) *r);
+ This->AddArcToPoint(*x1,*y1,*x2,*y2,*r);
  break;
 }
 case wxGraphicsPath_AddCircle: { // wxGraphicsPath::AddCircle
@@ -6728,7 +6824,7 @@ case wxGraphicsPath_AddCircle: { // wxGraphicsPath::AddCircle
  wxDouble * y = (wxDouble *) bp; bp += 8;
  wxDouble * r = (wxDouble *) bp; bp += 8;
  if(!This) throw wxe_badarg(0);
- This->AddCircle((wxDouble) *x,(wxDouble) *y,(wxDouble) *r);
+ This->AddCircle(*x,*y,*r);
  break;
 }
 case wxGraphicsPath_AddCurveToPoint_6: { // wxGraphicsPath::AddCurveToPoint
@@ -6741,7 +6837,7 @@ case wxGraphicsPath_AddCurveToPoint_6: { // wxGraphicsPath::AddCurveToPoint
  wxDouble * x = (wxDouble *) bp; bp += 8;
  wxDouble * y = (wxDouble *) bp; bp += 8;
  if(!This) throw wxe_badarg(0);
- This->AddCurveToPoint((wxDouble) *cx1,(wxDouble) *cy1,(wxDouble) *cx2,(wxDouble) *cy2,(wxDouble) *x,(wxDouble) *y);
+ This->AddCurveToPoint(*cx1,*cy1,*cx2,*cy2,*x,*y);
  break;
 }
 case wxGraphicsPath_AddCurveToPoint_3: { // wxGraphicsPath::AddCurveToPoint
@@ -6768,7 +6864,7 @@ case wxGraphicsPath_AddEllipse: { // wxGraphicsPath::AddEllipse
  wxDouble * w = (wxDouble *) bp; bp += 8;
  wxDouble * h = (wxDouble *) bp; bp += 8;
  if(!This) throw wxe_badarg(0);
- This->AddEllipse((wxDouble) *x,(wxDouble) *y,(wxDouble) *w,(wxDouble) *h);
+ This->AddEllipse(*x,*y,*w,*h);
  break;
 }
 case wxGraphicsPath_AddLineToPoint_2: { // wxGraphicsPath::AddLineToPoint
@@ -6777,7 +6873,7 @@ case wxGraphicsPath_AddLineToPoint_2: { // wxGraphicsPath::AddLineToPoint
  wxDouble * x = (wxDouble *) bp; bp += 8;
  wxDouble * y = (wxDouble *) bp; bp += 8;
  if(!This) throw wxe_badarg(0);
- This->AddLineToPoint((wxDouble) *x,(wxDouble) *y);
+ This->AddLineToPoint(*x,*y);
  break;
 }
 case wxGraphicsPath_AddLineToPoint_1: { // wxGraphicsPath::AddLineToPoint
@@ -6805,7 +6901,7 @@ case wxGraphicsPath_AddQuadCurveToPoint: { // wxGraphicsPath::AddQuadCurveToPoin
  wxDouble * x = (wxDouble *) bp; bp += 8;
  wxDouble * y = (wxDouble *) bp; bp += 8;
  if(!This) throw wxe_badarg(0);
- This->AddQuadCurveToPoint((wxDouble) *cx,(wxDouble) *cy,(wxDouble) *x,(wxDouble) *y);
+ This->AddQuadCurveToPoint(*cx,*cy,*x,*y);
  break;
 }
 case wxGraphicsPath_AddRectangle: { // wxGraphicsPath::AddRectangle
@@ -6816,7 +6912,7 @@ case wxGraphicsPath_AddRectangle: { // wxGraphicsPath::AddRectangle
  wxDouble * w = (wxDouble *) bp; bp += 8;
  wxDouble * h = (wxDouble *) bp; bp += 8;
  if(!This) throw wxe_badarg(0);
- This->AddRectangle((wxDouble) *x,(wxDouble) *y,(wxDouble) *w,(wxDouble) *h);
+ This->AddRectangle(*x,*y,*w,*h);
  break;
 }
 case wxGraphicsPath_AddRoundedRectangle: { // wxGraphicsPath::AddRoundedRectangle
@@ -6828,7 +6924,7 @@ case wxGraphicsPath_AddRoundedRectangle: { // wxGraphicsPath::AddRoundedRectangl
  wxDouble * h = (wxDouble *) bp; bp += 8;
  wxDouble * radius = (wxDouble *) bp; bp += 8;
  if(!This) throw wxe_badarg(0);
- This->AddRoundedRectangle((wxDouble) *x,(wxDouble) *y,(wxDouble) *w,(wxDouble) *h,(wxDouble) *radius);
+ This->AddRoundedRectangle(*x,*y,*w,*h,*radius);
  break;
 }
 case wxGraphicsPath_CloseSubpath: { // wxGraphicsPath::CloseSubpath
@@ -6838,23 +6934,23 @@ case wxGraphicsPath_CloseSubpath: { // wxGraphicsPath::CloseSubpath
  break;
 }
 case wxGraphicsPath_Contains_3: { // wxGraphicsPath::Contains
- int fillStyle=wxODDEVEN_RULE;
+ wxPolygonFillMode fillStyle=wxODDEVEN_RULE;
  wxGraphicsPath *This = (wxGraphicsPath *) getPtr(bp,memenv); bp += 4;
  bp += 4; /* Align */
  wxDouble * x = (wxDouble *) bp; bp += 8;
  wxDouble * y = (wxDouble *) bp; bp += 8;
  while( * (int*) bp) { switch (* (int*) bp) {
   case 1: {bp += 4;
- fillStyle = (int)*(int *) bp; bp += 4;
+fillStyle = *(wxPolygonFillMode *) bp; bp += 4;;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Contains((wxDouble) *x,(wxDouble) *y,fillStyle);
+ bool Result = This->Contains(*x,*y,fillStyle);
  rt.addBool(Result);
  break;
 }
 case wxGraphicsPath_Contains_2: { // wxGraphicsPath::Contains
- int fillStyle=wxODDEVEN_RULE;
+ wxPolygonFillMode fillStyle=wxODDEVEN_RULE;
  wxGraphicsPath *This = (wxGraphicsPath *) getPtr(bp,memenv); bp += 4;
  bp += 4; /* Align */
  wxDouble * cX = (wxDouble *) bp; bp += 8;
@@ -6862,7 +6958,7 @@ case wxGraphicsPath_Contains_2: { // wxGraphicsPath::Contains
  wxPoint2DDouble c = wxPoint2DDouble(*cX,*cY);
  while( * (int*) bp) { switch (* (int*) bp) {
   case 1: {bp += 4;
- fillStyle = (int)*(int *) bp; bp += 4;
+fillStyle = *(wxPolygonFillMode *) bp; bp += 4;;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
@@ -6903,7 +6999,7 @@ case wxGraphicsRenderer_CreateContext_1_1: { // wxGraphicsRenderer::CreateContex
  wxWindowDC * dc = (wxWindowDC *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
  wxGraphicsContext * Result = (wxGraphicsContext*)This->CreateContext(*dc);
- rt.addRef(getRef((void *)Result,memenv), "wxGraphicsContext");
+ rt.addRef(getRef((void *)Result,memenv,8), "wxGraphicsContext");
  break;
 }
 case wxGraphicsRenderer_CreateContext_1_0: { // wxGraphicsRenderer::CreateContext
@@ -6911,25 +7007,54 @@ case wxGraphicsRenderer_CreateContext_1_0: { // wxGraphicsRenderer::CreateContex
  wxWindow *window = (wxWindow *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
  wxGraphicsContext * Result = (wxGraphicsContext*)This->CreateContext(window);
- rt.addRef(getRef((void *)Result,memenv), "wxGraphicsContext");
+ rt.addRef(getRef((void *)Result,memenv,8), "wxGraphicsContext");
  break;
 }
-case wxGraphicsRenderer_CreatePen: { // wxGraphicsRenderer::CreatePen
+
+case wxGraphicsRenderer_CreatePen: { // wxGraphicsRenderer::CreatePen taylormade
  wxGraphicsRenderer *This = (wxGraphicsRenderer *) getPtr(bp,memenv); bp += 4;
  wxPen *pen = (wxPen *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- wxGraphicsPen * Result = new wxGraphicsPen(This->CreatePen(*pen)); newPtr((void *) Result,3, memenv);;
+#if !wxCHECK_VERSION(3,1,1)
+ wxGraphicsPen * Result = new wxGraphicsPen(This->CreatePen(*pen)); newPtr((void *) Result,4, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxGraphicsPen");
  break;
+#else
+ wxGraphicsPenInfo info = wxGraphicsPenInfo()
+   .Colour(pen->GetColour())
+   .Width(pen->GetWidth())
+   .Style(pen->GetStyle())
+   .Join(pen->GetJoin())
+   .Cap(pen->GetCap())
+   ;
+
+ if ( info.GetStyle() == wxPENSTYLE_USER_DASH )
+ {
+   wxDash *dashes;
+   if ( int nb_dashes = pen->GetDashes(&dashes) )
+     info.Dashes(nb_dashes, dashes);
+ }
+
+ if ( info.GetStyle() == wxPENSTYLE_STIPPLE )
+ {
+   if ( wxBitmap* const stipple = pen->GetStipple() )
+     info.Stipple(*stipple);
+ }
+ wxGraphicsPen * Result = new wxGraphicsPen(This->CreatePen(info));
+ newPtr((void *) Result,4, memenv);
+ rt.addRef(getRef((void *)Result,memenv), "wxGraphicsPen");
+ break;
+#endif
 }
 case wxGraphicsRenderer_CreateBrush: { // wxGraphicsRenderer::CreateBrush
  wxGraphicsRenderer *This = (wxGraphicsRenderer *) getPtr(bp,memenv); bp += 4;
  wxBrush *brush = (wxBrush *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- wxGraphicsBrush * Result = new wxGraphicsBrush(This->CreateBrush(*brush)); newPtr((void *) Result,3, memenv);;
+ wxGraphicsBrush * Result = new wxGraphicsBrush(This->CreateBrush(*brush)); newPtr((void *) Result,4, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxGraphicsBrush");
  break;
 }
+#if !wxCHECK_VERSION(2,9,0)
 case wxGraphicsRenderer_CreateLinearGradientBrush: { // wxGraphicsRenderer::CreateLinearGradientBrush
  wxGraphicsRenderer *This = (wxGraphicsRenderer *) getPtr(bp,memenv); bp += 4;
  bp += 4; /* Align */
@@ -6948,10 +7073,12 @@ case wxGraphicsRenderer_CreateLinearGradientBrush: { // wxGraphicsRenderer::Crea
  int * c2A = (int *) bp; bp += 4;
  wxColour c2 = wxColour(*c2R,*c2G,*c2B,*c2A);
  if(!This) throw wxe_badarg(0);
- wxGraphicsBrush * Result = new wxGraphicsBrush(This->CreateLinearGradientBrush((wxDouble) *x1,(wxDouble) *y1,(wxDouble) *x2,(wxDouble) *y2,c1,c2)); newPtr((void *) Result,3, memenv);;
+ wxGraphicsBrush * Result = new wxGraphicsBrush(This->CreateLinearGradientBrush(*x1,*y1,*x2,*y2,c1,c2)); newPtr((void *) Result,4, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxGraphicsBrush");
  break;
 }
+#endif
+#if !wxCHECK_VERSION(2,9,0)
 case wxGraphicsRenderer_CreateRadialGradientBrush: { // wxGraphicsRenderer::CreateRadialGradientBrush
  wxGraphicsRenderer *This = (wxGraphicsRenderer *) getPtr(bp,memenv); bp += 4;
  bp += 4; /* Align */
@@ -6971,10 +7098,11 @@ case wxGraphicsRenderer_CreateRadialGradientBrush: { // wxGraphicsRenderer::Crea
  int * cColorA = (int *) bp; bp += 4;
  wxColour cColor = wxColour(*cColorR,*cColorG,*cColorB,*cColorA);
  if(!This) throw wxe_badarg(0);
- wxGraphicsBrush * Result = new wxGraphicsBrush(This->CreateRadialGradientBrush((wxDouble) *xo,(wxDouble) *yo,(wxDouble) *xc,(wxDouble) *yc,(wxDouble) *radius,oColor,cColor)); newPtr((void *) Result,3, memenv);;
+ wxGraphicsBrush * Result = new wxGraphicsBrush(This->CreateRadialGradientBrush(*xo,*yo,*xc,*yc,*radius,oColor,cColor)); newPtr((void *) Result,4, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxGraphicsBrush");
  break;
 }
+#endif
 case wxGraphicsRenderer_CreateFont: { // wxGraphicsRenderer::CreateFont
  wxColour col= *wxBLACK;
  wxGraphicsRenderer *This = (wxGraphicsRenderer *) getPtr(bp,memenv); bp += 4;
@@ -6990,7 +7118,7 @@ case wxGraphicsRenderer_CreateFont: { // wxGraphicsRenderer::CreateFont
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxGraphicsFont * Result = new wxGraphicsFont(This->CreateFont(*font,col)); newPtr((void *) Result,3, memenv);;
+ wxGraphicsFont * Result = new wxGraphicsFont(This->CreateFont(*font,col)); newPtr((void *) Result,4, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxGraphicsFont");
  break;
 }
@@ -7030,14 +7158,14 @@ case wxGraphicsRenderer_CreateMatrix: { // wxGraphicsRenderer::CreateMatrix
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxGraphicsMatrix * Result = new wxGraphicsMatrix(This->CreateMatrix(a,b,c,d,tx,ty)); newPtr((void *) Result,3, memenv);;
+ wxGraphicsMatrix * Result = new wxGraphicsMatrix(This->CreateMatrix(a,b,c,d,tx,ty)); newPtr((void *) Result,4, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxGraphicsMatrix");
  break;
 }
 case wxGraphicsRenderer_CreatePath: { // wxGraphicsRenderer::CreatePath
  wxGraphicsRenderer *This = (wxGraphicsRenderer *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- wxGraphicsPath * Result = new wxGraphicsPath(This->CreatePath()); newPtr((void *) Result,3, memenv);;
+ wxGraphicsPath * Result = new wxGraphicsPath(This->CreatePath()); newPtr((void *) Result,4, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxGraphicsPath");
  break;
 }
@@ -7050,7 +7178,7 @@ case wxGraphicsRenderer_CreatePath: { // wxGraphicsRenderer::CreatePath
 #endif // wxUSE_GRAPHICS_CONTEXT
 case wxMenuBar_new_1: { // wxMenuBar::wxMenuBar
  int * style = (int *) bp; bp += 4;
- wxMenuBar * Result = new EwxMenuBar((long) *style);
+ wxMenuBar * Result = new EwxMenuBar(*style);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxMenuBar");
  break;
@@ -7077,7 +7205,7 @@ case wxMenuBar_Check: { // wxMenuBar::Check
  int * itemid = (int *) bp; bp += 4;
  bool * check = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->Check((int) *itemid,(bool) *check);
+ This->Check(*itemid,*check);
  break;
 }
 case wxMenuBar_Enable_2: { // wxMenuBar::Enable
@@ -7085,7 +7213,7 @@ case wxMenuBar_Enable_2: { // wxMenuBar::Enable
  int * itemid = (int *) bp; bp += 4;
  bool * enable = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->Enable((int) *itemid,(bool) *enable);
+ This->Enable(*itemid,*enable);
  break;
 }
 case wxMenuBar_Enable_1: { // wxMenuBar::Enable
@@ -7107,7 +7235,7 @@ case wxMenuBar_EnableTop: { // wxMenuBar::EnableTop
  int * pos = (int *) bp; bp += 4;
  bool * flag = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->EnableTop((size_t) *pos,(bool) *flag);
+ This->EnableTop(*pos,*flag);
  break;
 }
 case wxMenuBar_FindMenu: { // wxMenuBar::FindMenu
@@ -7138,7 +7266,7 @@ case wxMenuBar_FindItem: { // wxMenuBar::FindItem
  wxMenuBar *This = (wxMenuBar *) getPtr(bp,memenv); bp += 4;
  int * id = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxMenuItem * Result = (wxMenuItem*)This->FindItem((int) *id,menu);
+ wxMenuItem * Result = (wxMenuItem*)This->FindItem(*id,menu);
  rt.addRef(getRef((void *)Result,memenv), "wxMenuItem");
  break;
 }
@@ -7146,7 +7274,7 @@ case wxMenuBar_GetHelpString: { // wxMenuBar::GetHelpString
  wxMenuBar *This = (wxMenuBar *) getPtr(bp,memenv); bp += 4;
  int * itemid = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxString Result = This->GetHelpString((int) *itemid);
+ wxString Result = This->GetHelpString(*itemid);
  rt.add(Result);
  break;
 }
@@ -7154,7 +7282,7 @@ case wxMenuBar_GetLabel_1: { // wxMenuBar::GetLabel
  wxMenuBar *This = (wxMenuBar *) getPtr(bp,memenv); bp += 4;
  int * itemid = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxString Result = This->GetLabel((int) *itemid);
+ wxString Result = This->GetLabel(*itemid);
  rt.add(Result);
  break;
 }
@@ -7169,7 +7297,7 @@ case wxMenuBar_GetLabelTop: { // wxMenuBar::GetLabelTop
  wxMenuBar *This = (wxMenuBar *) getPtr(bp,memenv); bp += 4;
  int * pos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxString Result = This->GetLabelTop((size_t) *pos);
+ wxString Result = This->GetLabelTop(*pos);
  rt.add(Result);
  break;
 }
@@ -7177,7 +7305,7 @@ case wxMenuBar_GetMenu: { // wxMenuBar::GetMenu
  wxMenuBar *This = (wxMenuBar *) getPtr(bp,memenv); bp += 4;
  int * pos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxMenu * Result = (wxMenu*)This->GetMenu((size_t) *pos);
+ wxMenu * Result = (wxMenu*)This->GetMenu(*pos);
  rt.addRef(getRef((void *)Result,memenv), "wxMenu");
  break;
 }
@@ -7196,7 +7324,7 @@ case wxMenuBar_Insert: { // wxMenuBar::Insert
  wxString title = wxString(bp, wxConvUTF8);
  bp += *titleLen+((8-((0+ *titleLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- bool Result = This->Insert((size_t) *pos,menu,title);
+ bool Result = This->Insert(*pos,menu,title);
  rt.addBool(Result);
  break;
 }
@@ -7204,7 +7332,7 @@ case wxMenuBar_IsChecked: { // wxMenuBar::IsChecked
  wxMenuBar *This = (wxMenuBar *) getPtr(bp,memenv); bp += 4;
  int * itemid = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->IsChecked((int) *itemid);
+ bool Result = This->IsChecked(*itemid);
  rt.addBool(Result);
  break;
 }
@@ -7212,7 +7340,7 @@ case wxMenuBar_IsEnabled_1: { // wxMenuBar::IsEnabled
  wxMenuBar *This = (wxMenuBar *) getPtr(bp,memenv); bp += 4;
  int * itemid = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->IsEnabled((int) *itemid);
+ bool Result = This->IsEnabled(*itemid);
  rt.addBool(Result);
  break;
 }
@@ -7227,7 +7355,7 @@ case wxMenuBar_Remove: { // wxMenuBar::Remove
  wxMenuBar *This = (wxMenuBar *) getPtr(bp,memenv); bp += 4;
  int * pos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxMenu * Result = (wxMenu*)This->Remove((size_t) *pos);
+ wxMenu * Result = (wxMenu*)This->Remove(*pos);
  rt.addRef(getRef((void *)Result,memenv), "wxMenu");
  break;
 }
@@ -7239,7 +7367,7 @@ case wxMenuBar_Replace: { // wxMenuBar::Replace
  wxString title = wxString(bp, wxConvUTF8);
  bp += *titleLen+((8-((0+ *titleLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- wxMenu * Result = (wxMenu*)This->Replace((size_t) *pos,menu,title);
+ wxMenu * Result = (wxMenu*)This->Replace(*pos,menu,title);
  rt.addRef(getRef((void *)Result,memenv), "wxMenu");
  break;
 }
@@ -7250,7 +7378,7 @@ case wxMenuBar_SetHelpString: { // wxMenuBar::SetHelpString
  wxString helpString = wxString(bp, wxConvUTF8);
  bp += *helpStringLen+((8-((4+ *helpStringLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- This->SetHelpString((int) *itemid,helpString);
+ This->SetHelpString(*itemid,helpString);
  break;
 }
 case wxMenuBar_SetLabel_2: { // wxMenuBar::SetLabel
@@ -7260,7 +7388,7 @@ case wxMenuBar_SetLabel_2: { // wxMenuBar::SetLabel
  wxString label = wxString(bp, wxConvUTF8);
  bp += *labelLen+((8-((4+ *labelLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- This->SetLabel((int) *itemid,label);
+ This->SetLabel(*itemid,label);
  break;
 }
 case wxMenuBar_SetLabel_1: { // wxMenuBar::SetLabel
@@ -7279,7 +7407,7 @@ case wxMenuBar_SetLabelTop: { // wxMenuBar::SetLabelTop
  wxString label = wxString(bp, wxConvUTF8);
  bp += *labelLen+((8-((4+ *labelLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- This->SetLabelTop((size_t) *pos,label);
+ This->SetLabelTop(*pos,label);
  break;
 }
 case wxControl_GetLabel: { // wxControl::GetLabel
@@ -7313,7 +7441,7 @@ case wxControlWithItems_Append_2: { // wxControlWithItems::Append
  int * itemLen = (int *) bp; bp += 4;
  wxString item = wxString(bp, wxConvUTF8);
  bp += *itemLen+((8-((0+ *itemLen) & 7)) & 7);
- wxeErlTerm * clientData =  new wxeErlTerm(Ecmd.bin[0]);
+ wxeErlTerm * clientData =  new wxeErlTerm(&Ecmd.bin[0]);
  if(!This) throw wxe_badarg(0);
  int Result = This->Append(item,clientData);
  rt.addInt(Result);
@@ -7345,7 +7473,7 @@ case wxControlWithItems_Delete: { // wxControlWithItems::Delete
  wxControlWithItems *This = (wxControlWithItems *) getPtr(bp,memenv); bp += 4;
  unsigned int * n = (unsigned int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->Delete((int) *n);
+ This->Delete(*n);
  break;
 }
 case wxControlWithItems_FindString: { // wxControlWithItems::FindString
@@ -7368,16 +7496,16 @@ case wxControlWithItems_getClientData: { // wxControlWithItems::GetClientObject
  wxControlWithItems *This = (wxControlWithItems *) getPtr(bp,memenv); bp += 4;
  unsigned int * n = (unsigned int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxeErlTerm * Result = (wxeErlTerm*)This->GetClientObject((int) *n);
+ wxeErlTerm * Result = (wxeErlTerm*)This->GetClientObject(*n);
  rt.addExt2Term(Result);
  break;
 }
 case wxControlWithItems_setClientData: { // wxControlWithItems::SetClientObject
  wxControlWithItems *This = (wxControlWithItems *) getPtr(bp,memenv); bp += 4;
  unsigned int * n = (unsigned int *) bp; bp += 4;
- wxeErlTerm * clientData =  new wxeErlTerm(Ecmd.bin[0]);
+ wxeErlTerm * clientData =  new wxeErlTerm(&Ecmd.bin[0]);
  if(!This) throw wxe_badarg(0);
- This->SetClientObject((int) *n,clientData);
+ This->SetClientObject(*n,clientData);
  break;
 }
 case wxControlWithItems_GetCount: { // wxControlWithItems::GetCount
@@ -7398,7 +7526,7 @@ case wxControlWithItems_GetString: { // wxControlWithItems::GetString
  wxControlWithItems *This = (wxControlWithItems *) getPtr(bp,memenv); bp += 4;
  unsigned int * n = (unsigned int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxString Result = This->GetString((int) *n);
+ wxString Result = This->GetString(*n);
  rt.add(Result);
  break;
 }
@@ -7416,7 +7544,7 @@ case wxControlWithItems_Insert_2: { // wxControlWithItems::Insert
  bp += *itemLen+((8-((0+ *itemLen) & 7)) & 7);
  unsigned int * pos = (unsigned int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->Insert(item,(int) *pos);
+ int Result = This->Insert(item,*pos);
  rt.addInt(Result);
  break;
 }
@@ -7426,9 +7554,9 @@ case wxControlWithItems_Insert_3: { // wxControlWithItems::Insert
  wxString item = wxString(bp, wxConvUTF8);
  bp += *itemLen+((8-((0+ *itemLen) & 7)) & 7);
  unsigned int * pos = (unsigned int *) bp; bp += 4;
- wxeErlTerm * clientData =  new wxeErlTerm(Ecmd.bin[0]);
+ wxeErlTerm * clientData =  new wxeErlTerm(&Ecmd.bin[0]);
  if(!This) throw wxe_badarg(0);
- int Result = This->Insert(item,(int) *pos,clientData);
+ int Result = This->Insert(item,*pos,clientData);
  rt.addInt(Result);
  break;
 }
@@ -7443,14 +7571,14 @@ case wxControlWithItems_Select: { // wxControlWithItems::Select
  wxControlWithItems *This = (wxControlWithItems *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->Select((int) *n);
+ This->Select(*n);
  break;
 }
 case wxControlWithItems_SetSelection: { // wxControlWithItems::SetSelection
  wxControlWithItems *This = (wxControlWithItems *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetSelection((int) *n);
+ This->SetSelection(*n);
  break;
 }
 case wxControlWithItems_SetString: { // wxControlWithItems::SetString
@@ -7460,7 +7588,7 @@ case wxControlWithItems_SetString: { // wxControlWithItems::SetString
  wxString s = wxString(bp, wxConvUTF8);
  bp += *sLen+((8-((4+ *sLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- This->SetString((int) *n,s);
+ This->SetString(*n,s);
  break;
 }
 case wxControlWithItems_SetStringSelection: { // wxControlWithItems::SetStringSelection
@@ -7519,7 +7647,7 @@ kind = *(wxItemKind *) bp; bp += 4;;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxMenuItem * Result = (wxMenuItem*)This->Append((int) *itemid,text,help,(wxItemKind) kind);
+ wxMenuItem * Result = (wxMenuItem*)This->Append(*itemid,text,help,kind);
  rt.addRef(getRef((void *)Result,memenv), "wxMenuItem");
  break;
 }
@@ -7542,7 +7670,7 @@ case wxMenu_Append_4_0: { // wxMenu::Append
  bp += *helpLen+((8-((4+ *helpLen) & 7)) & 7);
  bool * isCheckable = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->Append((int) *itemid,text,help,(bool) *isCheckable);
+ This->Append(*itemid,text,help,*isCheckable);
  break;
 }
 case wxMenu_Append_4_1: { // wxMenu::Append
@@ -7562,7 +7690,7 @@ case wxMenu_Append_4_1: { // wxMenu::Append
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxMenuItem * Result = (wxMenuItem*)This->Append((int) *itemid,text,submenu,help);
+ wxMenuItem * Result = (wxMenuItem*)This->Append(*itemid,text,submenu,help);
  rt.addRef(getRef((void *)Result,memenv), "wxMenuItem");
  break;
 }
@@ -7581,7 +7709,7 @@ case wxMenu_AppendCheckItem: { // wxMenu::AppendCheckItem
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxMenuItem * Result = (wxMenuItem*)This->AppendCheckItem((int) *itemid,text,help);
+ wxMenuItem * Result = (wxMenuItem*)This->AppendCheckItem(*itemid,text,help);
  rt.addRef(getRef((void *)Result,memenv), "wxMenuItem");
  break;
 }
@@ -7600,7 +7728,7 @@ case wxMenu_AppendRadioItem: { // wxMenu::AppendRadioItem
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxMenuItem * Result = (wxMenuItem*)This->AppendRadioItem((int) *itemid,text,help);
+ wxMenuItem * Result = (wxMenuItem*)This->AppendRadioItem(*itemid,text,help);
  rt.addRef(getRef((void *)Result,memenv), "wxMenuItem");
  break;
 }
@@ -7622,14 +7750,14 @@ case wxMenu_Check: { // wxMenu::Check
  int * itemid = (int *) bp; bp += 4;
  bool * check = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->Check((int) *itemid,(bool) *check);
+ This->Check(*itemid,*check);
  break;
 }
 case wxMenu_Delete_1_0: { // wxMenu::Delete
  wxMenu *This = (wxMenu *) getPtr(bp,memenv); bp += 4;
  int * itemid = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->Delete((int) *itemid);
+ bool Result = This->Delete(*itemid);
  rt.addBool(Result);
  break;
 }
@@ -7645,7 +7773,7 @@ case wxMenu_Destroy_1_0: { // wxMenu::Destroy
  wxMenu *This = (wxMenu *) getPtr(bp,memenv); bp += 4;
  int * itemid = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->Destroy((int) *itemid);
+ bool Result = This->Destroy(*itemid);
  rt.addBool(Result);
  break;
 }
@@ -7662,7 +7790,7 @@ case wxMenu_Enable: { // wxMenu::Enable
  int * itemid = (int *) bp; bp += 4;
  bool * enable = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->Enable((int) *itemid,(bool) *enable);
+ This->Enable(*itemid,*enable);
  break;
 }
 case wxMenu_FindItem_1: { // wxMenu::FindItem
@@ -7680,7 +7808,7 @@ case wxMenu_FindItem_2: { // wxMenu::FindItem
  wxMenu *This = (wxMenu *) getPtr(bp,memenv); bp += 4;
  int * itemid = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxMenuItem * Result = (wxMenuItem*)This->FindItem((int) *itemid,menu);
+ wxMenuItem * Result = (wxMenuItem*)This->FindItem(*itemid,menu);
  rt.addRef(getRef((void *)Result,memenv), "wxMenuItem");
  break;
 }
@@ -7688,7 +7816,7 @@ case wxMenu_FindItemByPosition: { // wxMenu::FindItemByPosition
  wxMenu *This = (wxMenu *) getPtr(bp,memenv); bp += 4;
  int * position = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxMenuItem * Result = (wxMenuItem*)This->FindItemByPosition((size_t) *position);
+ wxMenuItem * Result = (wxMenuItem*)This->FindItemByPosition(*position);
  rt.addRef(getRef((void *)Result,memenv), "wxMenuItem");
  break;
 }
@@ -7696,7 +7824,7 @@ case wxMenu_GetHelpString: { // wxMenu::GetHelpString
  wxMenu *This = (wxMenu *) getPtr(bp,memenv); bp += 4;
  int * itemid = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxString Result = This->GetHelpString((int) *itemid);
+ wxString Result = This->GetHelpString(*itemid);
  rt.add(Result);
  break;
 }
@@ -7704,7 +7832,7 @@ case wxMenu_GetLabel: { // wxMenu::GetLabel
  wxMenu *This = (wxMenu *) getPtr(bp,memenv); bp += 4;
  int * itemid = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxString Result = This->GetLabel((int) *itemid);
+ wxString Result = This->GetLabel(*itemid);
  rt.add(Result);
  break;
 }
@@ -7738,7 +7866,7 @@ case wxMenu_Insert_2: { // wxMenu::Insert
  int * pos = (int *) bp; bp += 4;
  wxMenuItem *item = (wxMenuItem *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- wxMenuItem * Result = (wxMenuItem*)This->Insert((size_t) *pos,item);
+ wxMenuItem * Result = (wxMenuItem*)This->Insert(*pos,item);
  rt.addRef(getRef((void *)Result,memenv), "wxMenuItem");
  break;
 }
@@ -7766,7 +7894,7 @@ kind = *(wxItemKind *) bp; bp += 4;;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxMenuItem * Result = (wxMenuItem*)This->Insert((size_t) *pos,(int) *itemid,text,help,(wxItemKind) kind);
+ wxMenuItem * Result = (wxMenuItem*)This->Insert(*pos,*itemid,text,help,kind);
  rt.addRef(getRef((void *)Result,memenv), "wxMenuItem");
  break;
 }
@@ -7788,7 +7916,7 @@ case wxMenu_Insert_5_1: { // wxMenu::Insert
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxMenuItem * Result = (wxMenuItem*)This->Insert((size_t) *pos,(int) *itemid,text,submenu,help);
+ wxMenuItem * Result = (wxMenuItem*)This->Insert(*pos,*itemid,text,submenu,help);
  rt.addRef(getRef((void *)Result,memenv), "wxMenuItem");
  break;
 }
@@ -7804,7 +7932,7 @@ case wxMenu_Insert_5_0: { // wxMenu::Insert
  bp += *helpLen+((8-((4+ *helpLen) & 7)) & 7);
  bool * isCheckable = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->Insert((size_t) *pos,(int) *itemid,text,help,(bool) *isCheckable);
+ This->Insert(*pos,*itemid,text,help,*isCheckable);
  break;
 }
 case wxMenu_InsertCheckItem: { // wxMenu::InsertCheckItem
@@ -7823,7 +7951,7 @@ case wxMenu_InsertCheckItem: { // wxMenu::InsertCheckItem
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxMenuItem * Result = (wxMenuItem*)This->InsertCheckItem((size_t) *pos,(int) *itemid,text,help);
+ wxMenuItem * Result = (wxMenuItem*)This->InsertCheckItem(*pos,*itemid,text,help);
  rt.addRef(getRef((void *)Result,memenv), "wxMenuItem");
  break;
 }
@@ -7843,7 +7971,7 @@ case wxMenu_InsertRadioItem: { // wxMenu::InsertRadioItem
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxMenuItem * Result = (wxMenuItem*)This->InsertRadioItem((size_t) *pos,(int) *itemid,text,help);
+ wxMenuItem * Result = (wxMenuItem*)This->InsertRadioItem(*pos,*itemid,text,help);
  rt.addRef(getRef((void *)Result,memenv), "wxMenuItem");
  break;
 }
@@ -7851,7 +7979,7 @@ case wxMenu_InsertSeparator: { // wxMenu::InsertSeparator
  wxMenu *This = (wxMenu *) getPtr(bp,memenv); bp += 4;
  int * pos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxMenuItem * Result = (wxMenuItem*)This->InsertSeparator((size_t) *pos);
+ wxMenuItem * Result = (wxMenuItem*)This->InsertSeparator(*pos);
  rt.addRef(getRef((void *)Result,memenv), "wxMenuItem");
  break;
 }
@@ -7859,7 +7987,7 @@ case wxMenu_IsChecked: { // wxMenu::IsChecked
  wxMenu *This = (wxMenu *) getPtr(bp,memenv); bp += 4;
  int * itemid = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->IsChecked((int) *itemid);
+ bool Result = This->IsChecked(*itemid);
  rt.addBool(Result);
  break;
 }
@@ -7867,7 +7995,7 @@ case wxMenu_IsEnabled: { // wxMenu::IsEnabled
  wxMenu *This = (wxMenu *) getPtr(bp,memenv); bp += 4;
  int * itemid = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->IsEnabled((int) *itemid);
+ bool Result = This->IsEnabled(*itemid);
  rt.addBool(Result);
  break;
 }
@@ -7901,7 +8029,7 @@ kind = *(wxItemKind *) bp; bp += 4;;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxMenuItem * Result = (wxMenuItem*)This->Prepend((int) *itemid,text,help,(wxItemKind) kind);
+ wxMenuItem * Result = (wxMenuItem*)This->Prepend(*itemid,text,help,kind);
  rt.addRef(getRef((void *)Result,memenv), "wxMenuItem");
  break;
 }
@@ -7922,7 +8050,7 @@ case wxMenu_Prepend_4_1: { // wxMenu::Prepend
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxMenuItem * Result = (wxMenuItem*)This->Prepend((int) *itemid,text,submenu,help);
+ wxMenuItem * Result = (wxMenuItem*)This->Prepend(*itemid,text,submenu,help);
  rt.addRef(getRef((void *)Result,memenv), "wxMenuItem");
  break;
 }
@@ -7937,7 +8065,7 @@ case wxMenu_Prepend_4_0: { // wxMenu::Prepend
  bp += *helpLen+((8-((4+ *helpLen) & 7)) & 7);
  bool * isCheckable = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->Prepend((int) *itemid,text,help,(bool) *isCheckable);
+ This->Prepend(*itemid,text,help,*isCheckable);
  break;
 }
 case wxMenu_PrependCheckItem: { // wxMenu::PrependCheckItem
@@ -7955,7 +8083,7 @@ case wxMenu_PrependCheckItem: { // wxMenu::PrependCheckItem
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxMenuItem * Result = (wxMenuItem*)This->PrependCheckItem((int) *itemid,text,help);
+ wxMenuItem * Result = (wxMenuItem*)This->PrependCheckItem(*itemid,text,help);
  rt.addRef(getRef((void *)Result,memenv), "wxMenuItem");
  break;
 }
@@ -7974,7 +8102,7 @@ case wxMenu_PrependRadioItem: { // wxMenu::PrependRadioItem
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxMenuItem * Result = (wxMenuItem*)This->PrependRadioItem((int) *itemid,text,help);
+ wxMenuItem * Result = (wxMenuItem*)This->PrependRadioItem(*itemid,text,help);
  rt.addRef(getRef((void *)Result,memenv), "wxMenuItem");
  break;
 }
@@ -7989,7 +8117,7 @@ case wxMenu_Remove_1_0: { // wxMenu::Remove
  wxMenu *This = (wxMenu *) getPtr(bp,memenv); bp += 4;
  int * itemid = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxMenuItem * Result = (wxMenuItem*)This->Remove((int) *itemid);
+ wxMenuItem * Result = (wxMenuItem*)This->Remove(*itemid);
  rt.addRef(getRef((void *)Result,memenv), "wxMenuItem");
  break;
 }
@@ -8008,7 +8136,7 @@ case wxMenu_SetHelpString: { // wxMenu::SetHelpString
  wxString helpString = wxString(bp, wxConvUTF8);
  bp += *helpStringLen+((8-((4+ *helpStringLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- This->SetHelpString((int) *itemid,helpString);
+ This->SetHelpString(*itemid,helpString);
  break;
 }
 case wxMenu_SetLabel: { // wxMenu::SetLabel
@@ -8018,7 +8146,7 @@ case wxMenu_SetLabel: { // wxMenu::SetLabel
  wxString label = wxString(bp, wxConvUTF8);
  bp += *labelLen+((8-((4+ *labelLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- This->SetLabel((int) *itemid,label);
+ This->SetLabel(*itemid,label);
  break;
 }
 case wxMenu_SetTitle: { // wxMenu::SetTitle
@@ -8061,7 +8189,7 @@ kind = *(wxItemKind *) bp; bp += 4;;
 subMenu = (wxMenu *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
- wxMenuItem * Result = new EwxMenuItem(parentMenu,id,text,help,(wxItemKind) kind,subMenu);
+ wxMenuItem * Result = new EwxMenuItem(parentMenu,id,text,help,kind,subMenu);
  newPtr((void *) Result, 1, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxMenuItem");
  break;
@@ -8276,7 +8404,7 @@ data = (wxObject *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxToolBarToolBase * Result = (wxToolBarToolBase*)This->AddTool((int) *toolid,label,*bitmap,*bmpDisabled,(wxItemKind) kind,shortHelp,longHelp,data);
+ wxToolBarToolBase * Result = (wxToolBarToolBase*)This->AddTool(*toolid,label,*bitmap,*bmpDisabled,kind,shortHelp,longHelp,data);
  rt.addRef(getRef((void *)Result,memenv), "wx");
  break;
 }
@@ -8301,7 +8429,7 @@ kind = *(wxItemKind *) bp; bp += 4;;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxToolBarToolBase * Result = (wxToolBarToolBase*)This->AddTool((int) *toolid,label,*bitmap,shortHelp,(wxItemKind) kind);
+ wxToolBarToolBase * Result = (wxToolBarToolBase*)This->AddTool(*toolid,label,*bitmap,shortHelp,kind);
  rt.addRef(getRef((void *)Result,memenv), "wx");
  break;
 }
@@ -8341,7 +8469,7 @@ clientData = (wxObject *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxToolBarToolBase * Result = (wxToolBarToolBase*)This->AddTool((int) *toolid,*bitmap,*bmpDisabled,toggle,clientData,shortHelpString,longHelpString);
+ wxToolBarToolBase * Result = (wxToolBarToolBase*)This->AddTool(*toolid,*bitmap,*bmpDisabled,toggle,clientData,shortHelpString,longHelpString);
  rt.addRef(getRef((void *)Result,memenv), "wx");
  break;
 }
@@ -8365,7 +8493,7 @@ case wxToolBar_AddTool_3: { // wxToolBar::AddTool
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxToolBarToolBase * Result = (wxToolBarToolBase*)This->AddTool((int) *toolid,*bitmap,shortHelpString,longHelpString);
+ wxToolBarToolBase * Result = (wxToolBarToolBase*)This->AddTool(*toolid,*bitmap,shortHelpString,longHelpString);
  rt.addRef(getRef((void *)Result,memenv), "wx");
  break;
 }
@@ -8399,7 +8527,7 @@ clientData = (wxObject *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxToolBarToolBase * Result = (wxToolBarToolBase*)This->AddTool((int) *toolid,*bitmap,*bmpDisabled,(bool) *toggle,(wxCoord) *xPos,yPos,clientData,shortHelp,longHelp);
+ wxToolBarToolBase * Result = (wxToolBarToolBase*)This->AddTool(*toolid,*bitmap,*bmpDisabled,*toggle,*xPos,yPos,clientData,shortHelp,longHelp);
  rt.addRef(getRef((void *)Result,memenv), "wx");
  break;
 }
@@ -8434,7 +8562,7 @@ data = (wxObject *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxToolBarToolBase * Result = (wxToolBarToolBase*)This->AddCheckTool((int) *toolid,label,*bitmap,*bmpDisabled,shortHelp,longHelp,data);
+ wxToolBarToolBase * Result = (wxToolBarToolBase*)This->AddCheckTool(*toolid,label,*bitmap,*bmpDisabled,shortHelp,longHelp,data);
  rt.addRef(getRef((void *)Result,memenv), "wx");
  break;
 }
@@ -8469,15 +8597,34 @@ data = (wxObject *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxToolBarToolBase * Result = (wxToolBarToolBase*)This->AddRadioTool((int) *toolid,label,*bitmap,*bmpDisabled,shortHelp,longHelp,data);
+ wxToolBarToolBase * Result = (wxToolBarToolBase*)This->AddRadioTool(*toolid,label,*bitmap,*bmpDisabled,shortHelp,longHelp,data);
  rt.addRef(getRef((void *)Result,memenv), "wx");
  break;
 }
+#if wxCHECK_VERSION(3,0,0)
+case wxToolBar_AddStretchableSpace: { // wxToolBar::AddStretchableSpace
+ wxToolBar *This = (wxToolBar *) getPtr(bp,memenv); bp += 4;
+ if(!This) throw wxe_badarg(0);
+ wxToolBarToolBase * Result = (wxToolBarToolBase*)This->AddStretchableSpace();
+ rt.addRef(getRef((void *)Result,memenv), "wx");
+ break;
+}
+#endif
+#if wxCHECK_VERSION(3,0,0)
+case wxToolBar_InsertStretchableSpace: { // wxToolBar::InsertStretchableSpace
+ wxToolBar *This = (wxToolBar *) getPtr(bp,memenv); bp += 4;
+ int * pos = (int *) bp; bp += 4;
+ if(!This) throw wxe_badarg(0);
+ wxToolBarToolBase * Result = (wxToolBarToolBase*)This->InsertStretchableSpace(*pos);
+ rt.addRef(getRef((void *)Result,memenv), "wx");
+ break;
+}
+#endif
 case wxToolBar_DeleteTool: { // wxToolBar::DeleteTool
  wxToolBar *This = (wxToolBar *) getPtr(bp,memenv); bp += 4;
  int * toolid = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->DeleteTool((int) *toolid);
+ bool Result = This->DeleteTool(*toolid);
  rt.addBool(Result);
  break;
 }
@@ -8485,7 +8632,7 @@ case wxToolBar_DeleteToolByPos: { // wxToolBar::DeleteToolByPos
  wxToolBar *This = (wxToolBar *) getPtr(bp,memenv); bp += 4;
  int * pos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->DeleteToolByPos((size_t) *pos);
+ bool Result = This->DeleteToolByPos(*pos);
  rt.addBool(Result);
  break;
 }
@@ -8494,14 +8641,14 @@ case wxToolBar_EnableTool: { // wxToolBar::EnableTool
  int * toolid = (int *) bp; bp += 4;
  bool * enable = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->EnableTool((int) *toolid,(bool) *enable);
+ This->EnableTool(*toolid,*enable);
  break;
 }
 case wxToolBar_FindById: { // wxToolBar::FindById
  wxToolBar *This = (wxToolBar *) getPtr(bp,memenv); bp += 4;
  int * toolid = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxToolBarToolBase * Result = (wxToolBarToolBase*)This->FindById((int) *toolid);
+ wxToolBarToolBase * Result = (wxToolBarToolBase*)This->FindById(*toolid);
  rt.addRef(getRef((void *)Result,memenv), "wx");
  break;
 }
@@ -8509,7 +8656,7 @@ case wxToolBar_FindControl: { // wxToolBar::FindControl
  wxToolBar *This = (wxToolBar *) getPtr(bp,memenv); bp += 4;
  int * toolid = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxControl * Result = (wxControl*)This->FindControl((int) *toolid);
+ wxControl * Result = (wxControl*)This->FindControl(*toolid);
  rt.addRef(getRef((void *)Result,memenv), "wxControl");
  break;
 }
@@ -8518,7 +8665,7 @@ case wxToolBar_FindToolForPosition: { // wxToolBar::FindToolForPosition
  int * x = (int *) bp; bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxToolBarToolBase * Result = (wxToolBarToolBase*)This->FindToolForPosition((wxCoord) *x,(wxCoord) *y);
+ wxToolBarToolBase * Result = (wxToolBarToolBase*)This->FindToolForPosition(*x,*y);
  rt.addRef(getRef((void *)Result,memenv), "wx");
  break;
 }
@@ -8547,7 +8694,7 @@ case wxToolBar_GetToolEnabled: { // wxToolBar::GetToolEnabled
  wxToolBar *This = (wxToolBar *) getPtr(bp,memenv); bp += 4;
  int * toolid = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->GetToolEnabled((int) *toolid);
+ bool Result = This->GetToolEnabled(*toolid);
  rt.addBool(Result);
  break;
 }
@@ -8555,7 +8702,7 @@ case wxToolBar_GetToolLongHelp: { // wxToolBar::GetToolLongHelp
  wxToolBar *This = (wxToolBar *) getPtr(bp,memenv); bp += 4;
  int * toolid = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxString Result = This->GetToolLongHelp((int) *toolid);
+ wxString Result = This->GetToolLongHelp(*toolid);
  rt.add(Result);
  break;
 }
@@ -8570,7 +8717,7 @@ case wxToolBar_GetToolPos: { // wxToolBar::GetToolPos
  wxToolBar *This = (wxToolBar *) getPtr(bp,memenv); bp += 4;
  int * id = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->GetToolPos((int) *id);
+ int Result = This->GetToolPos(*id);
  rt.addInt(Result);
  break;
 }
@@ -8585,7 +8732,7 @@ case wxToolBar_GetToolShortHelp: { // wxToolBar::GetToolShortHelp
  wxToolBar *This = (wxToolBar *) getPtr(bp,memenv); bp += 4;
  int * toolid = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxString Result = This->GetToolShortHelp((int) *toolid);
+ wxString Result = This->GetToolShortHelp(*toolid);
  rt.add(Result);
  break;
 }
@@ -8593,7 +8740,7 @@ case wxToolBar_GetToolState: { // wxToolBar::GetToolState
  wxToolBar *This = (wxToolBar *) getPtr(bp,memenv); bp += 4;
  int * toolid = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->GetToolState((int) *toolid);
+ bool Result = This->GetToolState(*toolid);
  rt.addBool(Result);
  break;
 }
@@ -8602,7 +8749,7 @@ case wxToolBar_InsertControl: { // wxToolBar::InsertControl
  int * pos = (int *) bp; bp += 4;
  wxControl *control = (wxControl *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- wxToolBarToolBase * Result = (wxToolBarToolBase*)This->InsertControl((size_t) *pos,control);
+ wxToolBarToolBase * Result = (wxToolBarToolBase*)This->InsertControl(*pos,control);
  rt.addRef(getRef((void *)Result,memenv), "wx");
  break;
 }
@@ -8610,7 +8757,7 @@ case wxToolBar_InsertSeparator: { // wxToolBar::InsertSeparator
  wxToolBar *This = (wxToolBar *) getPtr(bp,memenv); bp += 4;
  int * pos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxToolBarToolBase * Result = (wxToolBarToolBase*)This->InsertSeparator((size_t) *pos);
+ wxToolBarToolBase * Result = (wxToolBarToolBase*)This->InsertSeparator(*pos);
  rt.addRef(getRef((void *)Result,memenv), "wx");
  break;
 }
@@ -8650,7 +8797,7 @@ clientData = (wxObject *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxToolBarToolBase * Result = (wxToolBarToolBase*)This->InsertTool((size_t) *pos,(int) *toolid,label,*bitmap,*bmpDisabled,(wxItemKind) kind,shortHelp,longHelp,clientData);
+ wxToolBarToolBase * Result = (wxToolBarToolBase*)This->InsertTool(*pos,*toolid,label,*bitmap,*bmpDisabled,kind,shortHelp,longHelp,clientData);
  rt.addRef(getRef((void *)Result,memenv), "wx");
  break;
 }
@@ -8659,7 +8806,7 @@ case wxToolBar_InsertTool_2: { // wxToolBar::InsertTool
  int * pos = (int *) bp; bp += 4;
  wxToolBarToolBase *tool = (wxToolBarToolBase *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- wxToolBarToolBase * Result = (wxToolBarToolBase*)This->InsertTool((size_t) *pos,tool);
+ wxToolBarToolBase * Result = (wxToolBarToolBase*)This->InsertTool(*pos,tool);
  rt.addRef(getRef((void *)Result,memenv), "wx");
  break;
 }
@@ -8695,7 +8842,7 @@ clientData = (wxObject *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxToolBarToolBase * Result = (wxToolBarToolBase*)This->InsertTool((size_t) *pos,(int) *toolid,*bitmap,*bmpDisabled,toggle,clientData,shortHelp,longHelp);
+ wxToolBarToolBase * Result = (wxToolBarToolBase*)This->InsertTool(*pos,*toolid,*bitmap,*bmpDisabled,toggle,clientData,shortHelp,longHelp);
  rt.addRef(getRef((void *)Result,memenv), "wx");
  break;
 }
@@ -8710,7 +8857,7 @@ case wxToolBar_RemoveTool: { // wxToolBar::RemoveTool
  wxToolBar *This = (wxToolBar *) getPtr(bp,memenv); bp += 4;
  int * toolid = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxToolBarToolBase * Result = (wxToolBarToolBase*)This->RemoveTool((int) *toolid);
+ wxToolBarToolBase * Result = (wxToolBarToolBase*)This->RemoveTool(*toolid);
  rt.addRef(getRef((void *)Result,memenv), "wx");
  break;
 }
@@ -8719,7 +8866,7 @@ case wxToolBar_SetMargins: { // wxToolBar::SetMargins
  int * x = (int *) bp; bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetMargins((int) *x,(int) *y);
+ This->SetMargins(*x,*y);
  break;
 }
 case wxToolBar_SetToolBitmapSize: { // wxToolBar::SetToolBitmapSize
@@ -8738,14 +8885,14 @@ case wxToolBar_SetToolLongHelp: { // wxToolBar::SetToolLongHelp
  wxString helpString = wxString(bp, wxConvUTF8);
  bp += *helpStringLen+((8-((4+ *helpStringLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- This->SetToolLongHelp((int) *toolid,helpString);
+ This->SetToolLongHelp(*toolid,helpString);
  break;
 }
 case wxToolBar_SetToolPacking: { // wxToolBar::SetToolPacking
  wxToolBar *This = (wxToolBar *) getPtr(bp,memenv); bp += 4;
  int * packing = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetToolPacking((int) *packing);
+ This->SetToolPacking(*packing);
  break;
 }
 case wxToolBar_SetToolShortHelp: { // wxToolBar::SetToolShortHelp
@@ -8755,14 +8902,14 @@ case wxToolBar_SetToolShortHelp: { // wxToolBar::SetToolShortHelp
  wxString helpString = wxString(bp, wxConvUTF8);
  bp += *helpStringLen+((8-((4+ *helpStringLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- This->SetToolShortHelp((int) *id,helpString);
+ This->SetToolShortHelp(*id,helpString);
  break;
 }
 case wxToolBar_SetToolSeparation: { // wxToolBar::SetToolSeparation
  wxToolBar *This = (wxToolBar *) getPtr(bp,memenv); bp += 4;
  int * separation = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetToolSeparation((int) *separation);
+ This->SetToolSeparation(*separation);
  break;
 }
 case wxToolBar_ToggleTool: { // wxToolBar::ToggleTool
@@ -8770,7 +8917,7 @@ case wxToolBar_ToggleTool: { // wxToolBar::ToggleTool
  int * toolid = (int *) bp; bp += 4;
  bool * toggle = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->ToggleTool((int) *toolid,(bool) *toggle);
+ This->ToggleTool(*toolid,*toggle);
  break;
 }
 case wxStatusBar_new_0: { // wxStatusBar::wxStatusBar
@@ -8816,16 +8963,14 @@ case wxStatusBar_Create: { // wxStatusBar::Create
  break;
 }
 case wxStatusBar_GetFieldRect: { // wxStatusBar::GetFieldRect
+ wxRect rect;
  wxStatusBar *This = (wxStatusBar *) getPtr(bp,memenv); bp += 4;
  int * i = (int *) bp; bp += 4;
- int * rectX = (int *) bp; bp += 4;
- int * rectY = (int *) bp; bp += 4;
- int * rectW = (int *) bp; bp += 4;
- int * rectH = (int *) bp; bp += 4;
- wxRect rect = wxRect(*rectX,*rectY,*rectW,*rectH);
  if(!This) throw wxe_badarg(0);
- bool Result = This->GetFieldRect((int) *i,rect);
+ bool Result = This->GetFieldRect(*i,rect);
  rt.addBool(Result);
+ rt.add(rect);
+ rt.addTupleCount(2);
  break;
 }
 case wxStatusBar_GetFieldsCount: { // wxStatusBar::GetFieldsCount
@@ -8889,14 +9034,14 @@ case wxStatusBar_SetFieldsCount: { // wxStatusBar::SetFieldsCount
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->SetFieldsCount((int) *number,widths);
+ This->SetFieldsCount(*number,widths);
  break;
 }
 case wxStatusBar_SetMinHeight: { // wxStatusBar::SetMinHeight
  wxStatusBar *This = (wxStatusBar *) getPtr(bp,memenv); bp += 4;
  int * height = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetMinHeight((int) *height);
+ This->SetMinHeight(*height);
  break;
 }
 case wxStatusBar_SetStatusText: { // wxStatusBar::SetStatusText
@@ -8945,14 +9090,14 @@ case wxBitmap_new_3: { // wxBitmap::wxBitmap
  depth = (int)*(int *) bp; bp += 4;
   } break;
  }};
- wxBitmap * Result = new EwxBitmap((int) *width,(int) *height,depth);
+ wxBitmap * Result = new EwxBitmap(*width,*height,depth);
  newPtr((void *) Result, 1, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxBitmap");
  break;
 }
 case wxBitmap_new_4: { // wxBitmap::wxBitmap
  int depth=1;
- const char * bits = (const char*) Ecmd.bin[0]->base;
+ const char * bits = (const char*) Ecmd.bin[0].base;
  int * width = (int *) bp; bp += 4;
  int * height = (int *) bp; bp += 4;
  while( * (int*) bp) { switch (* (int*) bp) {
@@ -8960,7 +9105,7 @@ case wxBitmap_new_4: { // wxBitmap::wxBitmap
  depth = (int)*(int *) bp; bp += 4;
   } break;
  }};
- wxBitmap * Result = new EwxBitmap(bits,(int) *width,(int) *height,depth);
+ wxBitmap * Result = new EwxBitmap(bits,*width,*height,depth);
  newPtr((void *) Result, 1, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxBitmap");
  break;
@@ -8975,7 +9120,7 @@ case wxBitmap_new_2_0: { // wxBitmap::wxBitmap
 type = *(wxBitmapType *) bp; bp += 4;;
   } break;
  }};
- wxBitmap * Result = new EwxBitmap(filename,(wxBitmapType) type);
+ wxBitmap * Result = new EwxBitmap(filename,type);
  newPtr((void *) Result, 1, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxBitmap");
  break;
@@ -8997,7 +9142,7 @@ case wxBitmap_new_2_1: { // wxBitmap::wxBitmap
 case wxBitmap_ConvertToImage: { // wxBitmap::ConvertToImage
  wxBitmap *This = (wxBitmap *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- wxImage * Result = new wxImage(This->ConvertToImage()); newPtr((void *) Result,3, memenv);;
+ wxImage * Result = new EwxImage(This->ConvertToImage()); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxImage");
  break;
 }
@@ -9021,7 +9166,7 @@ case wxBitmap_Create: { // wxBitmap::Create
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create((int) *width,(int) *height,depth);
+ bool Result = This->Create(*width,*height,depth);
  rt.addBool(Result);
  break;
 }
@@ -9068,7 +9213,7 @@ case wxBitmap_GetSubBitmap: { // wxBitmap::GetSubBitmap
  int * rectH = (int *) bp; bp += 4;
  wxRect rect = wxRect(*rectX,*rectY,*rectW,*rectH);
  if(!This) throw wxe_badarg(0);
- wxBitmap * Result = new wxBitmap(This->GetSubBitmap(rect)); newPtr((void *) Result,3, memenv);;
+ wxBitmap * Result = new EwxBitmap(This->GetSubBitmap(rect)); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxBitmap");
  break;
 }
@@ -9084,7 +9229,7 @@ type = *(wxBitmapType *) bp; bp += 4;;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->LoadFile(name,(wxBitmapType) type);
+ bool Result = This->LoadFile(name,type);
  rt.addBool(Result);
  break;
 }
@@ -9109,7 +9254,7 @@ palette = (wxPalette *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->SaveFile(name,(wxBitmapType) type,palette);
+ bool Result = This->SaveFile(name,type,palette);
  rt.addBool(Result);
  break;
 }
@@ -9117,14 +9262,14 @@ case wxBitmap_SetDepth: { // wxBitmap::SetDepth
  wxBitmap *This = (wxBitmap *) getPtr(bp,memenv); bp += 4;
  int * depth = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetDepth((int) *depth);
+ This->SetDepth(*depth);
  break;
 }
 case wxBitmap_SetHeight: { // wxBitmap::SetHeight
  wxBitmap *This = (wxBitmap *) getPtr(bp,memenv); bp += 4;
  int * height = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetHeight((int) *height);
+ This->SetHeight(*height);
  break;
 }
 case wxBitmap_SetMask: { // wxBitmap::SetMask
@@ -9145,7 +9290,7 @@ case wxBitmap_SetWidth: { // wxBitmap::SetWidth
  wxBitmap *This = (wxBitmap *) getPtr(bp,memenv); bp += 4;
  int * width = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetWidth((int) *width);
+ This->SetWidth(*width);
  break;
 }
 case wxIcon_new_0: { // wxIcon::wxIcon
@@ -9172,7 +9317,7 @@ type = *(wxBitmapType *) bp; bp += 4;;
  desiredHeight = (int)*(int *) bp; bp += 4;
   } break;
  }};
- wxIcon * Result = new EwxIcon(filename,(wxBitmapType) type,desiredWidth,desiredHeight);
+ wxIcon * Result = new EwxIcon(filename,type,desiredWidth,desiredHeight);
  newPtr((void *) Result, 1, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxIcon");
  break;
@@ -9202,7 +9347,7 @@ case wxIconBundle_new_2: { // wxIconBundle::wxIconBundle
  wxString file = wxString(bp, wxConvUTF8);
  bp += *fileLen+((8-((4+ *fileLen) & 7)) & 7);
  int * type = (int *) bp; bp += 4;
- wxIconBundle * Result = new wxIconBundle(file,(long) *type);
+ wxIconBundle * Result = new wxIconBundle(file,*type);
  newPtr((void *) Result, 61, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxIconBundle");
  break;
@@ -9234,7 +9379,7 @@ case wxIconBundle_AddIcon_2: { // wxIconBundle::AddIcon
  bp += *fileLen+((8-((0+ *fileLen) & 7)) & 7);
  int * type = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->AddIcon(file,(long) *type);
+ This->AddIcon(file,*type);
  break;
 }
 case wxIconBundle_AddIcon_1: { // wxIconBundle::AddIcon
@@ -9250,7 +9395,7 @@ case wxIconBundle_GetIcon_1_1: { // wxIconBundle::GetIcon
  int * sizeH = (int *) bp; bp += 4;
  wxSize size = wxSize(*sizeW,*sizeH);
  if(!This) throw wxe_badarg(0);
- const wxIcon * Result = &This->GetIcon(size);
+ const wxIcon * Result = new EwxIcon(This->GetIcon(size)); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxIcon");
  break;
 }
@@ -9264,7 +9409,7 @@ case wxIconBundle_GetIcon_1_0: { // wxIconBundle::GetIcon
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- const wxIcon * Result = &This->GetIcon(size);
+ const wxIcon * Result = new EwxIcon(This->GetIcon(size)); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxIcon");
  break;
 }
@@ -9276,7 +9421,7 @@ case wxCursor_new_0: { // wxCursor::wxCursor
 }
 case wxCursor_new_1_0: { // wxCursor::wxCursor
  int * cursorId = (int *) bp; bp += 4;
- wxCursor * Result = new EwxCursor((int) *cursorId);
+ wxCursor * Result = new EwxCursor(*cursorId);
  newPtr((void *) Result, 1, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxCursor");
  break;
@@ -9288,10 +9433,11 @@ case wxCursor_new_1_1: { // wxCursor::wxCursor
  rt.addRef(getRef((void *)Result,memenv), "wxCursor");
  break;
 }
+#if !wxCHECK_VERSION(2,9,0)
 case wxCursor_new_4: { // wxCursor::wxCursor
  int hotSpotX=-1;
  int hotSpotY=-1;
- const char * bits = (const char*) Ecmd.bin[0]->base;
+ const char * bits = (const char*) Ecmd.bin[0].base;
  int * width = (int *) bp; bp += 4;
  int * height = (int *) bp; bp += 4;
  while( * (int*) bp) { switch (* (int*) bp) {
@@ -9302,11 +9448,12 @@ case wxCursor_new_4: { // wxCursor::wxCursor
  hotSpotY = (int)*(int *) bp; bp += 4;
   } break;
  }};
- wxCursor * Result = new EwxCursor(bits,(int) *width,(int) *height,hotSpotX,hotSpotY);
+ wxCursor * Result = new EwxCursor(bits,*width,*height,hotSpotX,hotSpotY);
  newPtr((void *) Result, 1, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxCursor");
  break;
 }
+#endif
 case wxCursor_Ok: { // wxCursor::Ok
  wxCursor *This = (wxCursor *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
@@ -9335,7 +9482,7 @@ case wxMask_new_2_1: { // wxMask::wxMask
 case wxMask_new_2_0: { // wxMask::wxMask
  wxBitmap *bitmap = (wxBitmap *) getPtr(bp,memenv); bp += 4;
  int * paletteIndex = (int *) bp; bp += 4;
- wxMask * Result = new EwxMask(*bitmap,(int) *paletteIndex);
+ wxMask * Result = new EwxMask(*bitmap,*paletteIndex);
  newPtr((void *) Result, 1, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxMask");
  break;
@@ -9365,7 +9512,7 @@ case wxMask_Create_2_0: { // wxMask::Create
  wxBitmap *bitmap = (wxBitmap *) getPtr(bp,memenv); bp += 4;
  int * paletteIndex = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(*bitmap,(int) *paletteIndex);
+ bool Result = This->Create(*bitmap,*paletteIndex);
  rt.addBool(Result);
  break;
 }
@@ -9392,7 +9539,7 @@ case wxImage_new_3_0: { // wxImage::wxImage
  clear = *(bool *) bp; bp += 4;
   } break;
  }};
- wxImage * Result = new EwxImage((int) *width,(int) *height,clear);
+ wxImage * Result = new EwxImage(*width,*height,clear);
  newPtr((void *) Result, 1, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxImage");
  break;
@@ -9401,14 +9548,14 @@ case wxImage_new_4: { // wxImage::wxImage
  bool static_data=false;
  int * width = (int *) bp; bp += 4;
  int * height = (int *) bp; bp += 4;
- unsigned char * data = (unsigned char*) Ecmd.bin[0]->base;
+ unsigned char * data = (unsigned char*) Ecmd.bin[0].base;
  while( * (int*) bp) { switch (* (int*) bp) {
   case 1: {bp += 4;
  static_data = *(bool *) bp; bp += 4;
   } break;
  }};
- if(!static_data) {data = (unsigned char *) malloc(Ecmd.bin[0]->size);memcpy(data,Ecmd.bin[0]->base,Ecmd.bin[0]->size);};
- wxImage * Result = new EwxImage((int) *width,(int) *height,data,static_data);
+ if(!static_data) {data = (unsigned char *) malloc(Ecmd.bin[0].size);memcpy(data,Ecmd.bin[0].base,Ecmd.bin[0].size);};
+ wxImage * Result = new EwxImage(*width,*height,data,static_data);
  newPtr((void *) Result, 1, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxImage");
  break;
@@ -9417,15 +9564,15 @@ case wxImage_new_5: { // wxImage::wxImage
  bool static_data=false;
  int * width = (int *) bp; bp += 4;
  int * height = (int *) bp; bp += 4;
- unsigned char * data = (unsigned char*) Ecmd.bin[0]->base;
- unsigned char * alpha = (unsigned char*) Ecmd.bin[1]->base;
+ unsigned char * data = (unsigned char*) Ecmd.bin[0].base;
+ unsigned char * alpha = (unsigned char*) Ecmd.bin[1].base;
  while( * (int*) bp) { switch (* (int*) bp) {
   case 1: {bp += 4;
  static_data = *(bool *) bp; bp += 4;
   } break;
  }};
- if(!static_data) { data = (unsigned char *) malloc(Ecmd.bin[0]->size); alpha = (unsigned char *) malloc(Ecmd.bin[1]->size); memcpy(data,Ecmd.bin[0]->base,Ecmd.bin[0]->size); memcpy(alpha,Ecmd.bin[1]->base,Ecmd.bin[1]->size);};
- wxImage * Result = new EwxImage((int) *width,(int) *height,data,alpha,static_data);
+ if(!static_data) { data = (unsigned char *) malloc(Ecmd.bin[0].size); alpha = (unsigned char *) malloc(Ecmd.bin[1].size); memcpy(data,Ecmd.bin[0].base,Ecmd.bin[0].size); memcpy(alpha,Ecmd.bin[1].base,Ecmd.bin[1].size);};
+ wxImage * Result = new EwxImage(*width,*height,data,alpha,static_data);
  newPtr((void *) Result, 1, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxImage");
  break;
@@ -9471,7 +9618,7 @@ case wxImage_Blur: { // wxImage::Blur
  wxImage *This = (wxImage *) getPtr(bp,memenv); bp += 4;
  int * radius = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxImage * Result = new wxImage(This->Blur((int) *radius)); newPtr((void *) Result,3, memenv);;
+ wxImage * Result = new EwxImage(This->Blur(*radius)); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxImage");
  break;
 }
@@ -9479,7 +9626,7 @@ case wxImage_BlurHorizontal: { // wxImage::BlurHorizontal
  wxImage *This = (wxImage *) getPtr(bp,memenv); bp += 4;
  int * radius = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxImage * Result = new wxImage(This->BlurHorizontal((int) *radius)); newPtr((void *) Result,3, memenv);;
+ wxImage * Result = new EwxImage(This->BlurHorizontal(*radius)); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxImage");
  break;
 }
@@ -9487,7 +9634,7 @@ case wxImage_BlurVertical: { // wxImage::BlurVertical
  wxImage *This = (wxImage *) getPtr(bp,memenv); bp += 4;
  int * radius = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxImage * Result = new wxImage(This->BlurVertical((int) *radius)); newPtr((void *) Result,3, memenv);;
+ wxImage * Result = new EwxImage(This->BlurVertical(*radius)); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxImage");
  break;
 }
@@ -9526,7 +9673,7 @@ case wxImage_ConvertToGreyscale: { // wxImage::ConvertToGreyscale
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxImage * Result = new wxImage(This->ConvertToGreyscale(lr,lg,lb)); newPtr((void *) Result,3, memenv);;
+ wxImage * Result = new EwxImage(This->ConvertToGreyscale(lr,lg,lb)); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxImage");
  break;
 }
@@ -9536,14 +9683,14 @@ case wxImage_ConvertToMono: { // wxImage::ConvertToMono
  unsigned int * g = (unsigned int *) bp; bp += 4;
  unsigned int * b = (unsigned int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxImage * Result = new wxImage(This->ConvertToMono((char) *r,(char) *g,(char) *b)); newPtr((void *) Result,3, memenv);;
+ wxImage * Result = new EwxImage(This->ConvertToMono(*r,*g,*b)); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxImage");
  break;
 }
 case wxImage_Copy: { // wxImage::Copy
  wxImage *This = (wxImage *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- wxImage * Result = new wxImage(This->Copy()); newPtr((void *) Result,3, memenv);;
+ wxImage * Result = new EwxImage(This->Copy()); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxImage");
  break;
 }
@@ -9559,7 +9706,7 @@ case wxImage_Create_3: { // wxImage::Create
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create((int) *width,(int) *height,clear);
+ bool Result = This->Create(*width,*height,clear);
  rt.addBool(Result);
  break;
 }
@@ -9568,16 +9715,16 @@ case wxImage_Create_4: { // wxImage::Create
  wxImage *This = (wxImage *) getPtr(bp,memenv); bp += 4;
  int * width = (int *) bp; bp += 4;
  int * height = (int *) bp; bp += 4;
- unsigned char * data = (unsigned char*) Ecmd.bin[0]->base;
+ unsigned char * data = (unsigned char*) Ecmd.bin[0].base;
  bp += 4; /* Align */
  while( * (int*) bp) { switch (* (int*) bp) {
   case 1: {bp += 4;
  static_data = *(bool *) bp; bp += 4;
   } break;
  }};
- if(!static_data) {data = (unsigned char *) malloc(Ecmd.bin[0]->size);memcpy(data,Ecmd.bin[0]->base,Ecmd.bin[0]->size);};
+ if(!static_data) {data = (unsigned char *) malloc(Ecmd.bin[0].size);memcpy(data,Ecmd.bin[0].base,Ecmd.bin[0].size);};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create((int) *width,(int) *height,data,static_data);
+ bool Result = This->Create(*width,*height,data,static_data);
  rt.addBool(Result);
  break;
 }
@@ -9586,17 +9733,17 @@ case wxImage_Create_5: { // wxImage::Create
  wxImage *This = (wxImage *) getPtr(bp,memenv); bp += 4;
  int * width = (int *) bp; bp += 4;
  int * height = (int *) bp; bp += 4;
- unsigned char * data = (unsigned char*) Ecmd.bin[0]->base;
- unsigned char * alpha = (unsigned char*) Ecmd.bin[1]->base;
+ unsigned char * data = (unsigned char*) Ecmd.bin[0].base;
+ unsigned char * alpha = (unsigned char*) Ecmd.bin[1].base;
  bp += 4; /* Align */
  while( * (int*) bp) { switch (* (int*) bp) {
   case 1: {bp += 4;
  static_data = *(bool *) bp; bp += 4;
   } break;
  }};
- if(!static_data) { data =  (unsigned char *) malloc(Ecmd.bin[0]->size); alpha = (unsigned char *) malloc(Ecmd.bin[1]->size); memcpy(data,Ecmd.bin[0]->base,Ecmd.bin[0]->size); memcpy(alpha,Ecmd.bin[1]->base,Ecmd.bin[1]->size);};
+ if(!static_data) { data =  (unsigned char *) malloc(Ecmd.bin[0].size); alpha = (unsigned char *) malloc(Ecmd.bin[1].size); memcpy(data,Ecmd.bin[0].base,Ecmd.bin[0].size); memcpy(alpha,Ecmd.bin[1].base,Ecmd.bin[1].size);};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create((int) *width,(int) *height,data,alpha,static_data);
+ bool Result = This->Create(*width,*height,data,alpha,static_data);
  rt.addBool(Result);
  break;
 }
@@ -9645,7 +9792,7 @@ case wxImage_GetAlpha_2: { // wxImage::GetAlpha
  int * x = (int *) bp; bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- char Result = This->GetAlpha((int) *x,(int) *y);
+ char Result = This->GetAlpha(*x,*y);
  rt.addUint(Result);
  break;
 }
@@ -9663,7 +9810,7 @@ case wxImage_GetBlue: { // wxImage::GetBlue
  int * x = (int *) bp; bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- char Result = This->GetBlue((int) *x,(int) *y);
+ char Result = This->GetBlue(*x,*y);
  rt.addUint(Result);
  break;
 }
@@ -9681,18 +9828,18 @@ case wxImage_GetGreen: { // wxImage::GetGreen
  int * x = (int *) bp; bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- char Result = This->GetGreen((int) *x,(int) *y);
+ char Result = This->GetGreen(*x,*y);
  rt.addUint(Result);
  break;
 }
 case wxImage_GetImageCount: { // wxImage::GetImageCount
- long type=wxBITMAP_TYPE_ANY;
+ wxBitmapType type=wxBITMAP_TYPE_ANY;
  int * nameLen = (int *) bp; bp += 4;
  wxString name = wxString(bp, wxConvUTF8);
  bp += *nameLen+((8-((4+ *nameLen) & 7)) & 7);
  while( * (int*) bp) { switch (* (int*) bp) {
   case 1: {bp += 4;
- type = (long)*(int *) bp; bp += 4;
+type = *(wxBitmapType *) bp; bp += 4;;
   } break;
  }};
  int Result = wxImage::GetImageCount(name,type);
@@ -9753,7 +9900,7 @@ case wxImage_GetRed: { // wxImage::GetRed
  int * x = (int *) bp; bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- char Result = This->GetRed((int) *x,(int) *y);
+ char Result = This->GetRed(*x,*y);
  rt.addUint(Result);
  break;
 }
@@ -9765,7 +9912,7 @@ case wxImage_GetSubImage: { // wxImage::GetSubImage
  int * rectH = (int *) bp; bp += 4;
  wxRect rect = wxRect(*rectX,*rectY,*rectW,*rectH);
  if(!This) throw wxe_badarg(0);
- wxImage * Result = new wxImage(This->GetSubImage(rect)); newPtr((void *) Result,3, memenv);;
+ wxImage * Result = new EwxImage(This->GetSubImage(rect)); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxImage");
  break;
 }
@@ -9842,7 +9989,7 @@ case wxImage_IsTransparent: { // wxImage::IsTransparent
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->IsTransparent((int) *x,(int) *y,threshold);
+ bool Result = This->IsTransparent(*x,*y,threshold);
  rt.addBool(Result);
  break;
 }
@@ -9910,7 +10057,7 @@ case wxImage_Mirror: { // wxImage::Mirror
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxImage * Result = new wxImage(This->Mirror(horizontally)); newPtr((void *) Result,3, memenv);;
+ wxImage * Result = new EwxImage(This->Mirror(horizontally)); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxImage");
  break;
 }
@@ -9923,22 +10070,22 @@ case wxImage_Replace: { // wxImage::Replace
  unsigned int * g2 = (unsigned int *) bp; bp += 4;
  unsigned int * b2 = (unsigned int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->Replace((char) *r1,(char) *g1,(char) *b1,(char) *r2,(char) *g2,(char) *b2);
+ This->Replace(*r1,*g1,*b1,*r2,*g2,*b2);
  break;
 }
 case wxImage_Rescale: { // wxImage::Rescale
- int quality=wxIMAGE_QUALITY_NORMAL;
+ wxImageResizeQuality quality=wxIMAGE_QUALITY_NORMAL;
  wxImage *This = (wxImage *) getPtr(bp,memenv); bp += 4;
  int * width = (int *) bp; bp += 4;
  int * height = (int *) bp; bp += 4;
  bp += 4; /* Align */
  while( * (int*) bp) { switch (* (int*) bp) {
   case 1: {bp += 4;
- quality = (int)*(int *) bp; bp += 4;
+quality = *(wxImageResizeQuality *) bp; bp += 4;;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxImage * Result = &This->Rescale((int) *width,(int) *height,quality);
+ wxImage * Result = &This->Rescale(*width,*height,quality);
  rt.addRef(getRef((void *)Result,memenv), "wxImage");
  break;
 }
@@ -9991,7 +10138,7 @@ case wxImage_Rotate: { // wxImage::Rotate
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxImage * Result = new wxImage(This->Rotate((double) *angle,centre_of_rotation,interpolating,offset_after_rotation)); newPtr((void *) Result,3, memenv);;
+ wxImage * Result = new EwxImage(This->Rotate(*angle,centre_of_rotation,interpolating,offset_after_rotation)); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxImage");
  break;
 }
@@ -10000,7 +10147,7 @@ case wxImage_RotateHue: { // wxImage::RotateHue
  bp += 4; /* Align */
  double * angle = (double *) bp; bp += 8;
  if(!This) throw wxe_badarg(0);
- This->RotateHue((double) *angle);
+ This->RotateHue(*angle);
  break;
 }
 case wxImage_Rotate90: { // wxImage::Rotate90
@@ -10013,7 +10160,7 @@ case wxImage_Rotate90: { // wxImage::Rotate90
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxImage * Result = new wxImage(This->Rotate90(clockwise)); newPtr((void *) Result,3, memenv);;
+ wxImage * Result = new EwxImage(This->Rotate90(clockwise)); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxImage");
  break;
 }
@@ -10034,7 +10181,7 @@ case wxImage_SaveFile_2_0: { // wxImage::SaveFile
  bp += *nameLen+((8-((0+ *nameLen) & 7)) & 7);
  int * type = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->SaveFile(name,(int) *type);
+ bool Result = This->SaveFile(name,*type);
  rt.addBool(Result);
  break;
 }
@@ -10052,18 +10199,18 @@ case wxImage_SaveFile_2_1: { // wxImage::SaveFile
  break;
 }
 case wxImage_Scale: { // wxImage::Scale
- int quality=wxIMAGE_QUALITY_NORMAL;
+ wxImageResizeQuality quality=wxIMAGE_QUALITY_NORMAL;
  wxImage *This = (wxImage *) getPtr(bp,memenv); bp += 4;
  int * width = (int *) bp; bp += 4;
  int * height = (int *) bp; bp += 4;
  bp += 4; /* Align */
  while( * (int*) bp) { switch (* (int*) bp) {
   case 1: {bp += 4;
- quality = (int)*(int *) bp; bp += 4;
+quality = *(wxImageResizeQuality *) bp; bp += 4;;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxImage * Result = new wxImage(This->Scale((int) *width,(int) *height,quality)); newPtr((void *) Result,3, memenv);;
+ wxImage * Result = new EwxImage(This->Scale(*width,*height,quality)); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxImage");
  break;
 }
@@ -10091,7 +10238,7 @@ case wxImage_Size: { // wxImage::Size
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxImage * Result = new wxImage(This->Size(size,pos,r,g,b)); newPtr((void *) Result,3, memenv);;
+ wxImage * Result = new EwxImage(This->Size(size,pos,r,g,b)); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxImage");
  break;
 }
@@ -10101,20 +10248,20 @@ case wxImage_SetAlpha_3: { // wxImage::SetAlpha
  int * y = (int *) bp; bp += 4;
  unsigned int * alpha = (unsigned int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetAlpha((int) *x,(int) *y,(char) *alpha);
+ This->SetAlpha(*x,*y,*alpha);
  break;
 }
 case wxImage_SetAlpha_2: { // wxImage::SetAlpha
  bool static_data=false;
  wxImage *This = (wxImage *) getPtr(bp,memenv); bp += 4;
- unsigned char * alpha = (unsigned char*) Ecmd.bin[0]->base;
+ unsigned char * alpha = (unsigned char*) Ecmd.bin[0].base;
  bp += 4; /* Align */
  while( * (int*) bp) { switch (* (int*) bp) {
   case 1: {bp += 4;
  static_data = *(bool *) bp; bp += 4;
   } break;
  }};
- if(!static_data) {alpha = (unsigned char *) malloc(Ecmd.bin[0]->size);memcpy(alpha,Ecmd.bin[0]->base,Ecmd.bin[0]->size);};
+ if(!static_data) {alpha = (unsigned char *) malloc(Ecmd.bin[0].size);memcpy(alpha,Ecmd.bin[0].base,Ecmd.bin[0].size);};
  if(!This) throw wxe_badarg(0);
  This->SetAlpha(alpha,static_data);
  break;
@@ -10122,14 +10269,14 @@ case wxImage_SetAlpha_2: { // wxImage::SetAlpha
 case wxImage_SetData_2: { // wxImage::SetData
  bool static_data=false;
  wxImage *This = (wxImage *) getPtr(bp,memenv); bp += 4;
- unsigned char * data = (unsigned char*) Ecmd.bin[0]->base;
+ unsigned char * data = (unsigned char*) Ecmd.bin[0].base;
  bp += 4; /* Align */
  while( * (int*) bp) { switch (* (int*) bp) {
   case 1: {bp += 4;
  static_data = *(bool *) bp; bp += 4;
   } break;
  }};
- if(!static_data) {data = (unsigned char *) malloc(Ecmd.bin[0]->size);memcpy(data,Ecmd.bin[0]->base,Ecmd.bin[0]->size);};
+ if(!static_data) {data = (unsigned char *) malloc(Ecmd.bin[0].size);memcpy(data,Ecmd.bin[0].base,Ecmd.bin[0].size);};
  if(!This) throw wxe_badarg(0);
  This->SetData(data,static_data);
  break;
@@ -10137,7 +10284,7 @@ case wxImage_SetData_2: { // wxImage::SetData
 case wxImage_SetData_4: { // wxImage::SetData
  bool static_data=false;
  wxImage *This = (wxImage *) getPtr(bp,memenv); bp += 4;
- unsigned char * data = (unsigned char*) Ecmd.bin[0]->base;
+ unsigned char * data = (unsigned char*) Ecmd.bin[0].base;
  int * new_width = (int *) bp; bp += 4;
  int * new_height = (int *) bp; bp += 4;
  bp += 4; /* Align */
@@ -10146,9 +10293,9 @@ case wxImage_SetData_4: { // wxImage::SetData
  static_data = *(bool *) bp; bp += 4;
   } break;
  }};
- if(!static_data) {data = (unsigned char *) malloc(Ecmd.bin[0]->size);memcpy(data,Ecmd.bin[0]->base,Ecmd.bin[0]->size);};
+ if(!static_data) {data = (unsigned char *) malloc(Ecmd.bin[0].size);memcpy(data,Ecmd.bin[0].base,Ecmd.bin[0].size);};
  if(!This) throw wxe_badarg(0);
- This->SetData(data,(int) *new_width,(int) *new_height,static_data);
+ This->SetData(data,*new_width,*new_height,static_data);
  break;
 }
 case wxImage_SetMask: { // wxImage::SetMask
@@ -10170,7 +10317,7 @@ case wxImage_SetMaskColour: { // wxImage::SetMaskColour
  unsigned int * g = (unsigned int *) bp; bp += 4;
  unsigned int * b = (unsigned int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetMaskColour((char) *r,(char) *g,(char) *b);
+ This->SetMaskColour(*r,*g,*b);
  break;
 }
 case wxImage_SetMaskFromImage: { // wxImage::SetMaskFromImage
@@ -10180,7 +10327,7 @@ case wxImage_SetMaskFromImage: { // wxImage::SetMaskFromImage
  unsigned int * mg = (unsigned int *) bp; bp += 4;
  unsigned int * mb = (unsigned int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->SetMaskFromImage(*mask,(char) *mr,(char) *mg,(char) *mb);
+ bool Result = This->SetMaskFromImage(*mask,*mr,*mg,*mb);
  rt.addBool(Result);
  break;
 }
@@ -10203,7 +10350,7 @@ case wxImage_SetOption_2_0: { // wxImage::SetOption
  bp += *nameLen+((8-((0+ *nameLen) & 7)) & 7);
  int * value = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetOption(name,(int) *value);
+ This->SetOption(name,*value);
  break;
 }
 case wxImage_SetPalette: { // wxImage::SetPalette
@@ -10221,7 +10368,7 @@ case wxImage_SetRGB_5: { // wxImage::SetRGB
  unsigned int * g = (unsigned int *) bp; bp += 4;
  unsigned int * b = (unsigned int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetRGB((int) *x,(int) *y,(char) *r,(char) *g,(char) *b);
+ This->SetRGB(*x,*y,*r,*g,*b);
  break;
 }
 case wxImage_SetRGB_4: { // wxImage::SetRGB
@@ -10235,7 +10382,7 @@ case wxImage_SetRGB_4: { // wxImage::SetRGB
  unsigned int * g = (unsigned int *) bp; bp += 4;
  unsigned int * b = (unsigned int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetRGB(rect,(char) *r,(char) *g,(char) *b);
+ This->SetRGB(rect,*r,*g,*b);
  break;
 }
 case wxBrush_new_0: { // wxBrush::wxBrush
@@ -10271,8 +10418,8 @@ case wxBrush_new_1: { // wxBrush::wxBrush
 case wxBrush_GetColour: { // wxBrush::GetColour
  wxBrush *This = (wxBrush *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- wxColour * Result = &This->GetColour();
- rt.add((*Result));
+ wxColour Result = This->GetColour();
+ rt.add(Result);
  break;
 }
 case wxBrush_GetStipple: { // wxBrush::GetStipple
@@ -10320,7 +10467,7 @@ case wxBrush_SetColour_3: { // wxBrush::SetColour
  unsigned int * g = (unsigned int *) bp; bp += 4;
  unsigned int * b = (unsigned int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetColour((char) *r,(char) *g,(char) *b);
+ This->SetColour(*r,*g,*b);
  break;
 }
 case wxBrush_SetStipple: { // wxBrush::SetStipple
@@ -10334,7 +10481,7 @@ case wxBrush_SetStyle: { // wxBrush::SetStyle
  wxBrush *This = (wxBrush *) getPtr(bp,memenv); bp += 4;
  int * style = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetStyle((int) *style);
+ This->SetStyle(*style);
  break;
 }
 case wxPen_new_0: { // wxPen::wxPen
@@ -10374,8 +10521,8 @@ case wxPen_GetCap: { // wxPen::GetCap
 case wxPen_GetColour: { // wxPen::GetColour
  wxPen *This = (wxPen *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- wxColour * Result = &This->GetColour();
- rt.add((*Result));
+ wxColour Result = This->GetColour();
+ rt.add(Result);
  break;
 }
 case wxPen_GetJoin: { // wxPen::GetJoin
@@ -10408,9 +10555,9 @@ case wxPen_IsOk: { // wxPen::IsOk
 }
 case wxPen_SetCap: { // wxPen::SetCap
  wxPen *This = (wxPen *) getPtr(bp,memenv); bp += 4;
- int * capStyle = (int *) bp; bp += 4;
+ wxPenCap capStyle = *(wxPenCap *) bp; bp += 4;;
  if(!This) throw wxe_badarg(0);
- This->SetCap((int) *capStyle);
+ This->SetCap(capStyle);
  break;
 }
 case wxPen_SetColour_1: { // wxPen::SetColour
@@ -10430,28 +10577,28 @@ case wxPen_SetColour_3: { // wxPen::SetColour
  unsigned int * green = (unsigned int *) bp; bp += 4;
  unsigned int * blue = (unsigned int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetColour((char) *red,(char) *green,(char) *blue);
+ This->SetColour(*red,*green,*blue);
  break;
 }
 case wxPen_SetJoin: { // wxPen::SetJoin
  wxPen *This = (wxPen *) getPtr(bp,memenv); bp += 4;
- int * joinStyle = (int *) bp; bp += 4;
+ wxPenJoin joinStyle = *(wxPenJoin *) bp; bp += 4;;
  if(!This) throw wxe_badarg(0);
- This->SetJoin((int) *joinStyle);
+ This->SetJoin(joinStyle);
  break;
 }
 case wxPen_SetStyle: { // wxPen::SetStyle
  wxPen *This = (wxPen *) getPtr(bp,memenv); bp += 4;
  int * style = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetStyle((int) *style);
+ This->SetStyle(*style);
  break;
 }
 case wxPen_SetWidth: { // wxPen::SetWidth
  wxPen *This = (wxPen *) getPtr(bp,memenv); bp += 4;
  int * width = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetWidth((int) *width);
+ This->SetWidth(*width);
  break;
 }
 case wxRegion_new_0: { // wxRegion::wxRegion
@@ -10465,7 +10612,7 @@ case wxRegion_new_4: { // wxRegion::wxRegion
  int * y = (int *) bp; bp += 4;
  int * w = (int *) bp; bp += 4;
  int * h = (int *) bp; bp += 4;
- wxRegion * Result = new EwxRegion((wxCoord) *x,(wxCoord) *y,(wxCoord) *w,(wxCoord) *h);
+ wxRegion * Result = new EwxRegion(*x,*y,*w,*h);
  newPtr((void *) Result, 1, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxRegion");
  break;
@@ -10511,7 +10658,7 @@ case wxRegion_Contains_2: { // wxRegion::Contains
  int * x = (int *) bp; bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->Contains((wxCoord) *x,(wxCoord) *y);
+ int Result = This->Contains(*x,*y);
  rt.addInt(Result);
  break;
 }
@@ -10532,7 +10679,7 @@ case wxRegion_Contains_4: { // wxRegion::Contains
  int * w = (int *) bp; bp += 4;
  int * h = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->Contains((wxCoord) *x,(wxCoord) *y,(wxCoord) *w,(wxCoord) *h);
+ int Result = This->Contains(*x,*y,*w,*h);
  rt.addInt(Result);
  break;
 }
@@ -10551,7 +10698,7 @@ case wxRegion_Contains_1_1: { // wxRegion::Contains
 case wxRegion_ConvertToBitmap: { // wxRegion::ConvertToBitmap
  wxRegion *This = (wxRegion *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- wxBitmap * Result = new wxBitmap(This->ConvertToBitmap()); newPtr((void *) Result,3, memenv);;
+ wxBitmap * Result = new EwxBitmap(This->ConvertToBitmap()); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxBitmap");
  break;
 }
@@ -10569,7 +10716,7 @@ case wxRegion_Intersect_4: { // wxRegion::Intersect
  int * w = (int *) bp; bp += 4;
  int * h = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->Intersect((wxCoord) *x,(wxCoord) *y,(wxCoord) *w,(wxCoord) *h);
+ bool Result = This->Intersect(*x,*y,*w,*h);
  rt.addBool(Result);
  break;
 }
@@ -10607,7 +10754,7 @@ case wxRegion_Subtract_4: { // wxRegion::Subtract
  int * w = (int *) bp; bp += 4;
  int * h = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->Subtract((wxCoord) *x,(wxCoord) *y,(wxCoord) *w,(wxCoord) *h);
+ bool Result = This->Subtract(*x,*y,*w,*h);
  rt.addBool(Result);
  break;
 }
@@ -10636,7 +10783,7 @@ case wxRegion_Offset_2: { // wxRegion::Offset
  int * x = (int *) bp; bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->Offset((wxCoord) *x,(wxCoord) *y);
+ bool Result = This->Offset(*x,*y);
  rt.addBool(Result);
  break;
 }
@@ -10657,7 +10804,7 @@ case wxRegion_Union_4: { // wxRegion::Union
  int * w = (int *) bp; bp += 4;
  int * h = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->Union((wxCoord) *x,(wxCoord) *y,(wxCoord) *w,(wxCoord) *h);
+ bool Result = This->Union(*x,*y,*w,*h);
  rt.addBool(Result);
  break;
 }
@@ -10715,7 +10862,7 @@ case wxRegion_Xor_4: { // wxRegion::Xor
  int * w = (int *) bp; bp += 4;
  int * h = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->Xor((wxCoord) *x,(wxCoord) *y,(wxCoord) *w,(wxCoord) *h);
+ bool Result = This->Xor(*x,*y,*w,*h);
  rt.addBool(Result);
  break;
 }
@@ -10751,7 +10898,7 @@ case wxAcceleratorTable_new_2: { // wxAcceleratorTable::wxAcceleratorTable
  wxAcceleratorEntry *entries;
  entries = (wxAcceleratorEntry *) driver_alloc(sizeof(wxAcceleratorEntry) * *entriesLen); for(int i=0; i < *entriesLen; i++) { entries[i] = * (wxAcceleratorEntry *) getPtr(bp,memenv); bp += 4;}
  bp += ((0+ *entriesLen)%2 )*4;
- wxAcceleratorTable * Result = new EwxAcceleratorTable((int) *n,entries);
+ wxAcceleratorTable * Result = new EwxAcceleratorTable(*n,entries);
  newPtr((void *) Result, 1, memenv);
  driver_free(entries);
  rt.addRef(getRef((void *)Result,memenv), "wxAcceleratorTable");
@@ -10828,7 +10975,7 @@ item = (wxMenuItem *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->Set((int) *flags,(int) *keyCode,(int) *cmd,item);
+ This->Set(*flags,*keyCode,*cmd,item);
  break;
 }
 case wxAcceleratorEntry_destroy: { // wxAcceleratorEntry::destroy
@@ -10841,7 +10988,7 @@ case wxCaret_new_3: { // wxCaret::wxCaret
  wxWindow *window = (wxWindow *) getPtr(bp,memenv); bp += 4;
  int * width = (int *) bp; bp += 4;
  int * height = (int *) bp; bp += 4;
- wxCaret * Result = new EwxCaret(window,(int) *width,(int) *height);
+ wxCaret * Result = new EwxCaret(window,*width,*height);
  newPtr((void *) Result, 70, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxCaret");
  break;
@@ -10868,7 +11015,7 @@ case wxCaret_Create_3: { // wxCaret::Create
  int * width = (int *) bp; bp += 4;
  int * height = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(window,(int) *width,(int) *height);
+ bool Result = This->Create(window,*width,*height);
  rt.addBool(Result);
  break;
 }
@@ -10934,7 +11081,7 @@ case wxCaret_Move_2: { // wxCaret::Move
  int * x = (int *) bp; bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->Move((int) *x,(int) *y);
+ This->Move(*x,*y);
  break;
 }
 case wxCaret_Move_1: { // wxCaret::Move
@@ -10948,7 +11095,7 @@ case wxCaret_Move_1: { // wxCaret::Move
 }
 case wxCaret_SetBlinkTime: { // wxCaret::SetBlinkTime
  int * milliseconds = (int *) bp; bp += 4;
- wxCaret::SetBlinkTime((int) *milliseconds);
+ wxCaret::SetBlinkTime(*milliseconds);
  break;
 }
 case wxCaret_SetSize_2: { // wxCaret::SetSize
@@ -10956,7 +11103,7 @@ case wxCaret_SetSize_2: { // wxCaret::SetSize
  int * width = (int *) bp; bp += 4;
  int * height = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetSize((int) *width,(int) *height);
+ This->SetSize(*width,*height);
  break;
 }
 case wxCaret_SetSize_1: { // wxCaret::SetSize
@@ -11057,7 +11204,7 @@ userData = (wxObject *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxSizerItem * Result = (wxSizerItem*)This->Add((int) *width,(int) *height,proportion,flag,border,userData);
+ wxSizerItem * Result = (wxSizerItem*)This->Add(*width,*height,proportion,flag,border,userData);
  rt.addRef(getRef((void *)Result,memenv), "wxSizerItem");
  break;
 }
@@ -11083,7 +11230,7 @@ case wxSizer_AddSpacer: { // wxSizer::AddSpacer
  wxSizer *This = (wxSizer *) getPtr(bp,memenv); bp += 4;
  int * size = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxSizerItem * Result = (wxSizerItem*)This->AddSpacer((int) *size);
+ wxSizerItem * Result = (wxSizerItem*)This->AddSpacer(*size);
  rt.addRef(getRef((void *)Result,memenv), "wxSizerItem");
  break;
 }
@@ -11141,7 +11288,7 @@ case wxSizer_Detach_1_0: { // wxSizer::Detach
  wxSizer *This = (wxSizer *) getPtr(bp,memenv); bp += 4;
  int * index = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->Detach((int) *index);
+ bool Result = This->Detach(*index);
  rt.addBool(Result);
  break;
 }
@@ -11203,7 +11350,7 @@ case wxSizer_GetItem_1: { // wxSizer::GetItem
  wxSizer *This = (wxSizer *) getPtr(bp,memenv); bp += 4;
  int * index = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxSizerItem * Result = (wxSizerItem*)This->GetItem((size_t) *index);
+ wxSizerItem * Result = (wxSizerItem*)This->GetItem(*index);
  rt.addRef(getRef((void *)Result,memenv), "wxSizerItem");
  break;
 }
@@ -11260,7 +11407,7 @@ case wxSizer_Hide_1: { // wxSizer::Hide
  wxSizer *This = (wxSizer *) getPtr(bp,memenv); bp += 4;
  int * index = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->Hide((size_t) *index);
+ bool Result = This->Hide(*index);
  rt.addBool(Result);
  break;
 }
@@ -11288,7 +11435,7 @@ userData = (wxObject *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxSizerItem * Result = (wxSizerItem*)This->Insert((size_t) *index,window,proportion,flag,border,userData);
+ wxSizerItem * Result = (wxSizerItem*)This->Insert(*index,window,proportion,flag,border,userData);
  rt.addRef(getRef((void *)Result,memenv), "wxSizerItem");
  break;
 }
@@ -11316,7 +11463,7 @@ userData = (wxObject *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxSizerItem * Result = (wxSizerItem*)This->Insert((size_t) *index,sizer,proportion,flag,border,userData);
+ wxSizerItem * Result = (wxSizerItem*)This->Insert(*index,sizer,proportion,flag,border,userData);
  rt.addRef(getRef((void *)Result,memenv), "wxSizerItem");
  break;
 }
@@ -11344,7 +11491,7 @@ userData = (wxObject *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxSizerItem * Result = (wxSizerItem*)This->Insert((size_t) *index,(int) *width,(int) *height,proportion,flag,border,userData);
+ wxSizerItem * Result = (wxSizerItem*)This->Insert(*index,*width,*height,proportion,flag,border,userData);
  rt.addRef(getRef((void *)Result,memenv), "wxSizerItem");
  break;
 }
@@ -11354,7 +11501,7 @@ case wxSizer_Insert_3_3: { // wxSizer::Insert
  wxWindow * window = (wxWindow *) getPtr(bp,memenv); bp += 4;
  wxSizerFlags *flags = (wxSizerFlags *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- wxSizerItem * Result = (wxSizerItem*)This->Insert((size_t) *index,window,*flags);
+ wxSizerItem * Result = (wxSizerItem*)This->Insert(*index,window,*flags);
  rt.addRef(getRef((void *)Result,memenv), "wxSizerItem");
  break;
 }
@@ -11364,7 +11511,7 @@ case wxSizer_Insert_3_2: { // wxSizer::Insert
  wxSizer *sizer = (wxSizer *) getPtr(bp,memenv); bp += 4;
  wxSizerFlags *flags = (wxSizerFlags *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- wxSizerItem * Result = (wxSizerItem*)This->Insert((size_t) *index,sizer,*flags);
+ wxSizerItem * Result = (wxSizerItem*)This->Insert(*index,sizer,*flags);
  rt.addRef(getRef((void *)Result,memenv), "wxSizerItem");
  break;
 }
@@ -11373,7 +11520,7 @@ case wxSizer_Insert_2: { // wxSizer::Insert
  int * index = (int *) bp; bp += 4;
  wxSizerItem *item = (wxSizerItem *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- wxSizerItem * Result = (wxSizerItem*)This->Insert((size_t) *index,item);
+ wxSizerItem * Result = (wxSizerItem*)This->Insert(*index,item);
  rt.addRef(getRef((void *)Result,memenv), "wxSizerItem");
  break;
 }
@@ -11382,7 +11529,7 @@ case wxSizer_InsertSpacer: { // wxSizer::InsertSpacer
  int * index = (int *) bp; bp += 4;
  int * size = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxSizerItem * Result = (wxSizerItem*)This->InsertSpacer((size_t) *index,(int) *size);
+ wxSizerItem * Result = (wxSizerItem*)This->InsertSpacer(*index,*size);
  rt.addRef(getRef((void *)Result,memenv), "wxSizerItem");
  break;
 }
@@ -11396,7 +11543,7 @@ case wxSizer_InsertStretchSpacer: { // wxSizer::InsertStretchSpacer
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxSizerItem * Result = (wxSizerItem*)This->InsertStretchSpacer((size_t) *index,prop);
+ wxSizerItem * Result = (wxSizerItem*)This->InsertStretchSpacer(*index,prop);
  rt.addRef(getRef((void *)Result,memenv), "wxSizerItem");
  break;
 }
@@ -11420,7 +11567,7 @@ case wxSizer_IsShown_1_0: { // wxSizer::IsShown
  wxSizer *This = (wxSizer *) getPtr(bp,memenv); bp += 4;
  int * index = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->IsShown((size_t) *index);
+ bool Result = This->IsShown(*index);
  rt.addBool(Result);
  break;
 }
@@ -11506,7 +11653,7 @@ userData = (wxObject *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxSizerItem * Result = (wxSizerItem*)This->Prepend((int) *width,(int) *height,proportion,flag,border,userData);
+ wxSizerItem * Result = (wxSizerItem*)This->Prepend(*width,*height,proportion,flag,border,userData);
  rt.addRef(getRef((void *)Result,memenv), "wxSizerItem");
  break;
 }
@@ -11540,7 +11687,7 @@ case wxSizer_PrependSpacer: { // wxSizer::PrependSpacer
  wxSizer *This = (wxSizer *) getPtr(bp,memenv); bp += 4;
  int * size = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxSizerItem * Result = (wxSizerItem*)This->PrependSpacer((int) *size);
+ wxSizerItem * Result = (wxSizerItem*)This->PrependSpacer(*size);
  rt.addRef(getRef((void *)Result,memenv), "wxSizerItem");
  break;
 }
@@ -11576,7 +11723,7 @@ case wxSizer_Remove_1_0: { // wxSizer::Remove
  wxSizer *This = (wxSizer *) getPtr(bp,memenv); bp += 4;
  int * index = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->Remove((int) *index);
+ bool Result = This->Remove(*index);
  rt.addBool(Result);
  break;
 }
@@ -11617,7 +11764,7 @@ case wxSizer_Replace_2: { // wxSizer::Replace
  int * index = (int *) bp; bp += 4;
  wxSizerItem *newitem = (wxSizerItem *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->Replace((size_t) *index,newitem);
+ bool Result = This->Replace(*index,newitem);
  rt.addBool(Result);
  break;
 }
@@ -11628,7 +11775,7 @@ case wxSizer_SetDimension: { // wxSizer::SetDimension
  int * width = (int *) bp; bp += 4;
  int * height = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetDimension((int) *x,(int) *y,(int) *width,(int) *height);
+ This->SetDimension(*x,*y,*width,*height);
  break;
 }
 case wxSizer_SetMinSize_2: { // wxSizer::SetMinSize
@@ -11636,7 +11783,7 @@ case wxSizer_SetMinSize_2: { // wxSizer::SetMinSize
  int * width = (int *) bp; bp += 4;
  int * height = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetMinSize((int) *width,(int) *height);
+ This->SetMinSize(*width,*height);
  break;
 }
 case wxSizer_SetMinSize_1: { // wxSizer::SetMinSize
@@ -11654,7 +11801,7 @@ case wxSizer_SetItemMinSize_3_2: { // wxSizer::SetItemMinSize
  int * width = (int *) bp; bp += 4;
  int * height = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->SetItemMinSize(window,(int) *width,(int) *height);
+ bool Result = This->SetItemMinSize(window,*width,*height);
  rt.addBool(Result);
  break;
 }
@@ -11675,7 +11822,7 @@ case wxSizer_SetItemMinSize_3_1: { // wxSizer::SetItemMinSize
  int * width = (int *) bp; bp += 4;
  int * height = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->SetItemMinSize(sizer,(int) *width,(int) *height);
+ bool Result = This->SetItemMinSize(sizer,*width,*height);
  rt.addBool(Result);
  break;
 }
@@ -11696,7 +11843,7 @@ case wxSizer_SetItemMinSize_3_0: { // wxSizer::SetItemMinSize
  int * width = (int *) bp; bp += 4;
  int * height = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->SetItemMinSize((size_t) *index,(int) *width,(int) *height);
+ bool Result = This->SetItemMinSize(*index,*width,*height);
  rt.addBool(Result);
  break;
 }
@@ -11707,7 +11854,7 @@ case wxSizer_SetItemMinSize_2_0: { // wxSizer::SetItemMinSize
  int * sizeH = (int *) bp; bp += 4;
  wxSize size = wxSize(*sizeW,*sizeH);
  if(!This) throw wxe_badarg(0);
- bool Result = This->SetItemMinSize((size_t) *index,size);
+ bool Result = This->SetItemMinSize(*index,size);
  rt.addBool(Result);
  break;
 }
@@ -11771,7 +11918,7 @@ case wxSizer_Show_2_0: { // wxSizer::Show
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Show((size_t) *index,show);
+ bool Result = This->Show(*index,show);
  rt.addBool(Result);
  break;
 }
@@ -11779,7 +11926,7 @@ case wxSizer_Show_1: { // wxSizer::Show
  wxSizer *This = (wxSizer *) getPtr(bp,memenv); bp += 4;
  bool * show = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->Show((bool) *show);
+ This->Show(*show);
  break;
 }
 case wxSizerFlags_new: { // wxSizerFlags::wxSizerFlags
@@ -11798,7 +11945,7 @@ case wxSizerFlags_Align: { // wxSizerFlags::Align
  wxSizerFlags *This = (wxSizerFlags *) getPtr(bp,memenv); bp += 4;
  int * alignment = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxSizerFlags * Result = &This->Align((int) *alignment);
+ wxSizerFlags * Result = &This->Align(*alignment);
  rt.addRef(getRef((void *)Result,memenv), "wxSizerFlags");
  break;
 }
@@ -11807,7 +11954,7 @@ case wxSizerFlags_Border_2: { // wxSizerFlags::Border
  int * direction = (int *) bp; bp += 4;
  int * borderInPixels = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxSizerFlags * Result = &This->Border((int) *direction,(int) *borderInPixels);
+ wxSizerFlags * Result = &This->Border(*direction,*borderInPixels);
  rt.addRef(getRef((void *)Result,memenv), "wxSizerFlags");
  break;
 }
@@ -11857,7 +12004,7 @@ case wxSizerFlags_Proportion: { // wxSizerFlags::Proportion
  wxSizerFlags *This = (wxSizerFlags *) getPtr(bp,memenv); bp += 4;
  int * proportion = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxSizerFlags * Result = &This->Proportion((int) *proportion);
+ wxSizerFlags * Result = &This->Proportion(*proportion);
  rt.addRef(getRef((void *)Result,memenv), "wxSizerFlags");
  break;
 }
@@ -11880,7 +12027,7 @@ case wxSizerItem_new_5_1: { // wxSizerItem::wxSizerItem
  int * flag = (int *) bp; bp += 4;
  int * border = (int *) bp; bp += 4;
  wxObject *userData = (wxObject *) getPtr(bp,memenv); bp += 4;
- wxSizerItem * Result = new EwxSizerItem(window,(int) *proportion,(int) *flag,(int) *border,userData);
+ wxSizerItem * Result = new EwxSizerItem(window,*proportion,*flag,*border,userData);
  newPtr((void *) Result, 1, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxSizerItem");
  break;
@@ -11899,7 +12046,7 @@ case wxSizerItem_new_5_0: { // wxSizerItem::wxSizerItem
  int * flag = (int *) bp; bp += 4;
  int * border = (int *) bp; bp += 4;
  wxObject *userData = (wxObject *) getPtr(bp,memenv); bp += 4;
- wxSizerItem * Result = new EwxSizerItem(sizer,(int) *proportion,(int) *flag,(int) *border,userData);
+ wxSizerItem * Result = new EwxSizerItem(sizer,*proportion,*flag,*border,userData);
  newPtr((void *) Result, 1, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxSizerItem");
  break;
@@ -11919,7 +12066,7 @@ case wxSizerItem_new_6: { // wxSizerItem::wxSizerItem
  int * flag = (int *) bp; bp += 4;
  int * border = (int *) bp; bp += 4;
  wxObject *userData = (wxObject *) getPtr(bp,memenv); bp += 4;
- wxSizerItem * Result = new EwxSizerItem((int) *width,(int) *height,(int) *proportion,(int) *flag,(int) *border,userData);
+ wxSizerItem * Result = new EwxSizerItem(*width,*height,*proportion,*flag,*border,userData);
  newPtr((void *) Result, 1, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxSizerItem");
  break;
@@ -11928,7 +12075,7 @@ case wxSizerItem_new_3: { // wxSizerItem::wxSizerItem
  int * width = (int *) bp; bp += 4;
  int * height = (int *) bp; bp += 4;
  wxSizerFlags *flags = (wxSizerFlags *) getPtr(bp,memenv); bp += 4;
- wxSizerItem * Result = new EwxSizerItem((int) *width,(int) *height,*flags);
+ wxSizerItem * Result = new EwxSizerItem(*width,*height,*flags);
  newPtr((void *) Result, 1, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxSizerItem");
  break;
@@ -12074,7 +12221,7 @@ case wxSizerItem_SetBorder: { // wxSizerItem::SetBorder
  wxSizerItem *This = (wxSizerItem *) getPtr(bp,memenv); bp += 4;
  int * border = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetBorder((int) *border);
+ This->SetBorder(*border);
  break;
 }
 case wxSizerItem_SetDimension: { // wxSizerItem::SetDimension
@@ -12093,7 +12240,7 @@ case wxSizerItem_SetFlag: { // wxSizerItem::SetFlag
  wxSizerItem *This = (wxSizerItem *) getPtr(bp,memenv); bp += 4;
  int * flag = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetFlag((int) *flag);
+ This->SetFlag(*flag);
  break;
 }
 case wxSizerItem_SetInitSize: { // wxSizerItem::SetInitSize
@@ -12101,7 +12248,7 @@ case wxSizerItem_SetInitSize: { // wxSizerItem::SetInitSize
  int * x = (int *) bp; bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetInitSize((int) *x,(int) *y);
+ This->SetInitSize(*x,*y);
  break;
 }
 case wxSizerItem_SetMinSize_1: { // wxSizerItem::SetMinSize
@@ -12118,14 +12265,14 @@ case wxSizerItem_SetMinSize_2: { // wxSizerItem::SetMinSize
  int * x = (int *) bp; bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetMinSize((int) *x,(int) *y);
+ This->SetMinSize(*x,*y);
  break;
 }
 case wxSizerItem_SetProportion: { // wxSizerItem::SetProportion
  wxSizerItem *This = (wxSizerItem *) getPtr(bp,memenv); bp += 4;
  int * proportion = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetProportion((int) *proportion);
+ This->SetProportion(*proportion);
  break;
 }
 case wxSizerItem_SetRatio_2: { // wxSizerItem::SetRatio
@@ -12133,7 +12280,7 @@ case wxSizerItem_SetRatio_2: { // wxSizerItem::SetRatio
  int * width = (int *) bp; bp += 4;
  int * height = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetRatio((int) *width,(int) *height);
+ This->SetRatio(*width,*height);
  break;
 }
 case wxSizerItem_SetRatio_1_1: { // wxSizerItem::SetRatio
@@ -12149,7 +12296,7 @@ case wxSizerItem_SetRatio_1_0: { // wxSizerItem::SetRatio
  wxSizerItem *This = (wxSizerItem *) getPtr(bp,memenv); bp += 4;
  float * ratio = (float *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetRatio((float) *ratio);
+ This->SetRatio(*ratio);
  break;
 }
 case wxSizerItem_SetSizer: { // wxSizerItem::SetSizer
@@ -12173,7 +12320,7 @@ case wxSizerItem_SetSpacer_2: { // wxSizerItem::SetSpacer
  int * width = (int *) bp; bp += 4;
  int * height = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetSpacer((int) *width,(int) *height);
+ This->SetSpacer(*width,*height);
  break;
 }
 case wxSizerItem_SetWindow: { // wxSizerItem::SetWindow
@@ -12187,12 +12334,12 @@ case wxSizerItem_Show: { // wxSizerItem::Show
  wxSizerItem *This = (wxSizerItem *) getPtr(bp,memenv); bp += 4;
  bool * show = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->Show((bool) *show);
+ This->Show(*show);
  break;
 }
 case wxBoxSizer_new: { // wxBoxSizer::wxBoxSizer
  int * orient = (int *) bp; bp += 4;
- wxBoxSizer * Result = new EwxBoxSizer((int) *orient);
+ wxBoxSizer * Result = new EwxBoxSizer(*orient);
  newPtr((void *) Result, 1, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxBoxSizer");
  break;
@@ -12207,7 +12354,7 @@ case wxBoxSizer_GetOrientation: { // wxBoxSizer::GetOrientation
 case wxStaticBoxSizer_new_2: { // wxStaticBoxSizer::wxStaticBoxSizer
  wxStaticBox *box = (wxStaticBox *) getPtr(bp,memenv); bp += 4;
  int * orient = (int *) bp; bp += 4;
- wxStaticBoxSizer * Result = new EwxStaticBoxSizer(box,(int) *orient);
+ wxStaticBoxSizer * Result = new EwxStaticBoxSizer(box,*orient);
  newPtr((void *) Result, 1, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxStaticBoxSizer");
  break;
@@ -12223,7 +12370,7 @@ case wxStaticBoxSizer_new_3: { // wxStaticBoxSizer::wxStaticBoxSizer
  bp += *labelLen+((8-((0+ *labelLen) & 7)) & 7);
   } break;
  }};
- wxStaticBoxSizer * Result = new EwxStaticBoxSizer((int) *orient,win,label);
+ wxStaticBoxSizer * Result = new EwxStaticBoxSizer(*orient,win,label);
  newPtr((void *) Result, 1, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxStaticBoxSizer");
  break;
@@ -12240,7 +12387,7 @@ case wxGridSizer_new_4: { // wxGridSizer::wxGridSizer
  int * cols = (int *) bp; bp += 4;
  int * vgap = (int *) bp; bp += 4;
  int * hgap = (int *) bp; bp += 4;
- wxGridSizer * Result = new EwxGridSizer((int) *rows,(int) *cols,(int) *vgap,(int) *hgap);
+ wxGridSizer * Result = new EwxGridSizer(*rows,*cols,*vgap,*hgap);
  newPtr((void *) Result, 1, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxGridSizer");
  break;
@@ -12258,7 +12405,7 @@ case wxGridSizer_new_2: { // wxGridSizer::wxGridSizer
  hgap = (int)*(int *) bp; bp += 4;
   } break;
  }};
- wxGridSizer * Result = new EwxGridSizer((int) *cols,vgap,hgap);
+ wxGridSizer * Result = new EwxGridSizer(*cols,vgap,hgap);
  newPtr((void *) Result, 1, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxGridSizer");
  break;
@@ -12295,28 +12442,28 @@ case wxGridSizer_SetCols: { // wxGridSizer::SetCols
  wxGridSizer *This = (wxGridSizer *) getPtr(bp,memenv); bp += 4;
  int * cols = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetCols((int) *cols);
+ This->SetCols(*cols);
  break;
 }
 case wxGridSizer_SetHGap: { // wxGridSizer::SetHGap
  wxGridSizer *This = (wxGridSizer *) getPtr(bp,memenv); bp += 4;
  int * gap = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetHGap((int) *gap);
+ This->SetHGap(*gap);
  break;
 }
 case wxGridSizer_SetRows: { // wxGridSizer::SetRows
  wxGridSizer *This = (wxGridSizer *) getPtr(bp,memenv); bp += 4;
  int * rows = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetRows((int) *rows);
+ This->SetRows(*rows);
  break;
 }
 case wxGridSizer_SetVGap: { // wxGridSizer::SetVGap
  wxGridSizer *This = (wxGridSizer *) getPtr(bp,memenv); bp += 4;
  int * gap = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetVGap((int) *gap);
+ This->SetVGap(*gap);
  break;
 }
 case wxFlexGridSizer_new_4: { // wxFlexGridSizer::wxFlexGridSizer
@@ -12324,7 +12471,7 @@ case wxFlexGridSizer_new_4: { // wxFlexGridSizer::wxFlexGridSizer
  int * cols = (int *) bp; bp += 4;
  int * vgap = (int *) bp; bp += 4;
  int * hgap = (int *) bp; bp += 4;
- wxFlexGridSizer * Result = new EwxFlexGridSizer((int) *rows,(int) *cols,(int) *vgap,(int) *hgap);
+ wxFlexGridSizer * Result = new EwxFlexGridSizer(*rows,*cols,*vgap,*hgap);
  newPtr((void *) Result, 1, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxFlexGridSizer");
  break;
@@ -12342,7 +12489,7 @@ case wxFlexGridSizer_new_2: { // wxFlexGridSizer::wxFlexGridSizer
  hgap = (int)*(int *) bp; bp += 4;
   } break;
  }};
- wxFlexGridSizer * Result = new EwxFlexGridSizer((int) *cols,vgap,hgap);
+ wxFlexGridSizer * Result = new EwxFlexGridSizer(*cols,vgap,hgap);
  newPtr((void *) Result, 1, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxFlexGridSizer");
  break;
@@ -12357,7 +12504,7 @@ case wxFlexGridSizer_AddGrowableCol: { // wxFlexGridSizer::AddGrowableCol
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->AddGrowableCol((size_t) *idx,proportion);
+ This->AddGrowableCol(*idx,proportion);
  break;
 }
 case wxFlexGridSizer_AddGrowableRow: { // wxFlexGridSizer::AddGrowableRow
@@ -12370,7 +12517,7 @@ case wxFlexGridSizer_AddGrowableRow: { // wxFlexGridSizer::AddGrowableRow
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->AddGrowableRow((size_t) *idx,proportion);
+ This->AddGrowableRow(*idx,proportion);
  break;
 }
 case wxFlexGridSizer_GetFlexibleDirection: { // wxFlexGridSizer::GetFlexibleDirection
@@ -12391,28 +12538,28 @@ case wxFlexGridSizer_RemoveGrowableCol: { // wxFlexGridSizer::RemoveGrowableCol
  wxFlexGridSizer *This = (wxFlexGridSizer *) getPtr(bp,memenv); bp += 4;
  int * idx = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->RemoveGrowableCol((size_t) *idx);
+ This->RemoveGrowableCol(*idx);
  break;
 }
 case wxFlexGridSizer_RemoveGrowableRow: { // wxFlexGridSizer::RemoveGrowableRow
  wxFlexGridSizer *This = (wxFlexGridSizer *) getPtr(bp,memenv); bp += 4;
  int * idx = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->RemoveGrowableRow((size_t) *idx);
+ This->RemoveGrowableRow(*idx);
  break;
 }
 case wxFlexGridSizer_SetFlexibleDirection: { // wxFlexGridSizer::SetFlexibleDirection
  wxFlexGridSizer *This = (wxFlexGridSizer *) getPtr(bp,memenv); bp += 4;
  int * direction = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetFlexibleDirection((int) *direction);
+ This->SetFlexibleDirection(*direction);
  break;
 }
 case wxFlexGridSizer_SetNonFlexibleGrowMode: { // wxFlexGridSizer::SetNonFlexibleGrowMode
  wxFlexGridSizer *This = (wxFlexGridSizer *) getPtr(bp,memenv); bp += 4;
  wxFlexSizerGrowMode mode = *(wxFlexSizerGrowMode *) bp; bp += 4;;
  if(!This) throw wxe_badarg(0);
- This->SetNonFlexibleGrowMode((wxFlexSizerGrowMode) mode);
+ This->SetNonFlexibleGrowMode(mode);
  break;
 }
 case wxGridBagSizer_new: { // wxGridBagSizer::wxGridBagSizer
@@ -12525,7 +12672,7 @@ userData = (wxObject *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxSizerItem * Result = (wxSizerItem*)This->Add((int) *width,(int) *height,pos,span,flag,border,userData);
+ wxSizerItem * Result = (wxSizerItem*)This->Add(*width,*height,pos,span,flag,border,userData);
  rt.addRef(getRef((void *)Result,memenv), "wxSizerItem");
  break;
 }
@@ -12613,7 +12760,7 @@ userData = (wxObject *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxSizerItem * Result = (wxSizerItem*)This->Add((int) *width,(int) *height,proportion,flag,border,userData);
+ wxSizerItem * Result = (wxSizerItem*)This->Add(*width,*height,proportion,flag,border,userData);
  rt.addRef(getRef((void *)Result,memenv), "wxSizerItem");
  break;
 }
@@ -12715,7 +12862,7 @@ case wxGridBagSizer_GetCellSize: { // wxGridBagSizer::GetCellSize
  int * row = (int *) bp; bp += 4;
  int * col = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxSize Result = This->GetCellSize((int) *row,(int) *col);
+ wxSize Result = This->GetCellSize(*row,*col);
  rt.add(Result);
  break;
 }
@@ -12746,7 +12893,7 @@ case wxGridBagSizer_GetItemPosition_1_0: { // wxGridBagSizer::GetItemPosition
  wxGridBagSizer *This = (wxGridBagSizer *) getPtr(bp,memenv); bp += 4;
  int * index = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxGBPosition Result = This->GetItemPosition((size_t) *index);
+ wxGBPosition Result = This->GetItemPosition(*index);
  rt.add(Result);
  break;
 }
@@ -12770,7 +12917,7 @@ case wxGridBagSizer_GetItemSpan_1_0: { // wxGridBagSizer::GetItemSpan
  wxGridBagSizer *This = (wxGridBagSizer *) getPtr(bp,memenv); bp += 4;
  int * index = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxGBSpan Result = This->GetItemSpan((size_t) *index);
+ wxGBSpan Result = This->GetItemSpan(*index);
  rt.add(Result);
  break;
 }
@@ -12812,7 +12959,7 @@ case wxGridBagSizer_SetItemPosition_2_0: { // wxGridBagSizer::SetItemPosition
  int * posC = (int *) bp; bp += 4;
  wxGBPosition pos = wxGBPosition(*posR,*posC);
  if(!This) throw wxe_badarg(0);
- bool Result = This->SetItemPosition((size_t) *index,pos);
+ bool Result = This->SetItemPosition(*index,pos);
  rt.addBool(Result);
  break;
 }
@@ -12845,7 +12992,7 @@ case wxGridBagSizer_SetItemSpan_2_0: { // wxGridBagSizer::SetItemSpan
  int * spanCS = (int *) bp; bp += 4;
  wxGBSpan span = wxGBSpan(*spanRS,*spanCS);
  if(!This) throw wxe_badarg(0);
- bool Result = This->SetItemSpan((size_t) *index,span);
+ bool Result = This->SetItemSpan(*index,span);
  rt.addBool(Result);
  break;
 }
@@ -12925,7 +13072,7 @@ case wxFont_new_5: { // wxFont::wxFont
 encoding = *(wxFontEncoding *) bp; bp += 4;;
   } break;
  }};
- wxFont * Result = new EwxFont((int) *size,(wxFontFamily) family,(wxFontStyle) style,(int) *weight,underlined,face,(wxFontEncoding) encoding);
+ wxFont * Result = new EwxFont(*size,family,style,*weight,underlined,face,encoding);
  newPtr((void *) Result, 1, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxFont");
  break;
@@ -13007,7 +13154,7 @@ case wxFont_Ok: { // wxFont::Ok
 }
 case wxFont_SetDefaultEncoding: { // wxFont::SetDefaultEncoding
  wxFontEncoding encoding = *(wxFontEncoding *) bp; bp += 4;;
- wxFont::SetDefaultEncoding((wxFontEncoding) encoding);
+ wxFont::SetDefaultEncoding(encoding);
  break;
 }
 case wxFont_SetFaceName: { // wxFont::SetFaceName
@@ -13024,45 +13171,45 @@ case wxFont_SetFamily: { // wxFont::SetFamily
  wxFont *This = (wxFont *) getPtr(bp,memenv); bp += 4;
  wxFontFamily family = *(wxFontFamily *) bp; bp += 4;;
  if(!This) throw wxe_badarg(0);
- This->SetFamily((wxFontFamily) family);
+ This->SetFamily(family);
  break;
 }
 case wxFont_SetPointSize: { // wxFont::SetPointSize
  wxFont *This = (wxFont *) getPtr(bp,memenv); bp += 4;
  int * pointSize = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetPointSize((int) *pointSize);
+ This->SetPointSize(*pointSize);
  break;
 }
 case wxFont_SetStyle: { // wxFont::SetStyle
  wxFont *This = (wxFont *) getPtr(bp,memenv); bp += 4;
  wxFontStyle style = *(wxFontStyle *) bp; bp += 4;;
  if(!This) throw wxe_badarg(0);
- This->SetStyle((wxFontStyle) style);
+ This->SetStyle(style);
  break;
 }
 case wxFont_SetUnderlined: { // wxFont::SetUnderlined
  wxFont *This = (wxFont *) getPtr(bp,memenv); bp += 4;
  bool * underlined = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetUnderlined((bool) *underlined);
+ This->SetUnderlined(*underlined);
  break;
 }
 case wxFont_SetWeight: { // wxFont::SetWeight
  wxFont *This = (wxFont *) getPtr(bp,memenv); bp += 4;
  int * weight = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetWeight((int) *weight);
+ This->SetWeight(*weight);
  break;
 }
 case wxToolTip_Enable: { // wxToolTip::Enable
  bool * flag = (bool *) bp; bp += 4;
- wxToolTip::Enable((bool) *flag);
+ wxToolTip::Enable(*flag);
  break;
 }
 case wxToolTip_SetDelay: { // wxToolTip::SetDelay
  int * msecs = (int *) bp; bp += 4;
- wxToolTip::SetDelay((long) *msecs);
+ wxToolTip::SetDelay(*msecs);
  break;
 }
 case wxToolTip_new: { // wxToolTip::wxToolTip
@@ -13130,7 +13277,7 @@ case wxButton_new_3: { // wxButton::wxButton
 validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
- wxButton * Result = new EwxButton(parent,(wxWindowID) *id,label,pos,size,style,*validator);
+ wxButton * Result = new EwxButton(parent,*id,label,pos,size,style,*validator);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxButton");
  break;
@@ -13177,7 +13324,7 @@ validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(parent,(wxWindowID) *id,label,pos,size,style,*validator);
+ bool Result = This->Create(parent,*id,label,pos,size,style,*validator);
  rt.addBool(Result);
  break;
 }
@@ -13230,7 +13377,7 @@ case wxBitmapButton_new_4: { // wxBitmapButton::wxBitmapButton
 validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
- wxBitmapButton * Result = new EwxBitmapButton(parent,(wxWindowID) *id,*bitmap,pos,size,style,*validator);
+ wxBitmapButton * Result = new EwxBitmapButton(parent,*id,*bitmap,pos,size,style,*validator);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxBitmapButton");
  break;
@@ -13271,35 +13418,35 @@ validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(parent,(wxWindowID) *id,*bitmap,pos,size,style,*validator);
+ bool Result = This->Create(parent,*id,*bitmap,pos,size,style,*validator);
  rt.addBool(Result);
  break;
 }
 case wxBitmapButton_GetBitmapDisabled: { // wxBitmapButton::GetBitmapDisabled
  wxBitmapButton *This = (wxBitmapButton *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- const wxBitmap * Result = &This->GetBitmapDisabled();
+ const wxBitmap * Result = new EwxBitmap(This->GetBitmapDisabled()); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxBitmap");
  break;
 }
 case wxBitmapButton_GetBitmapFocus: { // wxBitmapButton::GetBitmapFocus
  wxBitmapButton *This = (wxBitmapButton *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- const wxBitmap * Result = &This->GetBitmapFocus();
+ const wxBitmap * Result = new EwxBitmap(This->GetBitmapFocus()); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxBitmap");
  break;
 }
 case wxBitmapButton_GetBitmapLabel: { // wxBitmapButton::GetBitmapLabel
  wxBitmapButton *This = (wxBitmapButton *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- const wxBitmap * Result = &This->GetBitmapLabel();
+ const wxBitmap * Result = new EwxBitmap(This->GetBitmapLabel()); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxBitmap");
  break;
 }
 case wxBitmapButton_GetBitmapSelected: { // wxBitmapButton::GetBitmapSelected
  wxBitmapButton *This = (wxBitmapButton *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- const wxBitmap * Result = &This->GetBitmapSelected();
+ const wxBitmap * Result = new EwxBitmap(This->GetBitmapSelected()); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxBitmap");
  break;
 }
@@ -13367,7 +13514,7 @@ case wxToggleButton_new_4: { // wxToggleButton::wxToggleButton
 validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
- wxToggleButton * Result = new EwxToggleButton(parent,(wxWindowID) *id,label,pos,size,style,*validator);
+ wxToggleButton * Result = new EwxToggleButton(parent,*id,label,pos,size,style,*validator);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxToggleButton");
  break;
@@ -13404,7 +13551,7 @@ validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(parent,(wxWindowID) *id,label,pos,size,style,*validator);
+ bool Result = This->Create(parent,*id,label,pos,size,style,*validator);
  rt.addBool(Result);
  break;
 }
@@ -13419,7 +13566,7 @@ case wxToggleButton_SetValue: { // wxToggleButton::SetValue
  wxToggleButton *This = (wxToggleButton *) getPtr(bp,memenv); bp += 4;
  bool * state = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetValue((bool) *state);
+ This->SetValue(*state);
  break;
 }
 case wxCalendarCtrl_new_0: { // wxCalendarCtrl::wxCalendarCtrl
@@ -13462,7 +13609,7 @@ case wxCalendarCtrl_new_3: { // wxCalendarCtrl::wxCalendarCtrl
  style = (long)*(int *) bp; bp += 4;
   } break;
  }};
- wxCalendarCtrl * Result = new EwxCalendarCtrl(parent,(wxWindowID) *id,date,pos,size,style);
+ wxCalendarCtrl * Result = new EwxCalendarCtrl(parent,*id,date,pos,size,style);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxCalendarCtrl");
  break;
@@ -13504,7 +13651,7 @@ case wxCalendarCtrl_Create: { // wxCalendarCtrl::Create
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(parent,(wxWindowID) *id,date,pos,size,style);
+ bool Result = This->Create(parent,*id,date,pos,size,style);
  rt.addBool(Result);
  break;
 }
@@ -13525,10 +13672,11 @@ case wxCalendarCtrl_SetDate: { // wxCalendarCtrl::SetDate
 case wxCalendarCtrl_GetDate: { // wxCalendarCtrl::GetDate
  wxCalendarCtrl *This = (wxCalendarCtrl *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- const wxDateTime * Result = &This->GetDate();
- rt.add((*Result));
+ const wxDateTime Result = This->GetDate();
+ rt.add(Result);
  break;
 }
+#if !wxCHECK_VERSION(2,9,0)
 case wxCalendarCtrl_EnableYearChange: { // wxCalendarCtrl::EnableYearChange
  bool enable=true;
  wxCalendarCtrl *This = (wxCalendarCtrl *) getPtr(bp,memenv); bp += 4;
@@ -13542,6 +13690,7 @@ case wxCalendarCtrl_EnableYearChange: { // wxCalendarCtrl::EnableYearChange
  This->EnableYearChange(enable);
  break;
 }
+#endif
 case wxCalendarCtrl_EnableMonthChange: { // wxCalendarCtrl::EnableMonthChange
  bool enable=true;
  wxCalendarCtrl *This = (wxCalendarCtrl *) getPtr(bp,memenv); bp += 4;
@@ -13662,7 +13811,7 @@ case wxCalendarCtrl_GetAttr: { // wxCalendarCtrl::GetAttr
  wxCalendarCtrl *This = (wxCalendarCtrl *) getPtr(bp,memenv); bp += 4;
  int * day = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxCalendarDateAttr * Result = (wxCalendarDateAttr*)This->GetAttr((size_t) *day);
+ wxCalendarDateAttr * Result = (wxCalendarDateAttr*)This->GetAttr(*day);
  rt.addRef(getRef((void *)Result,memenv), "wxCalendarDateAttr");
  break;
 }
@@ -13671,21 +13820,21 @@ case wxCalendarCtrl_SetAttr: { // wxCalendarCtrl::SetAttr
  int * day = (int *) bp; bp += 4;
  wxCalendarDateAttr *attr = (wxCalendarDateAttr *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetAttr((size_t) *day,attr);
+ This->SetAttr(*day,attr);
  break;
 }
 case wxCalendarCtrl_SetHoliday: { // wxCalendarCtrl::SetHoliday
  wxCalendarCtrl *This = (wxCalendarCtrl *) getPtr(bp,memenv); bp += 4;
  int * day = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetHoliday((size_t) *day);
+ This->SetHoliday(*day);
  break;
 }
 case wxCalendarCtrl_ResetAttr: { // wxCalendarCtrl::ResetAttr
  wxCalendarCtrl *This = (wxCalendarCtrl *) getPtr(bp,memenv); bp += 4;
  int * day = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->ResetAttr((size_t) *day);
+ This->ResetAttr(*day);
  break;
 }
 case wxCalendarCtrl_HitTest: { // wxCalendarCtrl::HitTest
@@ -13743,7 +13892,7 @@ font = (wxFont *) getPtr(bp,memenv); bp += 4;
 border = *(wxCalendarDateBorder *) bp; bp += 4;;
   } break;
  }};
- wxCalendarDateAttr * Result = new wxCalendarDateAttr(colText,colBack,colBorder,*font,(wxCalendarDateBorder) border);
+ wxCalendarDateAttr * Result = new wxCalendarDateAttr(colText,colBack,colBorder,*font,border);
  newPtr((void *) Result, 88, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxCalendarDateAttr");
  break;
@@ -13762,7 +13911,7 @@ case wxCalendarDateAttr_new_2_0: { // wxCalendarDateAttr::wxCalendarDateAttr
  bp += 4; /* Align */
   } break;
  }};
- wxCalendarDateAttr * Result = new wxCalendarDateAttr((wxCalendarDateBorder) border,colBorder);
+ wxCalendarDateAttr * Result = new wxCalendarDateAttr(border,colBorder);
  newPtr((void *) Result, 88, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxCalendarDateAttr");
  break;
@@ -13811,14 +13960,14 @@ case wxCalendarDateAttr_SetBorder: { // wxCalendarDateAttr::SetBorder
  wxCalendarDateAttr *This = (wxCalendarDateAttr *) getPtr(bp,memenv); bp += 4;
  wxCalendarDateBorder border = *(wxCalendarDateBorder *) bp; bp += 4;;
  if(!This) throw wxe_badarg(0);
- This->SetBorder((wxCalendarDateBorder) border);
+ This->SetBorder(border);
  break;
 }
 case wxCalendarDateAttr_SetHoliday: { // wxCalendarDateAttr::SetHoliday
  wxCalendarDateAttr *This = (wxCalendarDateAttr *) getPtr(bp,memenv); bp += 4;
  bool * holiday = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetHoliday((bool) *holiday);
+ This->SetHoliday(*holiday);
  break;
 }
 case wxCalendarDateAttr_HasTextColour: { // wxCalendarDateAttr::HasTextColour
@@ -13934,7 +14083,7 @@ case wxCheckBox_new_4: { // wxCheckBox::wxCheckBox
 validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
- wxCheckBox * Result = new EwxCheckBox(parent,(wxWindowID) *id,label,pos,size,style,*validator);
+ wxCheckBox * Result = new EwxCheckBox(parent,*id,label,pos,size,style,*validator);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxCheckBox");
  break;
@@ -13977,7 +14126,7 @@ validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(parent,(wxWindowID) *id,label,pos,size,style,*validator);
+ bool Result = This->Create(parent,*id,label,pos,size,style,*validator);
  rt.addBool(Result);
  break;
 }
@@ -14020,14 +14169,14 @@ case wxCheckBox_SetValue: { // wxCheckBox::SetValue
  wxCheckBox *This = (wxCheckBox *) getPtr(bp,memenv); bp += 4;
  bool * state = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetValue((bool) *state);
+ This->SetValue(*state);
  break;
 }
 case wxCheckBox_Set3StateValue: { // wxCheckBox::Set3StateValue
  wxCheckBox *This = (wxCheckBox *) getPtr(bp,memenv); bp += 4;
  wxCheckBoxState state = *(wxCheckBoxState *) bp; bp += 4;;
  if(!This) throw wxe_badarg(0);
- This->Set3StateValue((wxCheckBoxState) state);
+ This->Set3StateValue(state);
  break;
 }
 case wxCheckListBox_new_0: { // wxCheckListBox::wxCheckListBox
@@ -14075,7 +14224,7 @@ case wxCheckListBox_new_3: { // wxCheckListBox::wxCheckListBox
 validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
- wxCheckListBox * Result = new EwxCheckListBox(parent,(wxWindowID) *id,pos,size,choices,style,*validator);
+ wxCheckListBox * Result = new EwxCheckListBox(parent,*id,pos,size,choices,style,*validator);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxCheckListBox");
  break;
@@ -14090,14 +14239,14 @@ case wxCheckListBox_Check: { // wxCheckListBox::Check
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->Check((int) *index,check);
+ This->Check(*index,check);
  break;
 }
 case wxCheckListBox_IsChecked: { // wxCheckListBox::IsChecked
  wxCheckListBox *This = (wxCheckListBox *) getPtr(bp,memenv); bp += 4;
  unsigned int * index = (unsigned int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->IsChecked((int) *index);
+ bool Result = This->IsChecked(*index);
  rt.addBool(Result);
  break;
 }
@@ -14140,7 +14289,7 @@ case wxChoice_new_3: { // wxChoice::wxChoice
 validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
- wxChoice * Result = new EwxChoice(parent,(wxWindowID) *id,pos,size,choices,style,*validator);
+ wxChoice * Result = new EwxChoice(parent,*id,pos,size,choices,style,*validator);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxChoice");
  break;
@@ -14182,7 +14331,7 @@ validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(parent,(wxWindowID) *id,pos,size,choices,style,*validator);
+ bool Result = This->Create(parent,*id,pos,size,choices,style,*validator);
  rt.addBool(Result);
  break;
 }
@@ -14190,7 +14339,7 @@ case wxChoice_Delete: { // wxChoice::Delete
  wxChoice *This = (wxChoice *) getPtr(bp,memenv); bp += 4;
  unsigned int * n = (unsigned int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->Delete((int) *n);
+ This->Delete(*n);
  break;
 }
 case wxChoice_GetColumns: { // wxChoice::GetColumns
@@ -14264,7 +14413,7 @@ case wxComboBox_new_3: { // wxComboBox::wxComboBox
 validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
- wxComboBox * Result = new EwxComboBox(parent,(wxWindowID) *id,value,pos,size,choices,style,*validator);
+ wxComboBox * Result = new EwxComboBox(parent,*id,value,pos,size,choices,style,*validator);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxComboBox");
  break;
@@ -14303,7 +14452,7 @@ validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(parent,(wxWindowID) *id,value,pos,size,choices,style,*validator);
+ bool Result = This->Create(parent,*id,value,pos,size,choices,style,*validator);
  rt.addBool(Result);
  break;
 }
@@ -14395,7 +14544,7 @@ case wxComboBox_Replace: { // wxComboBox::Replace
  wxString value = wxString(bp, wxConvUTF8);
  bp += *valueLen+((8-((0+ *valueLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- This->Replace((long) *from,(long) *to,value);
+ This->Replace(*from,*to,value);
  break;
 }
 case wxComboBox_Remove: { // wxComboBox::Remove
@@ -14403,14 +14552,14 @@ case wxComboBox_Remove: { // wxComboBox::Remove
  int * from = (int *) bp; bp += 4;
  int * to = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->Remove((long) *from,(long) *to);
+ This->Remove(*from,*to);
  break;
 }
 case wxComboBox_SetInsertionPoint: { // wxComboBox::SetInsertionPoint
  wxComboBox *This = (wxComboBox *) getPtr(bp,memenv); bp += 4;
  int * pos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetInsertionPoint((long) *pos);
+ This->SetInsertionPoint(*pos);
  break;
 }
 case wxComboBox_SetInsertionPointEnd: { // wxComboBox::SetInsertionPointEnd
@@ -14423,7 +14572,7 @@ case wxComboBox_SetSelection_1: { // wxComboBox::SetSelection
  wxComboBox *This = (wxComboBox *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetSelection((int) *n);
+ This->SetSelection(*n);
  break;
 }
 case wxComboBox_SetSelection_2: { // wxComboBox::SetSelection
@@ -14431,7 +14580,7 @@ case wxComboBox_SetSelection_2: { // wxComboBox::SetSelection
  int * from = (int *) bp; bp += 4;
  int * to = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetSelection((long) *from,(long) *to);
+ This->SetSelection(*from,*to);
  break;
 }
 case wxComboBox_SetValue: { // wxComboBox::SetValue
@@ -14484,7 +14633,7 @@ case wxGauge_new_4: { // wxGauge::wxGauge
 validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
- wxGauge * Result = new EwxGauge(parent,(wxWindowID) *id,(int) *range,pos,size,style,*validator);
+ wxGauge * Result = new EwxGauge(parent,*id,*range,pos,size,style,*validator);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxGauge");
  break;
@@ -14519,28 +14668,14 @@ validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(parent,(wxWindowID) *id,(int) *range,pos,size,style,*validator);
+ bool Result = This->Create(parent,*id,*range,pos,size,style,*validator);
  rt.addBool(Result);
- break;
-}
-case wxGauge_GetBezelFace: { // wxGauge::GetBezelFace
- wxGauge *This = (wxGauge *) getPtr(bp,memenv); bp += 4;
- if(!This) throw wxe_badarg(0);
- int Result = This->GetBezelFace();
- rt.addInt(Result);
  break;
 }
 case wxGauge_GetRange: { // wxGauge::GetRange
  wxGauge *This = (wxGauge *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
  int Result = This->GetRange();
- rt.addInt(Result);
- break;
-}
-case wxGauge_GetShadowWidth: { // wxGauge::GetShadowWidth
- wxGauge *This = (wxGauge *) getPtr(bp,memenv); bp += 4;
- if(!This) throw wxe_badarg(0);
- int Result = This->GetShadowWidth();
  rt.addInt(Result);
  break;
 }
@@ -14558,32 +14693,18 @@ case wxGauge_IsVertical: { // wxGauge::IsVertical
  rt.addBool(Result);
  break;
 }
-case wxGauge_SetBezelFace: { // wxGauge::SetBezelFace
- wxGauge *This = (wxGauge *) getPtr(bp,memenv); bp += 4;
- int * w = (int *) bp; bp += 4;
- if(!This) throw wxe_badarg(0);
- This->SetBezelFace((int) *w);
- break;
-}
 case wxGauge_SetRange: { // wxGauge::SetRange
  wxGauge *This = (wxGauge *) getPtr(bp,memenv); bp += 4;
  int * r = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetRange((int) *r);
- break;
-}
-case wxGauge_SetShadowWidth: { // wxGauge::SetShadowWidth
- wxGauge *This = (wxGauge *) getPtr(bp,memenv); bp += 4;
- int * w = (int *) bp; bp += 4;
- if(!This) throw wxe_badarg(0);
- This->SetShadowWidth((int) *w);
+ This->SetRange(*r);
  break;
 }
 case wxGauge_SetValue: { // wxGauge::SetValue
  wxGauge *This = (wxGauge *) getPtr(bp,memenv); bp += 4;
  int * pos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetValue((int) *pos);
+ This->SetValue(*pos);
  break;
 }
 case wxGauge_Pulse: { // wxGauge::Pulse
@@ -14793,7 +14914,7 @@ case wxGenericDirCtrl_SetFilterIndex: { // wxGenericDirCtrl::SetFilterIndex
  wxGenericDirCtrl *This = (wxGenericDirCtrl *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetFilterIndex((int) *n);
+ This->SetFilterIndex(*n);
  break;
 }
 case wxGenericDirCtrl_SetPath: { // wxGenericDirCtrl::SetPath
@@ -14831,7 +14952,7 @@ case wxStaticBox_new_4: { // wxStaticBox::wxStaticBox
  style = (long)*(int *) bp; bp += 4;
   } break;
  }};
- wxStaticBox * Result = new EwxStaticBox(parent,(wxWindowID) *id,label,pos,size,style);
+ wxStaticBox * Result = new EwxStaticBox(parent,*id,label,pos,size,style);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxStaticBox");
  break;
@@ -14870,7 +14991,7 @@ case wxStaticBox_Create: { // wxStaticBox::Create
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(parent,(wxWindowID) *id,label,pos,size,style);
+ bool Result = This->Create(parent,*id,label,pos,size,style);
  rt.addBool(Result);
  break;
 }
@@ -14995,7 +15116,7 @@ case wxListBox_new_3: { // wxListBox::wxListBox
 validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
- wxListBox * Result = new EwxListBox(parent,(wxWindowID) *id,pos,size,choices,style,*validator);
+ wxListBox * Result = new EwxListBox(parent,*id,pos,size,choices,style,*validator);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxListBox");
  break;
@@ -15037,7 +15158,7 @@ validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(parent,(wxWindowID) *id,pos,size,choices,style,*validator);
+ bool Result = This->Create(parent,*id,pos,size,choices,style,*validator);
  rt.addBool(Result);
  break;
 }
@@ -15045,7 +15166,7 @@ case wxListBox_Deselect: { // wxListBox::Deselect
  wxListBox *This = (wxListBox *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->Deselect((int) *n);
+ This->Deselect(*n);
  break;
 }
 case wxListBox_GetSelections: { // wxListBox::GetSelections
@@ -15072,14 +15193,14 @@ case wxListBox_InsertItems: { // wxListBox::InsertItems
  bp += (8-((0+ itemsASz) & 7 )) & 7;
  unsigned int * pos = (unsigned int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->InsertItems(items,(int) *pos);
+ This->InsertItems(items,*pos);
  break;
 }
 case wxListBox_IsSelected: { // wxListBox::IsSelected
  wxListBox *This = (wxListBox *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->IsSelected((int) *n);
+ bool Result = This->IsSelected(*n);
  rt.addBool(Result);
  break;
 }
@@ -15096,7 +15217,7 @@ case wxListBox_Set: { // wxListBox::Set
  }
  bp += (8-((0+ itemsASz) & 7 )) & 7;
  if(!This) throw wxe_badarg(0);
- This->Set(items,NULL);
+ This->Set(items);
  break;
 }
 case wxListBox_HitTest: { // wxListBox::HitTest
@@ -15113,7 +15234,7 @@ case wxListBox_SetFirstItem_1_0: { // wxListBox::SetFirstItem
  wxListBox *This = (wxListBox *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetFirstItem((int) *n);
+ This->SetFirstItem(*n);
  break;
 }
 case wxListBox_SetFirstItem_1_1: { // wxListBox::SetFirstItem
@@ -15203,7 +15324,7 @@ case wxListCtrl_AssignImageList: { // wxListCtrl::AssignImageList
  wxImageList *imageList = (wxImageList *) getPtr(bp,memenv); bp += 4;
  int * which = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->AssignImageList(imageList,(int) *which);
+ This->AssignImageList(imageList,*which);
  break;
 }
 case wxListCtrl_ClearAll: { // wxListCtrl::ClearAll
@@ -15277,7 +15398,7 @@ case wxListCtrl_DeleteColumn: { // wxListCtrl::DeleteColumn
  wxListCtrl *This = (wxListCtrl *) getPtr(bp,memenv); bp += 4;
  int * col = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->DeleteColumn((int) *col);
+ bool Result = This->DeleteColumn(*col);
  rt.addBool(Result);
  break;
 }
@@ -15285,7 +15406,7 @@ case wxListCtrl_DeleteItem: { // wxListCtrl::DeleteItem
  wxListCtrl *This = (wxListCtrl *) getPtr(bp,memenv); bp += 4;
  int * item = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->DeleteItem((long) *item);
+ bool Result = This->DeleteItem(*item);
  rt.addBool(Result);
  break;
 }
@@ -15293,7 +15414,7 @@ case wxListCtrl_EditLabel: { // wxListCtrl::EditLabel
  wxListCtrl *This = (wxListCtrl *) getPtr(bp,memenv); bp += 4;
  int * item = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxTextCtrl * Result = (wxTextCtrl*)This->EditLabel((long) *item);
+ wxTextCtrl * Result = (wxTextCtrl*)This->EditLabel(*item);
  rt.addRef(getRef((void *)Result,memenv), "wxTextCtrl");
  break;
 }
@@ -15301,7 +15422,7 @@ case wxListCtrl_EnsureVisible: { // wxListCtrl::EnsureVisible
  wxListCtrl *This = (wxListCtrl *) getPtr(bp,memenv); bp += 4;
  int * item = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->EnsureVisible((long) *item);
+ bool Result = This->EnsureVisible(*item);
  rt.addBool(Result);
  break;
 }
@@ -15318,7 +15439,7 @@ case wxListCtrl_FindItem_3_0: { // wxListCtrl::FindItem
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- long Result = This->FindItem((long) *start,str,partial);
+ long Result = This->FindItem(*start,str,partial);
  rt.addInt(Result);
  break;
 }
@@ -15330,7 +15451,7 @@ case wxListCtrl_FindItem_3_1: { // wxListCtrl::FindItem
  wxPoint pt = wxPoint(*ptX,*ptY);
  int * direction = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- long Result = This->FindItem((long) *start,pt,(int) *direction);
+ long Result = This->FindItem(*start,pt,*direction);
  rt.addInt(Result);
  break;
 }
@@ -15339,7 +15460,7 @@ case wxListCtrl_GetColumn: { // wxListCtrl::GetColumn
  int * col = (int *) bp; bp += 4;
  wxListItem *item = (wxListItem *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->GetColumn((int) *col,*item);
+ bool Result = This->GetColumn(*col,*item);
  rt.addBool(Result);
  break;
 }
@@ -15354,7 +15475,7 @@ case wxListCtrl_GetColumnWidth: { // wxListCtrl::GetColumnWidth
  wxListCtrl *This = (wxListCtrl *) getPtr(bp,memenv); bp += 4;
  int * col = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->GetColumnWidth((int) *col);
+ int Result = This->GetColumnWidth(*col);
  rt.addInt(Result);
  break;
 }
@@ -15376,7 +15497,7 @@ case wxListCtrl_GetImageList: { // wxListCtrl::GetImageList
  wxListCtrl *This = (wxListCtrl *) getPtr(bp,memenv); bp += 4;
  int * which = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxImageList * Result = (wxImageList*)This->GetImageList((int) *which);
+ wxImageList * Result = (wxImageList*)This->GetImageList(*which);
  rt.addRef(getRef((void *)Result,memenv), "wxImageList");
  break;
 }
@@ -15392,7 +15513,7 @@ case wxListCtrl_GetItemBackgroundColour: { // wxListCtrl::GetItemBackgroundColou
  wxListCtrl *This = (wxListCtrl *) getPtr(bp,memenv); bp += 4;
  int * item = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxColour Result = This->GetItemBackgroundColour((long) *item);
+ wxColour Result = This->GetItemBackgroundColour(*item);
  rt.add(Result);
  break;
 }
@@ -15407,7 +15528,7 @@ case wxListCtrl_GetItemData: { // wxListCtrl::GetItemData
  wxListCtrl *This = (wxListCtrl *) getPtr(bp,memenv); bp += 4;
  int * item = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxUIntPtr Result = This->GetItemData((long) *item);
+ wxUIntPtr Result = This->GetItemData(*item);
  rt.addInt(Result);
  break;
 }
@@ -15415,7 +15536,7 @@ case wxListCtrl_GetItemFont: { // wxListCtrl::GetItemFont
  wxListCtrl *This = (wxListCtrl *) getPtr(bp,memenv); bp += 4;
  int * item = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxFont * Result = new wxFont(This->GetItemFont((long) *item)); newPtr((void *) Result,3, memenv);;
+ wxFont * Result = new EwxFont(This->GetItemFont(*item)); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxFont");
  break;
 }
@@ -15424,7 +15545,7 @@ case wxListCtrl_GetItemPosition: { // wxListCtrl::GetItemPosition
  wxListCtrl *This = (wxListCtrl *) getPtr(bp,memenv); bp += 4;
  int * item = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->GetItemPosition((long) *item,pos);
+ bool Result = This->GetItemPosition(*item,pos);
  rt.addBool(Result);
  rt.add(pos);
  rt.addTupleCount(2);
@@ -15441,7 +15562,7 @@ case wxListCtrl_GetItemRect: { // wxListCtrl::GetItemRect
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->GetItemRect((long) *item,rect,code);
+ bool Result = This->GetItemRect(*item,rect,code);
  rt.addBool(Result);
  rt.add(rect);
  rt.addTupleCount(2);
@@ -15459,7 +15580,7 @@ case wxListCtrl_GetItemState: { // wxListCtrl::GetItemState
  int * item = (int *) bp; bp += 4;
  int * stateMask = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->GetItemState((long) *item,(long) *stateMask);
+ int Result = This->GetItemState(*item,*stateMask);
  rt.addInt(Result);
  break;
 }
@@ -15467,7 +15588,7 @@ case wxListCtrl_GetItemText: { // wxListCtrl::GetItemText
  wxListCtrl *This = (wxListCtrl *) getPtr(bp,memenv); bp += 4;
  int * item = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxString Result = This->GetItemText((long) *item);
+ wxString Result = This->GetItemText(*item);
  rt.add(Result);
  break;
 }
@@ -15475,7 +15596,7 @@ case wxListCtrl_GetItemTextColour: { // wxListCtrl::GetItemTextColour
  wxListCtrl *This = (wxListCtrl *) getPtr(bp,memenv); bp += 4;
  int * item = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxColour Result = This->GetItemTextColour((long) *item);
+ wxColour Result = This->GetItemTextColour(*item);
  rt.add(Result);
  break;
 }
@@ -15493,7 +15614,7 @@ case wxListCtrl_GetNextItem: { // wxListCtrl::GetNextItem
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- long Result = This->GetNextItem((long) *item,geometry,state);
+ long Result = This->GetNextItem(*item,geometry,state);
  rt.addInt(Result);
  break;
 }
@@ -15526,14 +15647,18 @@ case wxListCtrl_GetViewRect: { // wxListCtrl::GetViewRect
  break;
 }
 case wxListCtrl_HitTest: { // wxListCtrl::HitTest
+ int flags;
+ long pSubItem;
  wxListCtrl *This = (wxListCtrl *) getPtr(bp,memenv); bp += 4;
  int * pointX = (int *) bp; bp += 4;
  int * pointY = (int *) bp; bp += 4;
  wxPoint point = wxPoint(*pointX,*pointY);
- int * flags = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- long Result = This->HitTest(point,*flags);
+ long Result = This->HitTest(point,flags,&pSubItem);
  rt.addInt(Result);
+ rt.addInt(flags);
+ rt.addInt(pSubItem);
+ rt.addTupleCount(3);
  break;
 }
 case wxListCtrl_InsertColumn_2: { // wxListCtrl::InsertColumn
@@ -15541,7 +15666,7 @@ case wxListCtrl_InsertColumn_2: { // wxListCtrl::InsertColumn
  int * col = (int *) bp; bp += 4;
  wxListItem *info = (wxListItem *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- long Result = This->InsertColumn((long) *col,*info);
+ long Result = This->InsertColumn(*col,*info);
  rt.addInt(Result);
  break;
 }
@@ -15562,7 +15687,7 @@ case wxListCtrl_InsertColumn_3: { // wxListCtrl::InsertColumn
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- long Result = This->InsertColumn((long) *col,heading,format,width);
+ long Result = This->InsertColumn(*col,heading,format,width);
  rt.addInt(Result);
  break;
 }
@@ -15581,7 +15706,7 @@ case wxListCtrl_InsertItem_2_1: { // wxListCtrl::InsertItem
  wxString label = wxString(bp, wxConvUTF8);
  bp += *labelLen+((8-((4+ *labelLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- long Result = This->InsertItem((long) *index,label);
+ long Result = This->InsertItem(*index,label);
  rt.addInt(Result);
  break;
 }
@@ -15590,7 +15715,7 @@ case wxListCtrl_InsertItem_2_0: { // wxListCtrl::InsertItem
  int * index = (int *) bp; bp += 4;
  int * imageIndex = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- long Result = This->InsertItem((long) *index,(int) *imageIndex);
+ long Result = This->InsertItem(*index,*imageIndex);
  rt.addInt(Result);
  break;
 }
@@ -15602,7 +15727,7 @@ case wxListCtrl_InsertItem_3: { // wxListCtrl::InsertItem
  bp += *labelLen+((8-((4+ *labelLen) & 7)) & 7);
  int * imageIndex = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- long Result = This->InsertItem((long) *index,label,(int) *imageIndex);
+ long Result = This->InsertItem(*index,label,*imageIndex);
  rt.addInt(Result);
  break;
 }
@@ -15610,7 +15735,7 @@ case wxListCtrl_RefreshItem: { // wxListCtrl::RefreshItem
  wxListCtrl *This = (wxListCtrl *) getPtr(bp,memenv); bp += 4;
  int * item = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->RefreshItem((long) *item);
+ This->RefreshItem(*item);
  break;
 }
 case wxListCtrl_RefreshItems: { // wxListCtrl::RefreshItems
@@ -15618,7 +15743,7 @@ case wxListCtrl_RefreshItems: { // wxListCtrl::RefreshItems
  int * itemFrom = (int *) bp; bp += 4;
  int * itemTo = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->RefreshItems((long) *itemFrom,(long) *itemTo);
+ This->RefreshItems(*itemFrom,*itemTo);
  break;
 }
 case wxListCtrl_ScrollList: { // wxListCtrl::ScrollList
@@ -15626,7 +15751,7 @@ case wxListCtrl_ScrollList: { // wxListCtrl::ScrollList
  int * dx = (int *) bp; bp += 4;
  int * dy = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->ScrollList((int) *dx,(int) *dy);
+ bool Result = This->ScrollList(*dx,*dy);
  rt.addBool(Result);
  break;
 }
@@ -15647,7 +15772,7 @@ case wxListCtrl_SetColumn: { // wxListCtrl::SetColumn
  int * col = (int *) bp; bp += 4;
  wxListItem *item = (wxListItem *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->SetColumn((int) *col,*item);
+ bool Result = This->SetColumn(*col,*item);
  rt.addBool(Result);
  break;
 }
@@ -15656,7 +15781,7 @@ case wxListCtrl_SetColumnWidth: { // wxListCtrl::SetColumnWidth
  int * col = (int *) bp; bp += 4;
  int * width = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->SetColumnWidth((int) *col,(int) *width);
+ bool Result = This->SetColumnWidth(*col,*width);
  rt.addBool(Result);
  break;
 }
@@ -15665,7 +15790,7 @@ case wxListCtrl_SetImageList: { // wxListCtrl::SetImageList
  wxImageList *imageList = (wxImageList *) getPtr(bp,memenv); bp += 4;
  int * which = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetImageList(imageList,(int) *which);
+ This->SetImageList(imageList,*which);
  break;
 }
 case wxListCtrl_SetItem_1: { // wxListCtrl::SetItem
@@ -15690,7 +15815,7 @@ case wxListCtrl_SetItem_4: { // wxListCtrl::SetItem
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- long Result = This->SetItem((long) *index,(int) *col,label,imageId);
+ long Result = This->SetItem(*index,*col,label,imageId);
  rt.addInt(Result);
  break;
 }
@@ -15703,14 +15828,14 @@ case wxListCtrl_SetItemBackgroundColour: { // wxListCtrl::SetItemBackgroundColou
  int * colA = (int *) bp; bp += 4;
  wxColour col = wxColour(*colR,*colG,*colB,*colA);
  if(!This) throw wxe_badarg(0);
- This->SetItemBackgroundColour((long) *item,col);
+ This->SetItemBackgroundColour(*item,col);
  break;
 }
 case wxListCtrl_SetItemCount: { // wxListCtrl::SetItemCount
  wxListCtrl *This = (wxListCtrl *) getPtr(bp,memenv); bp += 4;
  int * count = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetItemCount((long) *count);
+ This->SetItemCount(*count);
  break;
 }
 case wxListCtrl_SetItemData: { // wxListCtrl::SetItemData
@@ -15718,7 +15843,7 @@ case wxListCtrl_SetItemData: { // wxListCtrl::SetItemData
  int * item = (int *) bp; bp += 4;
  int * data = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->SetItemData((long) *item,(long) *data);
+ bool Result = This->SetItemData(*item,*data);
  rt.addBool(Result);
  break;
 }
@@ -15727,7 +15852,7 @@ case wxListCtrl_SetItemFont: { // wxListCtrl::SetItemFont
  int * item = (int *) bp; bp += 4;
  wxFont *f = (wxFont *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetItemFont((long) *item,*f);
+ This->SetItemFont(*item,*f);
  break;
 }
 case wxListCtrl_SetItemImage: { // wxListCtrl::SetItemImage
@@ -15742,7 +15867,7 @@ case wxListCtrl_SetItemImage: { // wxListCtrl::SetItemImage
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->SetItemImage((long) *item,(int) *image,selImage);
+ bool Result = This->SetItemImage(*item,*image,selImage);
  rt.addBool(Result);
  break;
 }
@@ -15752,7 +15877,7 @@ case wxListCtrl_SetItemColumnImage: { // wxListCtrl::SetItemColumnImage
  int * column = (int *) bp; bp += 4;
  int * image = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->SetItemColumnImage((long) *item,(long) *column,(int) *image);
+ bool Result = This->SetItemColumnImage(*item,*column,*image);
  rt.addBool(Result);
  break;
 }
@@ -15763,7 +15888,7 @@ case wxListCtrl_SetItemPosition: { // wxListCtrl::SetItemPosition
  int * posY = (int *) bp; bp += 4;
  wxPoint pos = wxPoint(*posX,*posY);
  if(!This) throw wxe_badarg(0);
- bool Result = This->SetItemPosition((long) *item,pos);
+ bool Result = This->SetItemPosition(*item,pos);
  rt.addBool(Result);
  break;
 }
@@ -15773,7 +15898,7 @@ case wxListCtrl_SetItemState: { // wxListCtrl::SetItemState
  int * state = (int *) bp; bp += 4;
  int * stateMask = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->SetItemState((long) *item,(long) *state,(long) *stateMask);
+ bool Result = This->SetItemState(*item,*state,*stateMask);
  rt.addBool(Result);
  break;
 }
@@ -15784,7 +15909,7 @@ case wxListCtrl_SetItemText: { // wxListCtrl::SetItemText
  wxString str = wxString(bp, wxConvUTF8);
  bp += *strLen+((8-((4+ *strLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- This->SetItemText((long) *item,str);
+ This->SetItemText(*item,str);
  break;
 }
 case wxListCtrl_SetItemTextColour: { // wxListCtrl::SetItemTextColour
@@ -15796,7 +15921,7 @@ case wxListCtrl_SetItemTextColour: { // wxListCtrl::SetItemTextColour
  int * colA = (int *) bp; bp += 4;
  wxColour col = wxColour(*colR,*colG,*colB,*colA);
  if(!This) throw wxe_badarg(0);
- This->SetItemTextColour((long) *item,col);
+ This->SetItemTextColour(*item,col);
  break;
 }
 case wxListCtrl_SetSingleStyle: { // wxListCtrl::SetSingleStyle
@@ -15809,7 +15934,7 @@ case wxListCtrl_SetSingleStyle: { // wxListCtrl::SetSingleStyle
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->SetSingleStyle((long) *style,add);
+ This->SetSingleStyle(*style,add);
  break;
 }
 case wxListCtrl_SetTextColour: { // wxListCtrl::SetTextColour
@@ -15827,7 +15952,7 @@ case wxListCtrl_SetWindowStyleFlag: { // wxListCtrl::SetWindowStyleFlag
  wxListCtrl *This = (wxListCtrl *) getPtr(bp,memenv); bp += 4;
  int * style = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetWindowStyleFlag((long) *style);
+ This->SetWindowStyleFlag(*style);
  break;
 }
 
@@ -15839,7 +15964,7 @@ case wxListCtrl_SortItems: { // wxListCtrl::SortItems taylormade
   callbackInfo* cb = new callbackInfo();
   cb->port = Ecmd.port;
   cb->callbackID = sortCallback;
-  bool Result = This->SortItems(wxEListCtrlCompare, (long)cb);
+  bool Result = This->SortItems(wxEListCtrlCompare, (wxeIntPtr)cb);
   delete cb;
 
   /* Destroy the callback, see wxEPrintout::clear_cb */
@@ -15857,14 +15982,14 @@ case wxListView_ClearColumnImage: { // wxListView::ClearColumnImage
  wxListView *This = (wxListView *) getPtr(bp,memenv); bp += 4;
  int * col = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->ClearColumnImage((int) *col);
+ This->ClearColumnImage(*col);
  break;
 }
 case wxListView_Focus: { // wxListView::Focus
  wxListView *This = (wxListView *) getPtr(bp,memenv); bp += 4;
  int * index = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->Focus((long) *index);
+ This->Focus(*index);
  break;
 }
 case wxListView_GetFirstSelected: { // wxListView::GetFirstSelected
@@ -15885,7 +16010,7 @@ case wxListView_GetNextSelected: { // wxListView::GetNextSelected
  wxListView *This = (wxListView *) getPtr(bp,memenv); bp += 4;
  int * item = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- long Result = This->GetNextSelected((long) *item);
+ long Result = This->GetNextSelected(*item);
  rt.addInt(Result);
  break;
 }
@@ -15893,7 +16018,7 @@ case wxListView_IsSelected: { // wxListView::IsSelected
  wxListView *This = (wxListView *) getPtr(bp,memenv); bp += 4;
  int * index = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->IsSelected((long) *index);
+ bool Result = This->IsSelected(*index);
  rt.addBool(Result);
  break;
 }
@@ -15907,7 +16032,7 @@ case wxListView_Select: { // wxListView::Select
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->Select((long) *n,on);
+ This->Select(*n,on);
  break;
 }
 case wxListView_SetColumnImage: { // wxListView::SetColumnImage
@@ -15915,7 +16040,7 @@ case wxListView_SetColumnImage: { // wxListView::SetColumnImage
  int * col = (int *) bp; bp += 4;
  int * image = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetColumnImage((int) *col,(int) *image);
+ This->SetColumnImage(*col,*image);
  break;
 }
 case wxListItem_new_0: { // wxListItem::wxListItem
@@ -15961,7 +16086,7 @@ case wxListItem_GetColumn: { // wxListItem::GetColumn
 case wxListItem_GetFont: { // wxListItem::GetFont
  wxListItem *This = (wxListItem *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- wxFont * Result = new wxFont(This->GetFont()); newPtr((void *) Result,3, memenv);;
+ wxFont * Result = new EwxFont(This->GetFont()); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxFont");
  break;
 }
@@ -16018,7 +16143,7 @@ case wxListItem_SetAlign: { // wxListItem::SetAlign
  wxListItem *This = (wxListItem *) getPtr(bp,memenv); bp += 4;
  wxListColumnFormat align = *(wxListColumnFormat *) bp; bp += 4;;
  if(!This) throw wxe_badarg(0);
- This->SetAlign((wxListColumnFormat) align);
+ This->SetAlign(align);
  break;
 }
 case wxListItem_SetBackgroundColour: { // wxListItem::SetBackgroundColour
@@ -16036,7 +16161,7 @@ case wxListItem_SetColumn: { // wxListItem::SetColumn
  wxListItem *This = (wxListItem *) getPtr(bp,memenv); bp += 4;
  int * col = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetColumn((int) *col);
+ This->SetColumn(*col);
  break;
 }
 case wxListItem_SetFont: { // wxListItem::SetFont
@@ -16050,35 +16175,35 @@ case wxListItem_SetId: { // wxListItem::SetId
  wxListItem *This = (wxListItem *) getPtr(bp,memenv); bp += 4;
  int * id = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetId((long) *id);
+ This->SetId(*id);
  break;
 }
 case wxListItem_SetImage: { // wxListItem::SetImage
  wxListItem *This = (wxListItem *) getPtr(bp,memenv); bp += 4;
  int * image = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetImage((int) *image);
+ This->SetImage(*image);
  break;
 }
 case wxListItem_SetMask: { // wxListItem::SetMask
  wxListItem *This = (wxListItem *) getPtr(bp,memenv); bp += 4;
  int * mask = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetMask((long) *mask);
+ This->SetMask(*mask);
  break;
 }
 case wxListItem_SetState: { // wxListItem::SetState
  wxListItem *This = (wxListItem *) getPtr(bp,memenv); bp += 4;
  int * state = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetState((long) *state);
+ This->SetState(*state);
  break;
 }
 case wxListItem_SetStateMask: { // wxListItem::SetStateMask
  wxListItem *This = (wxListItem *) getPtr(bp,memenv); bp += 4;
  int * stateMask = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetStateMask((long) *stateMask);
+ This->SetStateMask(*stateMask);
  break;
 }
 case wxListItem_SetText: { // wxListItem::SetText
@@ -16105,7 +16230,7 @@ case wxListItem_SetWidth: { // wxListItem::SetWidth
  wxListItem *This = (wxListItem *) getPtr(bp,memenv); bp += 4;
  int * width = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetWidth((int) *width);
+ This->SetWidth(*width);
  break;
 }
 case wxListItemAttr_new_0: { // wxListItemAttr::wxListItemAttr
@@ -16227,7 +16352,7 @@ case wxImageList_new_3: { // wxImageList::wxImageList
  initialCount = (int)*(int *) bp; bp += 4;
   } break;
  }};
- wxImageList * Result = new EwxImageList((int) *width,(int) *height,mask,initialCount);
+ wxImageList * Result = new EwxImageList(*width,*height,mask,initialCount);
  newPtr((void *) Result, 1, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxImageList");
  break;
@@ -16278,7 +16403,7 @@ case wxImageList_Create: { // wxImageList::Create
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create((int) *width,(int) *height,mask,initialCount);
+ bool Result = This->Create(*width,*height,mask,initialCount);
  rt.addBool(Result);
  break;
 }
@@ -16300,7 +16425,7 @@ case wxImageList_Draw: { // wxImageList::Draw
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Draw((int) *index,*dc,(int) *x,(int) *y,flags,solidBackground);
+ bool Result = This->Draw(*index,*dc,*x,*y,flags,solidBackground);
  rt.addBool(Result);
  break;
 }
@@ -16308,7 +16433,7 @@ case wxImageList_GetBitmap: { // wxImageList::GetBitmap
  wxImageList *This = (wxImageList *) getPtr(bp,memenv); bp += 4;
  int * index = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxBitmap * Result = new wxBitmap(This->GetBitmap((int) *index)); newPtr((void *) Result,3, memenv);;
+ wxBitmap * Result = new EwxBitmap(This->GetBitmap(*index)); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxBitmap");
  break;
 }
@@ -16316,7 +16441,7 @@ case wxImageList_GetIcon: { // wxImageList::GetIcon
  wxImageList *This = (wxImageList *) getPtr(bp,memenv); bp += 4;
  int * index = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxIcon * Result = new wxIcon(This->GetIcon((int) *index)); newPtr((void *) Result,3, memenv);;
+ wxIcon * Result = new EwxIcon(This->GetIcon(*index)); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxIcon");
  break;
 }
@@ -16333,7 +16458,7 @@ case wxImageList_GetSize: { // wxImageList::GetSize
  wxImageList *This = (wxImageList *) getPtr(bp,memenv); bp += 4;
  int * index = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->GetSize((int) *index,width,height);
+ bool Result = This->GetSize(*index,width,height);
  rt.addBool(Result);
  rt.addInt(width);
  rt.addInt(height);
@@ -16344,7 +16469,7 @@ case wxImageList_Remove: { // wxImageList::Remove
  wxImageList *This = (wxImageList *) getPtr(bp,memenv); bp += 4;
  int * index = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->Remove((int) *index);
+ bool Result = This->Remove(*index);
  rt.addBool(Result);
  break;
 }
@@ -16360,7 +16485,7 @@ case wxImageList_Replace_2: { // wxImageList::Replace
  int * index = (int *) bp; bp += 4;
  wxBitmap *bitmap = (wxBitmap *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->Replace((int) *index,*bitmap);
+ bool Result = This->Replace(*index,*bitmap);
  rt.addBool(Result);
  break;
 }
@@ -16370,7 +16495,7 @@ case wxImageList_Replace_3: { // wxImageList::Replace
  wxBitmap *bitmap = (wxBitmap *) getPtr(bp,memenv); bp += 4;
  wxBitmap *mask = (wxBitmap *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->Replace((int) *index,*bitmap,*mask);
+ bool Result = This->Replace(*index,*bitmap,*mask);
  rt.addBool(Result);
  break;
 }
@@ -16405,7 +16530,7 @@ font = (wxFont *) getPtr(bp,memenv); bp += 4;
 alignment = *(wxTextAttrAlignment *) bp; bp += 4;;
   } break;
  }};
- wxTextAttr * Result = new wxTextAttr(colText,colBack,*font,(wxTextAttrAlignment) alignment);
+ wxTextAttr * Result = new wxTextAttr(colText,colBack,*font,alignment);
  newPtr((void *) Result, 103, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxTextAttr");
  break;
@@ -16427,7 +16552,7 @@ case wxTextAttr_GetBackgroundColour: { // wxTextAttr::GetBackgroundColour
 case wxTextAttr_GetFont: { // wxTextAttr::GetFont
  wxTextAttr *This = (wxTextAttr *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- const wxFont * Result = &This->GetFont();
+ const wxFont * Result = new EwxFont(This->GetFont()); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxFont");
  break;
 }
@@ -16505,7 +16630,7 @@ case wxTextAttr_SetAlignment: { // wxTextAttr::SetAlignment
  wxTextAttr *This = (wxTextAttr *) getPtr(bp,memenv); bp += 4;
  wxTextAttrAlignment alignment = *(wxTextAttrAlignment *) bp; bp += 4;;
  if(!This) throw wxe_badarg(0);
- This->SetAlignment((wxTextAttrAlignment) alignment);
+ This->SetAlignment(alignment);
  break;
 }
 case wxTextAttr_SetBackgroundColour: { // wxTextAttr::SetBackgroundColour
@@ -16523,7 +16648,7 @@ case wxTextAttr_SetFlags: { // wxTextAttr::SetFlags
  wxTextAttr *This = (wxTextAttr *) getPtr(bp,memenv); bp += 4;
  int * flags = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetFlags((long) *flags);
+ This->SetFlags(*flags);
  break;
 }
 case wxTextAttr_SetFont: { // wxTextAttr::SetFont
@@ -16549,14 +16674,14 @@ case wxTextAttr_SetLeftIndent: { // wxTextAttr::SetLeftIndent
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->SetLeftIndent((int) *indent,subIndent);
+ This->SetLeftIndent(*indent,subIndent);
  break;
 }
 case wxTextAttr_SetRightIndent: { // wxTextAttr::SetRightIndent
  wxTextAttr *This = (wxTextAttr *) getPtr(bp,memenv); bp += 4;
  int * indent = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetRightIndent((int) *indent);
+ This->SetRightIndent(*indent);
  break;
 }
 case wxTextAttr_SetTabs: { // wxTextAttr::SetTabs
@@ -16619,7 +16744,7 @@ case wxTextCtrl_new_3: { // wxTextCtrl::wxTextCtrl
 validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
- wxTextCtrl * Result = new EwxTextCtrl(parent,(wxWindowID) *id,value,pos,size,style,*validator);
+ wxTextCtrl * Result = new EwxTextCtrl(parent,*id,value,pos,size,style,*validator);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxTextCtrl");
  break;
@@ -16722,7 +16847,7 @@ validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(parent,(wxWindowID) *id,value,pos,size,style,*validator);
+ bool Result = This->Create(parent,*id,value,pos,size,style,*validator);
  rt.addBool(Result);
  break;
 }
@@ -16736,6 +16861,15 @@ case wxTextCtrl_DiscardEdits: { // wxTextCtrl::DiscardEdits
  wxTextCtrl *This = (wxTextCtrl *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
  This->DiscardEdits();
+ break;
+}
+case wxTextCtrl_ChangeValue: { // wxTextCtrl::ChangeValue
+ wxTextCtrl *This = (wxTextCtrl *) getPtr(bp,memenv); bp += 4;
+ int * valueLen = (int *) bp; bp += 4;
+ wxString value = wxString(bp, wxConvUTF8);
+ bp += *valueLen+((8-((0+ *valueLen) & 7)) & 7);
+ if(!This) throw wxe_badarg(0);
+ This->ChangeValue(value);
  break;
 }
 case wxTextCtrl_EmulateKeyPress: { // wxTextCtrl::EmulateKeyPress
@@ -16771,7 +16905,7 @@ case wxTextCtrl_GetLineLength: { // wxTextCtrl::GetLineLength
  wxTextCtrl *This = (wxTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * lineNo = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->GetLineLength((long) *lineNo);
+ int Result = This->GetLineLength(*lineNo);
  rt.addInt(Result);
  break;
 }
@@ -16779,7 +16913,7 @@ case wxTextCtrl_GetLineText: { // wxTextCtrl::GetLineText
  wxTextCtrl *This = (wxTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * lineNo = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxString Result = This->GetLineText((long) *lineNo);
+ wxString Result = This->GetLineText(*lineNo);
  rt.add(Result);
  break;
 }
@@ -16795,7 +16929,7 @@ case wxTextCtrl_GetRange: { // wxTextCtrl::GetRange
  int * from = (int *) bp; bp += 4;
  int * to = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxString Result = This->GetRange((long) *from,(long) *to);
+ wxString Result = This->GetRange(*from,*to);
  rt.add(Result);
  break;
 }
@@ -16822,7 +16956,7 @@ case wxTextCtrl_GetStyle: { // wxTextCtrl::GetStyle
  int * position = (int *) bp; bp += 4;
  wxTextAttr *style = (wxTextAttr *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->GetStyle((long) *position,*style);
+ bool Result = This->GetStyle(*position,*style);
  rt.addBool(Result);
  break;
 }
@@ -16895,7 +17029,7 @@ case wxTextCtrl_PositionToXY: { // wxTextCtrl::PositionToXY
  wxTextCtrl *This = (wxTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * pos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->PositionToXY((long) *pos,&x,&y);
+ bool Result = This->PositionToXY(*pos,&x,&y);
  rt.addBool(Result);
  rt.addInt(x);
  rt.addInt(y);
@@ -16913,7 +17047,7 @@ case wxTextCtrl_Remove: { // wxTextCtrl::Remove
  int * from = (int *) bp; bp += 4;
  int * to = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->Remove((long) *from,(long) *to);
+ This->Remove(*from,*to);
  break;
 }
 case wxTextCtrl_Replace: { // wxTextCtrl::Replace
@@ -16924,7 +17058,7 @@ case wxTextCtrl_Replace: { // wxTextCtrl::Replace
  wxString value = wxString(bp, wxConvUTF8);
  bp += *valueLen+((8-((0+ *valueLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- This->Replace((long) *from,(long) *to,value);
+ This->Replace(*from,*to,value);
  break;
 }
 case wxTextCtrl_SaveFile: { // wxTextCtrl::SaveFile
@@ -16959,14 +17093,14 @@ case wxTextCtrl_SetEditable: { // wxTextCtrl::SetEditable
  wxTextCtrl *This = (wxTextCtrl *) getPtr(bp,memenv); bp += 4;
  bool * editable = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetEditable((bool) *editable);
+ This->SetEditable(*editable);
  break;
 }
 case wxTextCtrl_SetInsertionPoint: { // wxTextCtrl::SetInsertionPoint
  wxTextCtrl *This = (wxTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * pos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetInsertionPoint((long) *pos);
+ This->SetInsertionPoint(*pos);
  break;
 }
 case wxTextCtrl_SetInsertionPointEnd: { // wxTextCtrl::SetInsertionPointEnd
@@ -16979,7 +17113,7 @@ case wxTextCtrl_SetMaxLength: { // wxTextCtrl::SetMaxLength
  wxTextCtrl *This = (wxTextCtrl *) getPtr(bp,memenv); bp += 4;
  unsigned int * len = (unsigned int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetMaxLength((long) *len);
+ This->SetMaxLength(*len);
  break;
 }
 case wxTextCtrl_SetSelection: { // wxTextCtrl::SetSelection
@@ -16987,7 +17121,7 @@ case wxTextCtrl_SetSelection: { // wxTextCtrl::SetSelection
  int * from = (int *) bp; bp += 4;
  int * to = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetSelection((long) *from,(long) *to);
+ This->SetSelection(*from,*to);
  break;
 }
 case wxTextCtrl_SetStyle: { // wxTextCtrl::SetStyle
@@ -16996,7 +17130,7 @@ case wxTextCtrl_SetStyle: { // wxTextCtrl::SetStyle
  int * end = (int *) bp; bp += 4;
  wxTextAttr *style = (wxTextAttr *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->SetStyle((long) *start,(long) *end,*style);
+ bool Result = This->SetStyle(*start,*end,*style);
  rt.addBool(Result);
  break;
 }
@@ -17013,7 +17147,7 @@ case wxTextCtrl_ShowPosition: { // wxTextCtrl::ShowPosition
  wxTextCtrl *This = (wxTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * pos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->ShowPosition((long) *pos);
+ This->ShowPosition(*pos);
  break;
 }
 case wxTextCtrl_Undo: { // wxTextCtrl::Undo
@@ -17036,7 +17170,7 @@ case wxTextCtrl_XYToPosition: { // wxTextCtrl::XYToPosition
  int * x = (int *) bp; bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- long Result = This->XYToPosition((long) *x,(long) *y);
+ long Result = This->XYToPosition(*x,*y);
  rt.addInt(Result);
  break;
 }
@@ -17069,7 +17203,7 @@ case wxNotebook_new_3: { // wxNotebook::wxNotebook
  style = (long)*(int *) bp; bp += 4;
   } break;
  }};
- wxNotebook * Result = new EwxNotebook(parent,(wxWindowID) *winid,pos,size,style);
+ wxNotebook * Result = new EwxNotebook(parent,*winid,pos,size,style);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxNotebook");
  break;
@@ -17141,7 +17275,7 @@ case wxNotebook_Create: { // wxNotebook::Create
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(parent,(wxWindowID) *id,pos,size,style);
+ bool Result = This->Create(parent,*id,pos,size,style);
  rt.addBool(Result);
  break;
 }
@@ -17156,7 +17290,7 @@ case wxNotebook_DeletePage: { // wxNotebook::DeletePage
  wxNotebook *This = (wxNotebook *) getPtr(bp,memenv); bp += 4;
  int * nPage = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->DeletePage((size_t) *nPage);
+ bool Result = This->DeletePage(*nPage);
  rt.addBool(Result);
  break;
 }
@@ -17164,7 +17298,7 @@ case wxNotebook_RemovePage: { // wxNotebook::RemovePage
  wxNotebook *This = (wxNotebook *) getPtr(bp,memenv); bp += 4;
  int * nPage = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->RemovePage((size_t) *nPage);
+ bool Result = This->RemovePage(*nPage);
  rt.addBool(Result);
  break;
 }
@@ -17186,7 +17320,7 @@ case wxNotebook_GetPage: { // wxNotebook::GetPage
  wxNotebook *This = (wxNotebook *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxWindow * Result = (wxWindow*)This->GetPage((size_t) *n);
+ wxWindow * Result = (wxWindow*)This->GetPage(*n);
  rt.addRef(getRef((void *)Result,memenv), "wxWindow");
  break;
 }
@@ -17201,7 +17335,7 @@ case wxNotebook_GetPageImage: { // wxNotebook::GetPageImage
  wxNotebook *This = (wxNotebook *) getPtr(bp,memenv); bp += 4;
  int * nPage = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->GetPageImage((size_t) *nPage);
+ int Result = This->GetPageImage(*nPage);
  rt.addInt(Result);
  break;
 }
@@ -17209,7 +17343,7 @@ case wxNotebook_GetPageText: { // wxNotebook::GetPageText
  wxNotebook *This = (wxNotebook *) getPtr(bp,memenv); bp += 4;
  int * nPage = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxString Result = This->GetPageText((size_t) *nPage);
+ wxString Result = This->GetPageText(*nPage);
  rt.add(Result);
  break;
 }
@@ -17265,7 +17399,7 @@ case wxNotebook_InsertPage: { // wxNotebook::InsertPage
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->InsertPage((size_t) *position,win,strText,bSelect,imageId);
+ bool Result = This->InsertPage(*position,win,strText,bSelect,imageId);
  rt.addBool(Result);
  break;
 }
@@ -17299,7 +17433,7 @@ case wxNotebook_SetPageImage: { // wxNotebook::SetPageImage
  int * nPage = (int *) bp; bp += 4;
  int * nImage = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->SetPageImage((size_t) *nPage,(int) *nImage);
+ bool Result = This->SetPageImage(*nPage,*nImage);
  rt.addBool(Result);
  break;
 }
@@ -17310,7 +17444,7 @@ case wxNotebook_SetPageText: { // wxNotebook::SetPageText
  wxString strText = wxString(bp, wxConvUTF8);
  bp += *strTextLen+((8-((4+ *strTextLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- bool Result = This->SetPageText((size_t) *nPage,strText);
+ bool Result = This->SetPageText(*nPage,strText);
  rt.addBool(Result);
  break;
 }
@@ -17318,7 +17452,7 @@ case wxNotebook_SetSelection: { // wxNotebook::SetSelection
  wxNotebook *This = (wxNotebook *) getPtr(bp,memenv); bp += 4;
  int * nPage = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->SetSelection((size_t) *nPage);
+ int Result = This->SetSelection(*nPage);
  rt.addInt(Result);
  break;
 }
@@ -17326,7 +17460,7 @@ case wxNotebook_ChangeSelection: { // wxNotebook::ChangeSelection
  wxNotebook *This = (wxNotebook *) getPtr(bp,memenv); bp += 4;
  int * nPage = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->ChangeSelection((size_t) *nPage);
+ int Result = This->ChangeSelection(*nPage);
  rt.addInt(Result);
  break;
 }
@@ -17359,7 +17493,7 @@ case wxChoicebook_new_3: { // wxChoicebook::wxChoicebook
  style = (long)*(int *) bp; bp += 4;
   } break;
  }};
- wxChoicebook * Result = new EwxChoicebook(parent,(wxWindowID) *id,pos,size,style);
+ wxChoicebook * Result = new EwxChoicebook(parent,*id,pos,size,style);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxChoicebook");
  break;
@@ -17431,7 +17565,7 @@ case wxChoicebook_Create: { // wxChoicebook::Create
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(parent,(wxWindowID) *id,pos,size,style);
+ bool Result = This->Create(parent,*id,pos,size,style);
  rt.addBool(Result);
  break;
 }
@@ -17446,7 +17580,7 @@ case wxChoicebook_DeletePage: { // wxChoicebook::DeletePage
  wxChoicebook *This = (wxChoicebook *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->DeletePage((size_t) *n);
+ bool Result = This->DeletePage(*n);
  rt.addBool(Result);
  break;
 }
@@ -17454,7 +17588,7 @@ case wxChoicebook_RemovePage: { // wxChoicebook::RemovePage
  wxChoicebook *This = (wxChoicebook *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->RemovePage((size_t) *n);
+ bool Result = This->RemovePage(*n);
  rt.addBool(Result);
  break;
 }
@@ -17476,7 +17610,7 @@ case wxChoicebook_GetPage: { // wxChoicebook::GetPage
  wxChoicebook *This = (wxChoicebook *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxWindow * Result = (wxWindow*)This->GetPage((size_t) *n);
+ wxWindow * Result = (wxWindow*)This->GetPage(*n);
  rt.addRef(getRef((void *)Result,memenv), "wxWindow");
  break;
 }
@@ -17491,7 +17625,7 @@ case wxChoicebook_GetPageImage: { // wxChoicebook::GetPageImage
  wxChoicebook *This = (wxChoicebook *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->GetPageImage((size_t) *n);
+ int Result = This->GetPageImage(*n);
  rt.addInt(Result);
  break;
 }
@@ -17499,7 +17633,7 @@ case wxChoicebook_GetPageText: { // wxChoicebook::GetPageText
  wxChoicebook *This = (wxChoicebook *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxString Result = This->GetPageText((size_t) *n);
+ wxString Result = This->GetPageText(*n);
  rt.add(Result);
  break;
 }
@@ -17541,7 +17675,7 @@ case wxChoicebook_InsertPage: { // wxChoicebook::InsertPage
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->InsertPage((size_t) *n,page,text,bSelect,imageId);
+ bool Result = This->InsertPage(*n,page,text,bSelect,imageId);
  rt.addBool(Result);
  break;
 }
@@ -17566,7 +17700,7 @@ case wxChoicebook_SetPageImage: { // wxChoicebook::SetPageImage
  int * n = (int *) bp; bp += 4;
  int * imageId = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->SetPageImage((size_t) *n,(int) *imageId);
+ bool Result = This->SetPageImage(*n,*imageId);
  rt.addBool(Result);
  break;
 }
@@ -17577,7 +17711,7 @@ case wxChoicebook_SetPageText: { // wxChoicebook::SetPageText
  wxString strText = wxString(bp, wxConvUTF8);
  bp += *strTextLen+((8-((4+ *strTextLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- bool Result = This->SetPageText((size_t) *n,strText);
+ bool Result = This->SetPageText(*n,strText);
  rt.addBool(Result);
  break;
 }
@@ -17585,7 +17719,7 @@ case wxChoicebook_SetSelection: { // wxChoicebook::SetSelection
  wxChoicebook *This = (wxChoicebook *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->SetSelection((size_t) *n);
+ int Result = This->SetSelection(*n);
  rt.addInt(Result);
  break;
 }
@@ -17593,7 +17727,7 @@ case wxChoicebook_ChangeSelection: { // wxChoicebook::ChangeSelection
  wxChoicebook *This = (wxChoicebook *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->ChangeSelection((size_t) *n);
+ int Result = This->ChangeSelection(*n);
  rt.addInt(Result);
  break;
 }
@@ -17626,7 +17760,7 @@ case wxToolbook_new_3: { // wxToolbook::wxToolbook
  style = (long)*(int *) bp; bp += 4;
   } break;
  }};
- wxToolbook * Result = new EwxToolbook(parent,(wxWindowID) *id,pos,size,style);
+ wxToolbook * Result = new EwxToolbook(parent,*id,pos,size,style);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxToolbook");
  break;
@@ -17698,7 +17832,7 @@ case wxToolbook_Create: { // wxToolbook::Create
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(parent,(wxWindowID) *id,pos,size,style);
+ bool Result = This->Create(parent,*id,pos,size,style);
  rt.addBool(Result);
  break;
 }
@@ -17713,7 +17847,7 @@ case wxToolbook_DeletePage: { // wxToolbook::DeletePage
  wxToolbook *This = (wxToolbook *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->DeletePage((size_t) *n);
+ bool Result = This->DeletePage(*n);
  rt.addBool(Result);
  break;
 }
@@ -17721,7 +17855,7 @@ case wxToolbook_RemovePage: { // wxToolbook::RemovePage
  wxToolbook *This = (wxToolbook *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->RemovePage((size_t) *n);
+ bool Result = This->RemovePage(*n);
  rt.addBool(Result);
  break;
 }
@@ -17743,7 +17877,7 @@ case wxToolbook_GetPage: { // wxToolbook::GetPage
  wxToolbook *This = (wxToolbook *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxWindow * Result = (wxWindow*)This->GetPage((size_t) *n);
+ wxWindow * Result = (wxWindow*)This->GetPage(*n);
  rt.addRef(getRef((void *)Result,memenv), "wxWindow");
  break;
 }
@@ -17758,7 +17892,7 @@ case wxToolbook_GetPageImage: { // wxToolbook::GetPageImage
  wxToolbook *This = (wxToolbook *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->GetPageImage((size_t) *n);
+ int Result = This->GetPageImage(*n);
  rt.addInt(Result);
  break;
 }
@@ -17766,7 +17900,7 @@ case wxToolbook_GetPageText: { // wxToolbook::GetPageText
  wxToolbook *This = (wxToolbook *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxString Result = This->GetPageText((size_t) *n);
+ wxString Result = This->GetPageText(*n);
  rt.add(Result);
  break;
 }
@@ -17808,7 +17942,7 @@ case wxToolbook_InsertPage: { // wxToolbook::InsertPage
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->InsertPage((size_t) *n,page,text,bSelect,imageId);
+ bool Result = This->InsertPage(*n,page,text,bSelect,imageId);
  rt.addBool(Result);
  break;
 }
@@ -17833,7 +17967,7 @@ case wxToolbook_SetPageImage: { // wxToolbook::SetPageImage
  int * n = (int *) bp; bp += 4;
  int * imageId = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->SetPageImage((size_t) *n,(int) *imageId);
+ bool Result = This->SetPageImage(*n,*imageId);
  rt.addBool(Result);
  break;
 }
@@ -17844,7 +17978,7 @@ case wxToolbook_SetPageText: { // wxToolbook::SetPageText
  wxString strText = wxString(bp, wxConvUTF8);
  bp += *strTextLen+((8-((4+ *strTextLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- bool Result = This->SetPageText((size_t) *n,strText);
+ bool Result = This->SetPageText(*n,strText);
  rt.addBool(Result);
  break;
 }
@@ -17852,7 +17986,7 @@ case wxToolbook_SetSelection: { // wxToolbook::SetSelection
  wxToolbook *This = (wxToolbook *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->SetSelection((size_t) *n);
+ int Result = This->SetSelection(*n);
  rt.addInt(Result);
  break;
 }
@@ -17860,7 +17994,7 @@ case wxToolbook_ChangeSelection: { // wxToolbook::ChangeSelection
  wxToolbook *This = (wxToolbook *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->ChangeSelection((size_t) *n);
+ int Result = This->ChangeSelection(*n);
  rt.addInt(Result);
  break;
 }
@@ -17893,7 +18027,7 @@ case wxListbook_new_3: { // wxListbook::wxListbook
  style = (long)*(int *) bp; bp += 4;
   } break;
  }};
- wxListbook * Result = new EwxListbook(parent,(wxWindowID) *id,pos,size,style);
+ wxListbook * Result = new EwxListbook(parent,*id,pos,size,style);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxListbook");
  break;
@@ -17965,7 +18099,7 @@ case wxListbook_Create: { // wxListbook::Create
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(parent,(wxWindowID) *id,pos,size,style);
+ bool Result = This->Create(parent,*id,pos,size,style);
  rt.addBool(Result);
  break;
 }
@@ -17980,7 +18114,7 @@ case wxListbook_DeletePage: { // wxListbook::DeletePage
  wxListbook *This = (wxListbook *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->DeletePage((size_t) *n);
+ bool Result = This->DeletePage(*n);
  rt.addBool(Result);
  break;
 }
@@ -17988,7 +18122,7 @@ case wxListbook_RemovePage: { // wxListbook::RemovePage
  wxListbook *This = (wxListbook *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->RemovePage((size_t) *n);
+ bool Result = This->RemovePage(*n);
  rt.addBool(Result);
  break;
 }
@@ -18010,7 +18144,7 @@ case wxListbook_GetPage: { // wxListbook::GetPage
  wxListbook *This = (wxListbook *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxWindow * Result = (wxWindow*)This->GetPage((size_t) *n);
+ wxWindow * Result = (wxWindow*)This->GetPage(*n);
  rt.addRef(getRef((void *)Result,memenv), "wxWindow");
  break;
 }
@@ -18025,7 +18159,7 @@ case wxListbook_GetPageImage: { // wxListbook::GetPageImage
  wxListbook *This = (wxListbook *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->GetPageImage((size_t) *n);
+ int Result = This->GetPageImage(*n);
  rt.addInt(Result);
  break;
 }
@@ -18033,7 +18167,7 @@ case wxListbook_GetPageText: { // wxListbook::GetPageText
  wxListbook *This = (wxListbook *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxString Result = This->GetPageText((size_t) *n);
+ wxString Result = This->GetPageText(*n);
  rt.add(Result);
  break;
 }
@@ -18075,7 +18209,7 @@ case wxListbook_InsertPage: { // wxListbook::InsertPage
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->InsertPage((size_t) *n,page,text,bSelect,imageId);
+ bool Result = This->InsertPage(*n,page,text,bSelect,imageId);
  rt.addBool(Result);
  break;
 }
@@ -18100,7 +18234,7 @@ case wxListbook_SetPageImage: { // wxListbook::SetPageImage
  int * n = (int *) bp; bp += 4;
  int * imageId = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->SetPageImage((size_t) *n,(int) *imageId);
+ bool Result = This->SetPageImage(*n,*imageId);
  rt.addBool(Result);
  break;
 }
@@ -18111,7 +18245,7 @@ case wxListbook_SetPageText: { // wxListbook::SetPageText
  wxString strText = wxString(bp, wxConvUTF8);
  bp += *strTextLen+((8-((4+ *strTextLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- bool Result = This->SetPageText((size_t) *n,strText);
+ bool Result = This->SetPageText(*n,strText);
  rt.addBool(Result);
  break;
 }
@@ -18119,7 +18253,7 @@ case wxListbook_SetSelection: { // wxListbook::SetSelection
  wxListbook *This = (wxListbook *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->SetSelection((size_t) *n);
+ int Result = This->SetSelection(*n);
  rt.addInt(Result);
  break;
 }
@@ -18127,7 +18261,7 @@ case wxListbook_ChangeSelection: { // wxListbook::ChangeSelection
  wxListbook *This = (wxListbook *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->ChangeSelection((size_t) *n);
+ int Result = This->ChangeSelection(*n);
  rt.addInt(Result);
  break;
 }
@@ -18160,7 +18294,7 @@ case wxTreebook_new_3: { // wxTreebook::wxTreebook
  style = (long)*(int *) bp; bp += 4;
   } break;
  }};
- wxTreebook * Result = new EwxTreebook(parent,(wxWindowID) *id,pos,size,style);
+ wxTreebook * Result = new EwxTreebook(parent,*id,pos,size,style);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxTreebook");
  break;
@@ -18232,7 +18366,7 @@ case wxTreebook_Create: { // wxTreebook::Create
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(parent,(wxWindowID) *id,pos,size,style);
+ bool Result = This->Create(parent,*id,pos,size,style);
  rt.addBool(Result);
  break;
 }
@@ -18247,7 +18381,7 @@ case wxTreebook_DeletePage: { // wxTreebook::DeletePage
  wxTreebook *This = (wxTreebook *) getPtr(bp,memenv); bp += 4;
  int * pos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->DeletePage((size_t) *pos);
+ bool Result = This->DeletePage(*pos);
  rt.addBool(Result);
  break;
 }
@@ -18255,7 +18389,7 @@ case wxTreebook_RemovePage: { // wxTreebook::RemovePage
  wxTreebook *This = (wxTreebook *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->RemovePage((size_t) *n);
+ bool Result = This->RemovePage(*n);
  rt.addBool(Result);
  break;
 }
@@ -18277,7 +18411,7 @@ case wxTreebook_GetPage: { // wxTreebook::GetPage
  wxTreebook *This = (wxTreebook *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxWindow * Result = (wxWindow*)This->GetPage((size_t) *n);
+ wxWindow * Result = (wxWindow*)This->GetPage(*n);
  rt.addRef(getRef((void *)Result,memenv), "wxWindow");
  break;
 }
@@ -18292,7 +18426,7 @@ case wxTreebook_GetPageImage: { // wxTreebook::GetPageImage
  wxTreebook *This = (wxTreebook *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->GetPageImage((size_t) *n);
+ int Result = This->GetPageImage(*n);
  rt.addInt(Result);
  break;
 }
@@ -18300,7 +18434,7 @@ case wxTreebook_GetPageText: { // wxTreebook::GetPageText
  wxTreebook *This = (wxTreebook *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxString Result = This->GetPageText((size_t) *n);
+ wxString Result = This->GetPageText(*n);
  rt.add(Result);
  break;
 }
@@ -18321,7 +18455,7 @@ case wxTreebook_ExpandNode: { // wxTreebook::ExpandNode
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->ExpandNode((size_t) *pos,expand);
+ bool Result = This->ExpandNode(*pos,expand);
  rt.addBool(Result);
  break;
 }
@@ -18329,7 +18463,7 @@ case wxTreebook_IsNodeExpanded: { // wxTreebook::IsNodeExpanded
  wxTreebook *This = (wxTreebook *) getPtr(bp,memenv); bp += 4;
  int * pos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->IsNodeExpanded((size_t) *pos);
+ bool Result = This->IsNodeExpanded(*pos);
  rt.addBool(Result);
  break;
 }
@@ -18364,7 +18498,7 @@ case wxTreebook_InsertPage: { // wxTreebook::InsertPage
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->InsertPage((size_t) *pos,page,text,bSelect,imageId);
+ bool Result = This->InsertPage(*pos,page,text,bSelect,imageId);
  rt.addBool(Result);
  break;
 }
@@ -18386,7 +18520,7 @@ case wxTreebook_InsertSubPage: { // wxTreebook::InsertSubPage
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->InsertSubPage((size_t) *pos,page,text,bSelect,imageId);
+ bool Result = This->InsertSubPage(*pos,page,text,bSelect,imageId);
  rt.addBool(Result);
  break;
 }
@@ -18411,7 +18545,7 @@ case wxTreebook_SetPageImage: { // wxTreebook::SetPageImage
  int * n = (int *) bp; bp += 4;
  int * imageId = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->SetPageImage((size_t) *n,(int) *imageId);
+ bool Result = This->SetPageImage(*n,*imageId);
  rt.addBool(Result);
  break;
 }
@@ -18422,7 +18556,7 @@ case wxTreebook_SetPageText: { // wxTreebook::SetPageText
  wxString strText = wxString(bp, wxConvUTF8);
  bp += *strTextLen+((8-((4+ *strTextLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- bool Result = This->SetPageText((size_t) *n,strText);
+ bool Result = This->SetPageText(*n,strText);
  rt.addBool(Result);
  break;
 }
@@ -18430,7 +18564,7 @@ case wxTreebook_SetSelection: { // wxTreebook::SetSelection
  wxTreebook *This = (wxTreebook *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->SetSelection((size_t) *n);
+ int Result = This->SetSelection(*n);
  rt.addInt(Result);
  break;
 }
@@ -18438,7 +18572,7 @@ case wxTreebook_ChangeSelection: { // wxTreebook::ChangeSelection
  wxTreebook *This = (wxTreebook *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->ChangeSelection((size_t) *n);
+ int Result = This->ChangeSelection(*n);
  rt.addInt(Result);
  break;
 }
@@ -18500,7 +18634,7 @@ case wxTreeCtrl_AddRoot: { // wxTreeCtrl::AddRoot
  selectedImage = (int)*(int *) bp; bp += 4;
   } break;
   case 3: {bp += 4;
- data = new wxETreeItemData(Ecmd.bin[0]->size, Ecmd.bin[0]->base);
+ data = new wxETreeItemData(Ecmd.bin[0].size, Ecmd.bin[0].base);
  bp += 4; /* Align */
   } break;
  }};
@@ -18527,7 +18661,7 @@ case wxTreeCtrl_AppendItem: { // wxTreeCtrl::AppendItem
  selectedImage = (int)*(int *) bp; bp += 4;
   } break;
   case 3: {bp += 4;
- data = new wxETreeItemData(Ecmd.bin[0]->size, Ecmd.bin[0]->base);
+ data = new wxETreeItemData(Ecmd.bin[0].size, Ecmd.bin[0].base);
  bp += 4; /* Align */
   } break;
  }};
@@ -18650,15 +18784,11 @@ case wxTreeCtrl_Expand: { // wxTreeCtrl::Expand
  break;
 }
 case wxTreeCtrl_GetBoundingRect: { // wxTreeCtrl::GetBoundingRect
+ wxRect rect;
  bool textOnly=false;
  wxTreeCtrl *This = (wxTreeCtrl *) getPtr(bp,memenv); bp += 4;
  bp += 4; /* Align */
  wxTreeItemId item = wxTreeItemId((void *) *(wxUint64 *) bp); bp += 8;
- int * rectX = (int *) bp; bp += 4;
- int * rectY = (int *) bp; bp += 4;
- int * rectW = (int *) bp; bp += 4;
- int * rectH = (int *) bp; bp += 4;
- wxRect rect = wxRect(*rectX,*rectY,*rectW,*rectH);
  while( * (int*) bp) { switch (* (int*) bp) {
   case 1: {bp += 4;
  textOnly = *(bool *) bp; bp += 4;
@@ -18667,6 +18797,8 @@ case wxTreeCtrl_GetBoundingRect: { // wxTreeCtrl::GetBoundingRect
  if(!This) throw wxe_badarg(0);
  bool Result = This->GetBoundingRect(item,rect,textOnly);
  rt.addBool(Result);
+ rt.add(rect);
+ rt.addTupleCount(2);
  break;
 }
 case wxTreeCtrl_GetChildrenCount: { // wxTreeCtrl::GetChildrenCount
@@ -18766,7 +18898,7 @@ case wxTreeCtrl_GetItemFont: { // wxTreeCtrl::GetItemFont
  bp += 4; /* Align */
  wxTreeItemId item = wxTreeItemId((void *) *(wxUint64 *) bp); bp += 8;
  if(!This) throw wxe_badarg(0);
- wxFont * Result = new wxFont(This->GetItemFont(item)); newPtr((void *) Result,3, memenv);;
+ wxFont * Result = new EwxFont(This->GetItemFont(item)); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxFont");
  break;
 }
@@ -18790,7 +18922,7 @@ which = *(wxTreeItemIcon *) bp; bp += 4;;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- int Result = This->GetItemImage(item,(wxTreeItemIcon) which);
+ int Result = This->GetItemImage(item,which);
  rt.addInt(Result);
  break;
 }
@@ -18900,13 +19032,16 @@ case wxTreeCtrl_GetStateImageList: { // wxTreeCtrl::GetStateImageList
  break;
 }
 case wxTreeCtrl_HitTest: { // wxTreeCtrl::HitTest
+ int flags;
  wxTreeCtrl *This = (wxTreeCtrl *) getPtr(bp,memenv); bp += 4;
  int * pointX = (int *) bp; bp += 4;
  int * pointY = (int *) bp; bp += 4;
  wxPoint point = wxPoint(*pointX,*pointY);
  if(!This) throw wxe_badarg(0);
- wxTreeItemId Result = This->HitTest(point);
+ wxTreeItemId Result = This->HitTest(point,flags);
  rt.add((wxUIntPtr *) Result.m_pItem);
+ rt.addInt(flags);
+ rt.addTupleCount(2);
  break;
 }
 case wxTreeCtrl_InsertItem: { // wxTreeCtrl::InsertItem
@@ -18928,12 +19063,12 @@ case wxTreeCtrl_InsertItem: { // wxTreeCtrl::InsertItem
  selImage = (int)*(int *) bp; bp += 4;
   } break;
   case 3: {bp += 4;
- data = new wxETreeItemData(Ecmd.bin[0]->size, Ecmd.bin[0]->base);
+ data = new wxETreeItemData(Ecmd.bin[0].size, Ecmd.bin[0].base);
  bp += 4; /* Align */
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- wxTreeItemId Result = This->InsertItem(parent,(size_t) *pos,text,image,selImage,data);
+ wxTreeItemId Result = This->InsertItem(parent,*pos,text,image,selImage,data);
  rt.add((wxUIntPtr *) Result.m_pItem);
  break;
 }
@@ -18982,6 +19117,13 @@ case wxTreeCtrl_ItemHasChildren: { // wxTreeCtrl::ItemHasChildren
  rt.addBool(Result);
  break;
 }
+
+case wxTreeCtrl_IsTreeItemIdOk: { // wxTreeCtrl::IsTreeItemIdOk
+ wxTreeItemId item = wxTreeItemId((void *) *(wxUint64 *) bp); bp += 8;
+ bool Result = item.IsOk();
+ rt.addBool(Result);
+ break;
+}
 case wxTreeCtrl_PrependItem: { // wxTreeCtrl::PrependItem
  int image=-1;
  int selectedImage=-1;
@@ -19000,7 +19142,7 @@ case wxTreeCtrl_PrependItem: { // wxTreeCtrl::PrependItem
  selectedImage = (int)*(int *) bp; bp += 4;
   } break;
   case 3: {bp += 4;
- data = new wxETreeItemData(Ecmd.bin[0]->size, Ecmd.bin[0]->base);
+ data = new wxETreeItemData(Ecmd.bin[0].size, Ecmd.bin[0].base);
  bp += 4; /* Align */
   } break;
  }};
@@ -19043,7 +19185,7 @@ case wxTreeCtrl_SetIndent: { // wxTreeCtrl::SetIndent
  wxTreeCtrl *This = (wxTreeCtrl *) getPtr(bp,memenv); bp += 4;
  unsigned int * indent = (unsigned int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetIndent((int) *indent);
+ This->SetIndent(*indent);
  break;
 }
 case wxTreeCtrl_SetImageList: { // wxTreeCtrl::SetImageList
@@ -19084,7 +19226,7 @@ case wxTreeCtrl_SetItemData: { // wxTreeCtrl::SetItemData
  wxTreeCtrl *This = (wxTreeCtrl *) getPtr(bp,memenv); bp += 4;
  bp += 4; /* Align */
  wxTreeItemId item = wxTreeItemId((void *) *(wxUint64 *) bp); bp += 8;
- wxETreeItemData * data =  new wxETreeItemData(Ecmd.bin[0]->size, Ecmd.bin[0]->base);
+ wxETreeItemData * data =  new wxETreeItemData(Ecmd.bin[0].size, Ecmd.bin[0].base);
  if(!This) throw wxe_badarg(0);
  This->SetItemData(item,data);
  break;
@@ -19132,7 +19274,7 @@ case wxTreeCtrl_SetItemImage_2: { // wxTreeCtrl::SetItemImage
  wxTreeItemId item = wxTreeItemId((void *) *(wxUint64 *) bp); bp += 8;
  int * image = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetItemImage(item,(int) *image);
+ This->SetItemImage(item,*image);
  break;
 }
 case wxTreeCtrl_SetItemImage_3: { // wxTreeCtrl::SetItemImage
@@ -19148,7 +19290,7 @@ which = *(wxTreeItemIcon *) bp; bp += 4;;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->SetItemImage(item,(int) *image,(wxTreeItemIcon) which);
+ This->SetItemImage(item,*image,which);
  break;
 }
 case wxTreeCtrl_SetItemText: { // wxTreeCtrl::SetItemText
@@ -19186,7 +19328,7 @@ case wxTreeCtrl_SetWindowStyle: { // wxTreeCtrl::SetWindowStyle
  wxTreeCtrl *This = (wxTreeCtrl *) getPtr(bp,memenv); bp += 4;
  const int * styles = (const int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetWindowStyle((long) *styles);
+ This->SetWindowStyle(*styles);
  break;
 }
 case wxTreeCtrl_SortChildren: { // wxTreeCtrl::SortChildren
@@ -19266,7 +19408,7 @@ case wxScrollBar_new_3: { // wxScrollBar::wxScrollBar
 validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
- wxScrollBar * Result = new EwxScrollBar(parent,(wxWindowID) *id,pos,size,style,*validator);
+ wxScrollBar * Result = new EwxScrollBar(parent,*id,pos,size,style,*validator);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxScrollBar");
  break;
@@ -19301,7 +19443,7 @@ validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(parent,(wxWindowID) *id,pos,size,style,*validator);
+ bool Result = This->Create(parent,*id,pos,size,style,*validator);
  rt.addBool(Result);
  break;
 }
@@ -19337,7 +19479,7 @@ case wxScrollBar_SetThumbPosition: { // wxScrollBar::SetThumbPosition
  wxScrollBar *This = (wxScrollBar *) getPtr(bp,memenv); bp += 4;
  int * viewStart = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetThumbPosition((int) *viewStart);
+ This->SetThumbPosition(*viewStart);
  break;
 }
 case wxScrollBar_SetScrollbar: { // wxScrollBar::SetScrollbar
@@ -19354,7 +19496,7 @@ case wxScrollBar_SetScrollbar: { // wxScrollBar::SetScrollbar
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->SetScrollbar((int) *position,(int) *thumbSize,(int) *range,(int) *pageSize,refresh);
+ This->SetScrollbar(*position,*thumbSize,*range,*pageSize,refresh);
  break;
 }
 case wxSpinButton_new_2: { // wxSpinButton::wxSpinButton
@@ -19453,14 +19595,14 @@ case wxSpinButton_SetRange: { // wxSpinButton::SetRange
  int * minVal = (int *) bp; bp += 4;
  int * maxVal = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetRange((int) *minVal,(int) *maxVal);
+ This->SetRange(*minVal,*maxVal);
  break;
 }
 case wxSpinButton_SetValue: { // wxSpinButton::SetValue
  wxSpinButton *This = (wxSpinButton *) getPtr(bp,memenv); bp += 4;
  int * value = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetValue((int) *value);
+ This->SetValue(*value);
  break;
 }
 case wxSpinCtrl_new_0: { // wxSpinCtrl::wxSpinCtrl
@@ -19582,7 +19724,7 @@ case wxSpinCtrl_SetValue_1_0: { // wxSpinCtrl::SetValue
  wxSpinCtrl *This = (wxSpinCtrl *) getPtr(bp,memenv); bp += 4;
  int * value = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetValue((int) *value);
+ This->SetValue(*value);
  break;
 }
 case wxSpinCtrl_GetValue: { // wxSpinCtrl::GetValue
@@ -19597,7 +19739,7 @@ case wxSpinCtrl_SetRange: { // wxSpinCtrl::SetRange
  int * minVal = (int *) bp; bp += 4;
  int * maxVal = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetRange((int) *minVal,(int) *maxVal);
+ This->SetRange(*minVal,*maxVal);
  break;
 }
 case wxSpinCtrl_SetSelection: { // wxSpinCtrl::SetSelection
@@ -19605,7 +19747,7 @@ case wxSpinCtrl_SetSelection: { // wxSpinCtrl::SetSelection
  int * from = (int *) bp; bp += 4;
  int * to = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetSelection((long) *from,(long) *to);
+ This->SetSelection(*from,*to);
  break;
 }
 case wxSpinCtrl_GetMin: { // wxSpinCtrl::GetMin
@@ -19654,7 +19796,7 @@ case wxStaticText_new_4: { // wxStaticText::wxStaticText
  style = (long)*(int *) bp; bp += 4;
   } break;
  }};
- wxStaticText * Result = new EwxStaticText(parent,(wxWindowID) *id,label,pos,size,style);
+ wxStaticText * Result = new EwxStaticText(parent,*id,label,pos,size,style);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxStaticText");
  break;
@@ -19687,7 +19829,7 @@ case wxStaticText_Create: { // wxStaticText::Create
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(parent,(wxWindowID) *id,label,pos,size,style);
+ bool Result = This->Create(parent,*id,label,pos,size,style);
  rt.addBool(Result);
  break;
 }
@@ -19711,7 +19853,7 @@ case wxStaticText_Wrap: { // wxStaticText::Wrap
  wxStaticText *This = (wxStaticText *) getPtr(bp,memenv); bp += 4;
  int * width = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->Wrap((int) *width);
+ This->Wrap(*width);
  break;
 }
 case wxStaticBitmap_new_0: { // wxStaticBitmap::wxStaticBitmap
@@ -19745,7 +19887,7 @@ case wxStaticBitmap_new_4: { // wxStaticBitmap::wxStaticBitmap
  style = (long)*(int *) bp; bp += 4;
   } break;
  }};
- wxStaticBitmap * Result = new EwxStaticBitmap(parent,(wxWindowID) *id,*label,pos,size,style);
+ wxStaticBitmap * Result = new EwxStaticBitmap(parent,*id,*label,pos,size,style);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxStaticBitmap");
  break;
@@ -19776,14 +19918,14 @@ case wxStaticBitmap_Create: { // wxStaticBitmap::Create
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(parent,(wxWindowID) *id,*label,pos,size,style);
+ bool Result = This->Create(parent,*id,*label,pos,size,style);
  rt.addBool(Result);
  break;
 }
 case wxStaticBitmap_GetBitmap: { // wxStaticBitmap::GetBitmap
  wxStaticBitmap *This = (wxStaticBitmap *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- wxBitmap * Result = new wxBitmap(This->GetBitmap()); newPtr((void *) Result,3, memenv);;
+ wxBitmap * Result = new EwxBitmap(This->GetBitmap()); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxBitmap");
  break;
 }
@@ -19830,7 +19972,7 @@ case wxRadioBox_new: { // wxRadioBox::wxRadioBox
 val = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
- wxRadioBox * Result = new EwxRadioBox(parent,(wxWindowID) *id,title,pos,size,choices,majorDim,style,*val);
+ wxRadioBox * Result = new EwxRadioBox(parent,*id,title,pos,size,choices,majorDim,style,*val);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxRadioBox");
  break;
@@ -19873,7 +20015,7 @@ val = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(parent,(wxWindowID) *id,title,pos,size,choices,majorDim,style,*val);
+ bool Result = This->Create(parent,*id,title,pos,size,choices,majorDim,style,*val);
  rt.addBool(Result);
  break;
 }
@@ -19887,7 +20029,7 @@ case wxRadioBox_Enable_2: { // wxRadioBox::Enable
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Enable((int) *n,enable);
+ bool Result = This->Enable(*n,enable);
  rt.addBool(Result);
  break;
 }
@@ -19916,7 +20058,7 @@ case wxRadioBox_GetString: { // wxRadioBox::GetString
  wxRadioBox *This = (wxRadioBox *) getPtr(bp,memenv); bp += 4;
  unsigned int * n = (unsigned int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxString Result = This->GetString((int) *n);
+ wxString Result = This->GetString(*n);
  rt.add(Result);
  break;
 }
@@ -19924,7 +20066,7 @@ case wxRadioBox_SetSelection: { // wxRadioBox::SetSelection
  wxRadioBox *This = (wxRadioBox *) getPtr(bp,memenv); bp += 4;
  int * n = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetSelection((int) *n);
+ This->SetSelection(*n);
  break;
 }
 case wxRadioBox_Show_2: { // wxRadioBox::Show
@@ -19937,7 +20079,7 @@ case wxRadioBox_Show_2: { // wxRadioBox::Show
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Show((int) *n,show);
+ bool Result = This->Show(*n,show);
  rt.addBool(Result);
  break;
 }
@@ -19966,7 +20108,7 @@ case wxRadioBox_GetItemHelpText: { // wxRadioBox::GetItemHelpText
  wxRadioBox *This = (wxRadioBox *) getPtr(bp,memenv); bp += 4;
  unsigned int * n = (unsigned int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxString Result = This->GetItemHelpText((int) *n);
+ wxString Result = This->GetItemHelpText(*n);
  rt.add(Result);
  break;
 }
@@ -19974,7 +20116,7 @@ case wxRadioBox_GetItemToolTip: { // wxRadioBox::GetItemToolTip
  wxRadioBox *This = (wxRadioBox *) getPtr(bp,memenv); bp += 4;
  unsigned int * item = (unsigned int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxToolTip * Result = (wxToolTip*)This->GetItemToolTip((int) *item);
+ wxToolTip * Result = (wxToolTip*)This->GetItemToolTip(*item);
  rt.addRef(getRef((void *)Result,memenv), "wxToolTip");
  break;
 }
@@ -19999,7 +20141,7 @@ case wxRadioBox_IsItemEnabled: { // wxRadioBox::IsItemEnabled
  wxRadioBox *This = (wxRadioBox *) getPtr(bp,memenv); bp += 4;
  unsigned int * n = (unsigned int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->IsItemEnabled((int) *n);
+ bool Result = This->IsItemEnabled(*n);
  rt.addBool(Result);
  break;
 }
@@ -20007,7 +20149,7 @@ case wxRadioBox_IsItemShown: { // wxRadioBox::IsItemShown
  wxRadioBox *This = (wxRadioBox *) getPtr(bp,memenv); bp += 4;
  unsigned int * n = (unsigned int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->IsItemShown((int) *n);
+ bool Result = This->IsItemShown(*n);
  rt.addBool(Result);
  break;
 }
@@ -20018,7 +20160,7 @@ case wxRadioBox_SetItemHelpText: { // wxRadioBox::SetItemHelpText
  wxString helpText = wxString(bp, wxConvUTF8);
  bp += *helpTextLen+((8-((4+ *helpTextLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- This->SetItemHelpText((int) *n,helpText);
+ This->SetItemHelpText(*n,helpText);
  break;
 }
 case wxRadioBox_SetItemToolTip: { // wxRadioBox::SetItemToolTip
@@ -20028,7 +20170,7 @@ case wxRadioBox_SetItemToolTip: { // wxRadioBox::SetItemToolTip
  wxString text = wxString(bp, wxConvUTF8);
  bp += *textLen+((8-((4+ *textLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- This->SetItemToolTip((int) *item,text);
+ This->SetItemToolTip(*item,text);
  break;
 }
 case wxRadioButton_new_0: { // wxRadioButton::wxRadioButton
@@ -20067,7 +20209,7 @@ case wxRadioButton_new_4: { // wxRadioButton::wxRadioButton
 validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
- wxRadioButton * Result = new EwxRadioButton(parent,(wxWindowID) *id,label,pos,size,style,*validator);
+ wxRadioButton * Result = new EwxRadioButton(parent,*id,label,pos,size,style,*validator);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxRadioButton");
  break;
@@ -20104,7 +20246,7 @@ validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(parent,(wxWindowID) *id,label,pos,size,style,*validator);
+ bool Result = This->Create(parent,*id,label,pos,size,style,*validator);
  rt.addBool(Result);
  break;
 }
@@ -20119,7 +20261,7 @@ case wxRadioButton_SetValue: { // wxRadioButton::SetValue
  wxRadioButton *This = (wxRadioButton *) getPtr(bp,memenv); bp += 4;
  bool * val = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetValue((bool) *val);
+ This->SetValue(*val);
  break;
 }
 case wxSlider_new_6: { // wxSlider::wxSlider
@@ -20153,7 +20295,7 @@ case wxSlider_new_6: { // wxSlider::wxSlider
 validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
- wxSlider * Result = new EwxSlider(parent,(wxWindowID) *id,(int) *value,(int) *minValue,(int) *maxValue,pos,size,style,*validator);
+ wxSlider * Result = new EwxSlider(parent,*id,*value,*minValue,*maxValue,pos,size,style,*validator);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxSlider");
  break;
@@ -20196,7 +20338,7 @@ validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(parent,(wxWindowID) *id,(int) *value,(int) *minValue,(int) *maxValue,pos,size,style,*validator);
+ bool Result = This->Create(parent,*id,*value,*minValue,*maxValue,pos,size,style,*validator);
  rt.addBool(Result);
  break;
 }
@@ -20246,14 +20388,14 @@ case wxSlider_SetLineSize: { // wxSlider::SetLineSize
  wxSlider *This = (wxSlider *) getPtr(bp,memenv); bp += 4;
  int * lineSize = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetLineSize((int) *lineSize);
+ This->SetLineSize(*lineSize);
  break;
 }
 case wxSlider_SetPageSize: { // wxSlider::SetPageSize
  wxSlider *This = (wxSlider *) getPtr(bp,memenv); bp += 4;
  int * pageSize = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetPageSize((int) *pageSize);
+ This->SetPageSize(*pageSize);
  break;
 }
 case wxSlider_SetRange: { // wxSlider::SetRange
@@ -20261,21 +20403,21 @@ case wxSlider_SetRange: { // wxSlider::SetRange
  int * minValue = (int *) bp; bp += 4;
  int * maxValue = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetRange((int) *minValue,(int) *maxValue);
+ This->SetRange(*minValue,*maxValue);
  break;
 }
 case wxSlider_SetThumbLength: { // wxSlider::SetThumbLength
  wxSlider *This = (wxSlider *) getPtr(bp,memenv); bp += 4;
  int * lenPixels = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetThumbLength((int) *lenPixels);
+ This->SetThumbLength(*lenPixels);
  break;
 }
 case wxSlider_SetValue: { // wxSlider::SetValue
  wxSlider *This = (wxSlider *) getPtr(bp,memenv); bp += 4;
  int * value = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetValue((int) *value);
+ This->SetValue(*value);
  break;
 }
 case wxDialog_new_4: { // wxDialog::wxDialog
@@ -20304,7 +20446,7 @@ case wxDialog_new_4: { // wxDialog::wxDialog
  style = (long)*(int *) bp; bp += 4;
   } break;
  }};
- wxDialog * Result = new EwxDialog(parent,(wxWindowID) *id,title,pos,size,style);
+ wxDialog * Result = new EwxDialog(parent,*id,title,pos,size,style);
  newPtr((void *) Result, 2, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxDialog");
  break;
@@ -20343,7 +20485,7 @@ case wxDialog_Create: { // wxDialog::Create
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(parent,(wxWindowID) *id,title,pos,size,style);
+ bool Result = This->Create(parent,*id,title,pos,size,style);
  rt.addBool(Result);
  break;
 }
@@ -20351,7 +20493,7 @@ case wxDialog_CreateButtonSizer: { // wxDialog::CreateButtonSizer
  wxDialog *This = (wxDialog *) getPtr(bp,memenv); bp += 4;
  int * flags = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxSizer * Result = (wxSizer*)This->CreateButtonSizer((long) *flags);
+ wxSizer * Result = (wxSizer*)This->CreateButtonSizer(*flags);
  rt.addRef(getRef((void *)Result,memenv), "wxSizer");
  break;
 }
@@ -20359,7 +20501,7 @@ case wxDialog_CreateStdDialogButtonSizer: { // wxDialog::CreateStdDialogButtonSi
  wxDialog *This = (wxDialog *) getPtr(bp,memenv); bp += 4;
  int * flags = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxStdDialogButtonSizer * Result = (wxStdDialogButtonSizer*)This->CreateStdDialogButtonSizer((long) *flags);
+ wxStdDialogButtonSizer * Result = (wxStdDialogButtonSizer*)This->CreateStdDialogButtonSizer(*flags);
  rt.addRef(getRef((void *)Result,memenv), "wxStdDialogButtonSizer");
  break;
 }
@@ -20367,7 +20509,7 @@ case wxDialog_EndModal: { // wxDialog::EndModal
  wxDialog *This = (wxDialog *) getPtr(bp,memenv); bp += 4;
  int * retCode = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->EndModal((int) *retCode);
+ This->EndModal(*retCode);
  break;
 }
 case wxDialog_GetAffirmativeId: { // wxDialog::GetAffirmativeId
@@ -20395,14 +20537,14 @@ case wxDialog_SetAffirmativeId: { // wxDialog::SetAffirmativeId
  wxDialog *This = (wxDialog *) getPtr(bp,memenv); bp += 4;
  int * affirmativeId = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetAffirmativeId((int) *affirmativeId);
+ This->SetAffirmativeId(*affirmativeId);
  break;
 }
 case wxDialog_SetReturnCode: { // wxDialog::SetReturnCode
  wxDialog *This = (wxDialog *) getPtr(bp,memenv); bp += 4;
  int * returnCode = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetReturnCode((int) *returnCode);
+ This->SetReturnCode(*returnCode);
  break;
 }
 case wxDialog_Show: { // wxDialog::Show
@@ -20498,7 +20640,7 @@ case wxColourData_GetCustomColour: { // wxColourData::GetCustomColour
  wxColourData *This = (wxColourData *) getPtr(bp,memenv); bp += 4;
  int * i = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxColour Result = This->GetCustomColour((int) *i);
+ wxColour Result = This->GetCustomColour(*i);
  rt.add(Result);
  break;
 }
@@ -20506,7 +20648,7 @@ case wxColourData_SetChooseFull: { // wxColourData::SetChooseFull
  wxColourData *This = (wxColourData *) getPtr(bp,memenv); bp += 4;
  bool * flag = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetChooseFull((bool) *flag);
+ This->SetChooseFull(*flag);
  break;
 }
 case wxColourData_SetColour: { // wxColourData::SetColour
@@ -20529,7 +20671,7 @@ case wxColourData_SetCustomColour: { // wxColourData::SetCustomColour
  int * colourA = (int *) bp; bp += 4;
  wxColour colour = wxColour(*colourR,*colourG,*colourB,*colourA);
  if(!This) throw wxe_badarg(0);
- This->SetCustomColour((int) *i,colour);
+ This->SetCustomColour(*i,colour);
  break;
 }
 case wxPalette_new_0: { // wxPalette::wxPalette
@@ -20539,21 +20681,21 @@ case wxPalette_new_0: { // wxPalette::wxPalette
  break;
 }
 case wxPalette_new_4: { // wxPalette::wxPalette
- const unsigned char * red = (const unsigned char*) Ecmd.bin[0]->base;
- const unsigned char * green = (const unsigned char*) Ecmd.bin[1]->base;
- const unsigned char * blue = (const unsigned char*) Ecmd.bin[2]->base;
- wxPalette * Result = new EwxPalette(Ecmd.bin[0]->size,red,green,blue);
+ const unsigned char * red = (const unsigned char*) Ecmd.bin[0].base;
+ const unsigned char * green = (const unsigned char*) Ecmd.bin[1].base;
+ const unsigned char * blue = (const unsigned char*) Ecmd.bin[2].base;
+ wxPalette * Result = new EwxPalette(Ecmd.bin[0].size,red,green,blue);
  newPtr((void *) Result, 1, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxPalette");
  break;
 }
 case wxPalette_Create: { // wxPalette::Create
  wxPalette *This = (wxPalette *) getPtr(bp,memenv); bp += 4;
- const unsigned char * red = (const unsigned char*) Ecmd.bin[0]->base;
- const unsigned char * green = (const unsigned char*) Ecmd.bin[1]->base;
- const unsigned char * blue = (const unsigned char*) Ecmd.bin[2]->base;
+ const unsigned char * red = (const unsigned char*) Ecmd.bin[0].base;
+ const unsigned char * green = (const unsigned char*) Ecmd.bin[1].base;
+ const unsigned char * blue = (const unsigned char*) Ecmd.bin[2].base;
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(Ecmd.bin[0]->size,red,green,blue);
+ bool Result = This->Create(Ecmd.bin[0].size,red,green,blue);
  rt.addBool(Result);
  break;
 }
@@ -20570,7 +20712,7 @@ case wxPalette_GetPixel: { // wxPalette::GetPixel
  unsigned int * green = (unsigned int *) bp; bp += 4;
  unsigned int * blue = (unsigned int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->GetPixel((char) *red,(char) *green,(char) *blue);
+ int Result = This->GetPixel(*red,*green,*blue);
  rt.addInt(Result);
  break;
 }
@@ -20581,7 +20723,7 @@ case wxPalette_GetRGB: { // wxPalette::GetRGB
  wxPalette *This = (wxPalette *) getPtr(bp,memenv); bp += 4;
  int * pixel = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->GetRGB((int) *pixel,&red,&green,&blue);
+ bool Result = This->GetRGB(*pixel,&red,&green,&blue);
  rt.addBool(Result);
  rt.addUint(red);
  rt.addUint(green);
@@ -20800,7 +20942,7 @@ case wxFileDialog_SetFilterIndex: { // wxFileDialog::SetFilterIndex
  wxFileDialog *This = (wxFileDialog *) getPtr(bp,memenv); bp += 4;
  int * filterIndex = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetFilterIndex((int) *filterIndex);
+ This->SetFilterIndex(*filterIndex);
  break;
 }
 case wxFileDialog_SetMessage: { // wxFileDialog::SetMessage
@@ -20834,7 +20976,7 @@ case wxPickerBase_SetInternalMargin: { // wxPickerBase::SetInternalMargin
  wxPickerBase *This = (wxPickerBase *) getPtr(bp,memenv); bp += 4;
  int * newmargin = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetInternalMargin((int) *newmargin);
+ This->SetInternalMargin(*newmargin);
  break;
 }
 case wxPickerBase_GetInternalMargin: { // wxPickerBase::GetInternalMargin
@@ -20848,14 +20990,14 @@ case wxPickerBase_SetTextCtrlProportion: { // wxPickerBase::SetTextCtrlProportio
  wxPickerBase *This = (wxPickerBase *) getPtr(bp,memenv); bp += 4;
  int * prop = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetTextCtrlProportion((int) *prop);
+ This->SetTextCtrlProportion(*prop);
  break;
 }
 case wxPickerBase_SetPickerCtrlProportion: { // wxPickerBase::SetPickerCtrlProportion
  wxPickerBase *This = (wxPickerBase *) getPtr(bp,memenv); bp += 4;
  int * prop = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetPickerCtrlProportion((int) *prop);
+ This->SetPickerCtrlProportion(*prop);
  break;
 }
 case wxPickerBase_GetTextCtrlProportion: { // wxPickerBase::GetTextCtrlProportion
@@ -20977,7 +21119,7 @@ case wxFilePickerCtrl_new_3: { // wxFilePickerCtrl::wxFilePickerCtrl
 validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
- wxFilePickerCtrl * Result = new EwxFilePickerCtrl(parent,(wxWindowID) *id,path,message,wildcard,pos,size,style,*validator);
+ wxFilePickerCtrl * Result = new EwxFilePickerCtrl(parent,*id,path,message,wildcard,pos,size,style,*validator);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxFilePickerCtrl");
  break;
@@ -21030,7 +21172,7 @@ validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(parent,(wxWindowID) *id,path,message,wildcard,pos,size,style,*validator);
+ bool Result = This->Create(parent,*id,path,message,wildcard,pos,size,style,*validator);
  rt.addBool(Result);
  break;
 }
@@ -21095,7 +21237,7 @@ case wxDirPickerCtrl_new_3: { // wxDirPickerCtrl::wxDirPickerCtrl
 validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
- wxDirPickerCtrl * Result = new EwxDirPickerCtrl(parent,(wxWindowID) *id,path,message,pos,size,style,*validator);
+ wxDirPickerCtrl * Result = new EwxDirPickerCtrl(parent,*id,path,message,pos,size,style,*validator);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxDirPickerCtrl");
  break;
@@ -21142,7 +21284,7 @@ validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(parent,(wxWindowID) *id,path,message,pos,size,style,*validator);
+ bool Result = This->Create(parent,*id,path,message,pos,size,style,*validator);
  rt.addBool(Result);
  break;
 }
@@ -21204,7 +21346,7 @@ case wxColourPickerCtrl_new_3: { // wxColourPickerCtrl::wxColourPickerCtrl
 validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
- wxColourPickerCtrl * Result = new EwxColourPickerCtrl(parent,(wxWindowID) *id,col,pos,size,style,*validator);
+ wxColourPickerCtrl * Result = new EwxColourPickerCtrl(parent,*id,col,pos,size,style,*validator);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxColourPickerCtrl");
  break;
@@ -21248,7 +21390,7 @@ validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(parent,(wxWindowID) *id,col,pos,size,style,*validator);
+ bool Result = This->Create(parent,*id,col,pos,size,style,*validator);
  rt.addBool(Result);
  break;
 }
@@ -21324,7 +21466,7 @@ case wxDatePickerCtrl_new_3: { // wxDatePickerCtrl::wxDatePickerCtrl
 validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
- wxDatePickerCtrl * Result = new EwxDatePickerCtrl(parent,(wxWindowID) *id,date,pos,size,style,*validator);
+ wxDatePickerCtrl * Result = new EwxDatePickerCtrl(parent,*id,date,pos,size,style,*validator);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxDatePickerCtrl");
  break;
@@ -21427,7 +21569,7 @@ initial = (wxFont *) getPtr(bp,memenv); bp += 4;
 validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
- wxFontPickerCtrl * Result = new EwxFontPickerCtrl(parent,(wxWindowID) *id,*initial,pos,size,style,*validator);
+ wxFontPickerCtrl * Result = new EwxFontPickerCtrl(parent,*id,*initial,pos,size,style,*validator);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxFontPickerCtrl");
  break;
@@ -21466,14 +21608,14 @@ validator = (wxValidator *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(parent,(wxWindowID) *id,*initial,pos,size,style,*validator);
+ bool Result = This->Create(parent,*id,*initial,pos,size,style,*validator);
  rt.addBool(Result);
  break;
 }
 case wxFontPickerCtrl_GetSelectedFont: { // wxFontPickerCtrl::GetSelectedFont
  wxFontPickerCtrl *This = (wxFontPickerCtrl *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- wxFont * Result = new wxFont(This->GetSelectedFont()); newPtr((void *) Result,3, memenv);;
+ wxFont * Result = new EwxFont(This->GetSelectedFont()); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxFont");
  break;
 }
@@ -21495,7 +21637,7 @@ case wxFontPickerCtrl_SetMaxPointSize: { // wxFontPickerCtrl::SetMaxPointSize
  wxFontPickerCtrl *This = (wxFontPickerCtrl *) getPtr(bp,memenv); bp += 4;
  unsigned int * max = (unsigned int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetMaxPointSize((int) *max);
+ This->SetMaxPointSize(*max);
  break;
 }
 case wxFindReplaceDialog_new_0: { // wxFindReplaceDialog::wxFindReplaceDialog
@@ -21554,7 +21696,7 @@ case wxFindReplaceData_new_0: { // wxFindReplaceData::wxFindReplaceData
 }
 case wxFindReplaceData_new_1: { // wxFindReplaceData::wxFindReplaceData
  unsigned int * flags = (unsigned int *) bp; bp += 4;
- wxFindReplaceData * Result = new EwxFindReplaceData((int) *flags);
+ wxFindReplaceData * Result = new EwxFindReplaceData(*flags);
  newPtr((void *) Result, 1, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxFindReplaceData");
  break;
@@ -21584,7 +21726,7 @@ case wxFindReplaceData_SetFlags: { // wxFindReplaceData::SetFlags
  wxFindReplaceData *This = (wxFindReplaceData *) getPtr(bp,memenv); bp += 4;
  unsigned int * flags = (unsigned int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetFlags((int) *flags);
+ This->SetFlags(*flags);
  break;
 }
 case wxFindReplaceData_SetFindString: { // wxFindReplaceData::SetFindString
@@ -21725,7 +21867,7 @@ case wxSingleChoiceDialog_SetSelection: { // wxSingleChoiceDialog::SetSelection
  wxSingleChoiceDialog *This = (wxSingleChoiceDialog *) getPtr(bp,memenv); bp += 4;
  int * sel = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetSelection((int) *sel);
+ This->SetSelection(*sel);
  break;
 }
 case wxTextEntryDialog_new: { // wxTextEntryDialog::wxTextEntryDialog
@@ -21831,7 +21973,7 @@ case wxFontData_EnableEffects: { // wxFontData::EnableEffects
  wxFontData *This = (wxFontData *) getPtr(bp,memenv); bp += 4;
  bool * flag = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->EnableEffects((bool) *flag);
+ This->EnableEffects(*flag);
  break;
 }
 case wxFontData_GetAllowSymbols: { // wxFontData::GetAllowSymbols
@@ -21851,7 +21993,7 @@ case wxFontData_GetColour: { // wxFontData::GetColour
 case wxFontData_GetChosenFont: { // wxFontData::GetChosenFont
  wxFontData *This = (wxFontData *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- wxFont * Result = new wxFont(This->GetChosenFont()); newPtr((void *) Result,3, memenv);;
+ wxFont * Result = new EwxFont(This->GetChosenFont()); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxFont");
  break;
 }
@@ -21865,7 +22007,7 @@ case wxFontData_GetEnableEffects: { // wxFontData::GetEnableEffects
 case wxFontData_GetInitialFont: { // wxFontData::GetInitialFont
  wxFontData *This = (wxFontData *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- wxFont * Result = new wxFont(This->GetInitialFont()); newPtr((void *) Result,3, memenv);;
+ wxFont * Result = new EwxFont(This->GetInitialFont()); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxFont");
  break;
 }
@@ -21880,7 +22022,7 @@ case wxFontData_SetAllowSymbols: { // wxFontData::SetAllowSymbols
  wxFontData *This = (wxFontData *) getPtr(bp,memenv); bp += 4;
  bool * flag = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetAllowSymbols((bool) *flag);
+ This->SetAllowSymbols(*flag);
  break;
 }
 case wxFontData_SetChosenFont: { // wxFontData::SetChosenFont
@@ -21913,14 +22055,14 @@ case wxFontData_SetRange: { // wxFontData::SetRange
  int * minRange = (int *) bp; bp += 4;
  int * maxRange = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetRange((int) *minRange,(int) *maxRange);
+ This->SetRange(*minRange,*maxRange);
  break;
 }
 case wxFontData_SetShowHelp: { // wxFontData::SetShowHelp
  wxFontData *This = (wxFontData *) getPtr(bp,memenv); bp += 4;
  bool * flag = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetShowHelp((bool) *flag);
+ This->SetShowHelp(*flag);
  break;
 }
 case wxFontDialog_new_0: { // wxFontDialog::wxFontDialog
@@ -21997,7 +22139,7 @@ case wxProgressDialog_Update_2: { // wxProgressDialog::Update
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Update((int) *value,newmsg);
+ bool Result = This->Update(*value,newmsg);
  rt.addBool(Result);
  break;
 }
@@ -22088,35 +22230,35 @@ case wxPageSetupDialogData_EnableHelp: { // wxPageSetupDialogData::EnableHelp
  wxPageSetupDialogData *This = (wxPageSetupDialogData *) getPtr(bp,memenv); bp += 4;
  bool * flag = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->EnableHelp((bool) *flag);
+ This->EnableHelp(*flag);
  break;
 }
 case wxPageSetupDialogData_EnableMargins: { // wxPageSetupDialogData::EnableMargins
  wxPageSetupDialogData *This = (wxPageSetupDialogData *) getPtr(bp,memenv); bp += 4;
  bool * flag = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->EnableMargins((bool) *flag);
+ This->EnableMargins(*flag);
  break;
 }
 case wxPageSetupDialogData_EnableOrientation: { // wxPageSetupDialogData::EnableOrientation
  wxPageSetupDialogData *This = (wxPageSetupDialogData *) getPtr(bp,memenv); bp += 4;
  bool * flag = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->EnableOrientation((bool) *flag);
+ This->EnableOrientation(*flag);
  break;
 }
 case wxPageSetupDialogData_EnablePaper: { // wxPageSetupDialogData::EnablePaper
  wxPageSetupDialogData *This = (wxPageSetupDialogData *) getPtr(bp,memenv); bp += 4;
  bool * flag = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->EnablePaper((bool) *flag);
+ This->EnablePaper(*flag);
  break;
 }
 case wxPageSetupDialogData_EnablePrinter: { // wxPageSetupDialogData::EnablePrinter
  wxPageSetupDialogData *This = (wxPageSetupDialogData *) getPtr(bp,memenv); bp += 4;
  bool * flag = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->EnablePrinter((bool) *flag);
+ This->EnablePrinter(*flag);
  break;
 }
 case wxPageSetupDialogData_GetDefaultMinMargins: { // wxPageSetupDialogData::GetDefaultMinMargins
@@ -22199,7 +22341,7 @@ case wxPageSetupDialogData_GetMinMarginBottomRight: { // wxPageSetupDialogData::
 case wxPageSetupDialogData_GetPaperId: { // wxPageSetupDialogData::GetPaperId
  wxPageSetupDialogData *This = (wxPageSetupDialogData *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- wxPaperSize Result = This->GetPaperId();
+ int Result = This->GetPaperId();
  rt.addInt(Result);
  break;
 }
@@ -22228,14 +22370,14 @@ case wxPageSetupDialogData_SetDefaultInfo: { // wxPageSetupDialogData::SetDefaul
  wxPageSetupDialogData *This = (wxPageSetupDialogData *) getPtr(bp,memenv); bp += 4;
  bool * flag = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetDefaultInfo((bool) *flag);
+ This->SetDefaultInfo(*flag);
  break;
 }
 case wxPageSetupDialogData_SetDefaultMinMargins: { // wxPageSetupDialogData::SetDefaultMinMargins
  wxPageSetupDialogData *This = (wxPageSetupDialogData *) getPtr(bp,memenv); bp += 4;
  bool * flag = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetDefaultMinMargins((bool) *flag);
+ This->SetDefaultMinMargins(*flag);
  break;
 }
 case wxPageSetupDialogData_SetMarginTopLeft: { // wxPageSetupDialogData::SetMarginTopLeft
@@ -22276,9 +22418,9 @@ case wxPageSetupDialogData_SetMinMarginBottomRight: { // wxPageSetupDialogData::
 }
 case wxPageSetupDialogData_SetPaperId: { // wxPageSetupDialogData::SetPaperId
  wxPageSetupDialogData *This = (wxPageSetupDialogData *) getPtr(bp,memenv); bp += 4;
- int * id = (int *) bp; bp += 4;
+ wxPaperSize id = *(wxPaperSize *) bp; bp += 4;;
  if(!This) throw wxe_badarg(0);
- This->SetPaperId((wxPaperSize) *id);
+ This->SetPaperId(id);
  break;
 }
 case wxPageSetupDialogData_SetPaperSize_1_1: { // wxPageSetupDialogData::SetPaperSize
@@ -22292,9 +22434,9 @@ case wxPageSetupDialogData_SetPaperSize_1_1: { // wxPageSetupDialogData::SetPape
 }
 case wxPageSetupDialogData_SetPaperSize_1_0: { // wxPageSetupDialogData::SetPaperSize
  wxPageSetupDialogData *This = (wxPageSetupDialogData *) getPtr(bp,memenv); bp += 4;
- int * id = (int *) bp; bp += 4;
+ wxPaperSize id = *(wxPaperSize *) bp; bp += 4;;
  if(!This) throw wxe_badarg(0);
- This->SetPaperSize((wxPaperSize) *id);
+ This->SetPaperSize(id);
  break;
 }
 case wxPageSetupDialogData_SetPrintData: { // wxPageSetupDialogData::SetPrintData
@@ -22364,28 +22506,28 @@ case wxPrintDialogData_EnableHelp: { // wxPrintDialogData::EnableHelp
  wxPrintDialogData *This = (wxPrintDialogData *) getPtr(bp,memenv); bp += 4;
  bool * flag = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->EnableHelp((bool) *flag);
+ This->EnableHelp(*flag);
  break;
 }
 case wxPrintDialogData_EnablePageNumbers: { // wxPrintDialogData::EnablePageNumbers
  wxPrintDialogData *This = (wxPrintDialogData *) getPtr(bp,memenv); bp += 4;
  bool * flag = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->EnablePageNumbers((bool) *flag);
+ This->EnablePageNumbers(*flag);
  break;
 }
 case wxPrintDialogData_EnablePrintToFile: { // wxPrintDialogData::EnablePrintToFile
  wxPrintDialogData *This = (wxPrintDialogData *) getPtr(bp,memenv); bp += 4;
  bool * flag = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->EnablePrintToFile((bool) *flag);
+ This->EnablePrintToFile(*flag);
  break;
 }
 case wxPrintDialogData_EnableSelection: { // wxPrintDialogData::EnableSelection
  wxPrintDialogData *This = (wxPrintDialogData *) getPtr(bp,memenv); bp += 4;
  bool * flag = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->EnableSelection((bool) *flag);
+ This->EnableSelection(*flag);
  break;
 }
 case wxPrintDialogData_GetAllPages: { // wxPrintDialogData::GetAllPages
@@ -22469,35 +22611,35 @@ case wxPrintDialogData_SetCollate: { // wxPrintDialogData::SetCollate
  wxPrintDialogData *This = (wxPrintDialogData *) getPtr(bp,memenv); bp += 4;
  bool * flag = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetCollate((bool) *flag);
+ This->SetCollate(*flag);
  break;
 }
 case wxPrintDialogData_SetFromPage: { // wxPrintDialogData::SetFromPage
  wxPrintDialogData *This = (wxPrintDialogData *) getPtr(bp,memenv); bp += 4;
  int * v = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetFromPage((int) *v);
+ This->SetFromPage(*v);
  break;
 }
 case wxPrintDialogData_SetMaxPage: { // wxPrintDialogData::SetMaxPage
  wxPrintDialogData *This = (wxPrintDialogData *) getPtr(bp,memenv); bp += 4;
  int * v = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetMaxPage((int) *v);
+ This->SetMaxPage(*v);
  break;
 }
 case wxPrintDialogData_SetMinPage: { // wxPrintDialogData::SetMinPage
  wxPrintDialogData *This = (wxPrintDialogData *) getPtr(bp,memenv); bp += 4;
  int * v = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetMinPage((int) *v);
+ This->SetMinPage(*v);
  break;
 }
 case wxPrintDialogData_SetNoCopies: { // wxPrintDialogData::SetNoCopies
  wxPrintDialogData *This = (wxPrintDialogData *) getPtr(bp,memenv); bp += 4;
  int * v = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetNoCopies((int) *v);
+ This->SetNoCopies(*v);
  break;
 }
 case wxPrintDialogData_SetPrintData: { // wxPrintDialogData::SetPrintData
@@ -22511,21 +22653,21 @@ case wxPrintDialogData_SetPrintToFile: { // wxPrintDialogData::SetPrintToFile
  wxPrintDialogData *This = (wxPrintDialogData *) getPtr(bp,memenv); bp += 4;
  bool * flag = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetPrintToFile((bool) *flag);
+ This->SetPrintToFile(*flag);
  break;
 }
 case wxPrintDialogData_SetSelection: { // wxPrintDialogData::SetSelection
  wxPrintDialogData *This = (wxPrintDialogData *) getPtr(bp,memenv); bp += 4;
  bool * flag = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetSelection((bool) *flag);
+ This->SetSelection(*flag);
  break;
 }
 case wxPrintDialogData_SetToPage: { // wxPrintDialogData::SetToPage
  wxPrintDialogData *This = (wxPrintDialogData *) getPtr(bp,memenv); bp += 4;
  int * v = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetToPage((int) *v);
+ This->SetToPage(*v);
  break;
 }
 case wxPrintData_new_0: { // wxPrintData::wxPrintData
@@ -22586,7 +22728,7 @@ case wxPrintData_GetOrientation: { // wxPrintData::GetOrientation
 case wxPrintData_GetPaperId: { // wxPrintData::GetPaperId
  wxPrintData *This = (wxPrintData *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- wxPaperSize Result = This->GetPaperId();
+ int Result = This->GetPaperId();
  rt.addInt(Result);
  break;
 }
@@ -22615,49 +22757,49 @@ case wxPrintData_SetBin: { // wxPrintData::SetBin
  wxPrintData *This = (wxPrintData *) getPtr(bp,memenv); bp += 4;
  wxPrintBin bin = *(wxPrintBin *) bp; bp += 4;;
  if(!This) throw wxe_badarg(0);
- This->SetBin((wxPrintBin) bin);
+ This->SetBin(bin);
  break;
 }
 case wxPrintData_SetCollate: { // wxPrintData::SetCollate
  wxPrintData *This = (wxPrintData *) getPtr(bp,memenv); bp += 4;
  bool * flag = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetCollate((bool) *flag);
+ This->SetCollate(*flag);
  break;
 }
 case wxPrintData_SetColour: { // wxPrintData::SetColour
  wxPrintData *This = (wxPrintData *) getPtr(bp,memenv); bp += 4;
  bool * colour = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetColour((bool) *colour);
+ This->SetColour(*colour);
  break;
 }
 case wxPrintData_SetDuplex: { // wxPrintData::SetDuplex
  wxPrintData *This = (wxPrintData *) getPtr(bp,memenv); bp += 4;
  wxDuplexMode duplex = *(wxDuplexMode *) bp; bp += 4;;
  if(!This) throw wxe_badarg(0);
- This->SetDuplex((wxDuplexMode) duplex);
+ This->SetDuplex(duplex);
  break;
 }
 case wxPrintData_SetNoCopies: { // wxPrintData::SetNoCopies
  wxPrintData *This = (wxPrintData *) getPtr(bp,memenv); bp += 4;
  int * v = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetNoCopies((int) *v);
+ This->SetNoCopies(*v);
  break;
 }
 case wxPrintData_SetOrientation: { // wxPrintData::SetOrientation
  wxPrintData *This = (wxPrintData *) getPtr(bp,memenv); bp += 4;
  int * orient = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetOrientation((int) *orient);
+ This->SetOrientation(*orient);
  break;
 }
 case wxPrintData_SetPaperId: { // wxPrintData::SetPaperId
  wxPrintData *This = (wxPrintData *) getPtr(bp,memenv); bp += 4;
- int * sizeId = (int *) bp; bp += 4;
+ wxPaperSize sizeId = *(wxPaperSize *) bp; bp += 4;;
  if(!This) throw wxe_badarg(0);
- This->SetPaperId((wxPaperSize) *sizeId);
+ This->SetPaperId(sizeId);
  break;
 }
 case wxPrintData_SetPrinterName: { // wxPrintData::SetPrinterName
@@ -22673,7 +22815,7 @@ case wxPrintData_SetQuality: { // wxPrintData::SetQuality
  wxPrintData *This = (wxPrintData *) getPtr(bp,memenv); bp += 4;
  int * quality = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetQuality((wxPrintQuality) *quality);
+ This->SetQuality(*quality);
  break;
 }
 case wxPrintPreview_new_2: { // wxPrintPreview::wxPrintPreview
@@ -22772,7 +22914,7 @@ case wxPrintPreview_Print: { // wxPrintPreview::Print
  wxPrintPreview *This = (wxPrintPreview *) getPtr(bp,memenv); bp += 4;
  bool * interactive = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->Print((bool) *interactive);
+ bool Result = This->Print(*interactive);
  rt.addBool(Result);
  break;
 }
@@ -22780,7 +22922,7 @@ case wxPrintPreview_RenderPage: { // wxPrintPreview::RenderPage
  wxPrintPreview *This = (wxPrintPreview *) getPtr(bp,memenv); bp += 4;
  int * pageNum = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->RenderPage((int) *pageNum);
+ bool Result = This->RenderPage(*pageNum);
  rt.addBool(Result);
  break;
 }
@@ -22795,7 +22937,7 @@ case wxPrintPreview_SetCurrentPage: { // wxPrintPreview::SetCurrentPage
  wxPrintPreview *This = (wxPrintPreview *) getPtr(bp,memenv); bp += 4;
  int * pageNum = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->SetCurrentPage((int) *pageNum);
+ bool Result = This->SetCurrentPage(*pageNum);
  rt.addBool(Result);
  break;
 }
@@ -22817,7 +22959,7 @@ case wxPrintPreview_SetZoom: { // wxPrintPreview::SetZoom
  wxPrintPreview *This = (wxPrintPreview *) getPtr(bp,memenv); bp += 4;
  int * percent = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetZoom((int) *percent);
+ This->SetZoom(*percent);
  break;
 }
 case wxPreviewFrame_new: { // wxPreviewFrame::wxPreviewFrame
@@ -22904,7 +23046,7 @@ case wxPreviewControlBar_new: { // wxPreviewControlBar::wxPreviewControlBar
  style = (long)*(int *) bp; bp += 4;
   } break;
  }};
- wxPreviewControlBar * Result = new EwxPreviewControlBar(preview,(long) *buttons,parent,pos,size,style);
+ wxPreviewControlBar * Result = new EwxPreviewControlBar(preview,*buttons,parent,pos,size,style);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxPreviewControlBar");
  break;
@@ -22933,7 +23075,7 @@ case wxPreviewControlBar_SetZoomControl: { // wxPreviewControlBar::SetZoomContro
  wxPreviewControlBar *This = (wxPreviewControlBar *) getPtr(bp,memenv); bp += 4;
  int * zoom = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetZoomControl((int) *zoom);
+ This->SetZoomControl(*zoom);
  break;
 }
 case wxPrinter_new: { // wxPrinter::wxPrinter
@@ -23089,7 +23231,7 @@ case wxXmlResource_CompareVersion: { // wxXmlResource::CompareVersion
  int * release = (int *) bp; bp += 4;
  int * revision = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->CompareVersion((int) *major,(int) *minor,(int) *release,(int) *revision);
+ int Result = This->CompareVersion(*major,*minor,*release,*revision);
  rt.addInt(Result);
  break;
 }
@@ -23148,7 +23290,7 @@ case wxXmlResource_LoadBitmap: { // wxXmlResource::LoadBitmap
  wxString name = wxString(bp, wxConvUTF8);
  bp += *nameLen+((8-((0+ *nameLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- wxBitmap * Result = new wxBitmap(This->LoadBitmap(name)); newPtr((void *) Result,3, memenv);;
+ wxBitmap * Result = new EwxBitmap(This->LoadBitmap(name)); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxBitmap");
  break;
 }
@@ -23204,7 +23346,7 @@ case wxXmlResource_LoadIcon: { // wxXmlResource::LoadIcon
  wxString name = wxString(bp, wxConvUTF8);
  bp += *nameLen+((8-((0+ *nameLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- wxIcon * Result = new wxIcon(This->LoadIcon(name)); newPtr((void *) Result,3, memenv);;
+ wxIcon * Result = new EwxIcon(This->LoadIcon(name)); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxIcon");
  break;
 }
@@ -23283,7 +23425,7 @@ case wxXmlResource_SetFlags: { // wxXmlResource::SetFlags
  wxXmlResource *This = (wxXmlResource *) getPtr(bp,memenv); bp += 4;
  int * flags = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetFlags((int) *flags);
+ This->SetFlags(*flags);
  break;
 }
 case wxXmlResource_Unload: { // wxXmlResource::Unload
@@ -23675,8 +23817,11 @@ case wxAuiManager_DetachPane: { // wxAuiManager::DetachPane
 case wxAuiManager_GetAllPanes: { // wxAuiManager::GetAllPanes
  wxAuiManager *This = (wxAuiManager *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- wxAuiPaneInfoArray * Result = &This->GetAllPanes();
- rt.addRef(getRef((void *)Result,memenv), "wxAuiPaneInfoArray");
+ wxAuiPaneInfoArray Result = This->GetAllPanes();
+ for(unsigned int i=0; i < Result.GetCount(); i++) {
+  rt.addRef(getRef((void *) &Result.Item(i), memenv), "wxAuiPaneInfo");
+ }
+ rt.endList(Result.GetCount());
  break;
 }
 case wxAuiManager_GetArtProvider: { // wxAuiManager::GetArtProvider
@@ -23692,6 +23837,7 @@ case wxAuiManager_GetDockSizeConstraint: { // wxAuiManager::GetDockSizeConstrain
  wxAuiManager *This = (wxAuiManager *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
  This->GetDockSizeConstraint(&width_pct,&height_pct);
+ rt.ensureFloatCount(3);
  rt.addFloat(width_pct);
  rt.addFloat(height_pct);
  rt.addTupleCount(2);
@@ -23811,14 +23957,14 @@ case wxAuiManager_SetDockSizeConstraint: { // wxAuiManager::SetDockSizeConstrain
  double * width_pct = (double *) bp; bp += 8;
  double * height_pct = (double *) bp; bp += 8;
  if(!This) throw wxe_badarg(0);
- This->SetDockSizeConstraint((double) *width_pct,(double) *height_pct);
+ This->SetDockSizeConstraint(*width_pct,*height_pct);
  break;
 }
 case wxAuiManager_SetFlags: { // wxAuiManager::SetFlags
  wxAuiManager *This = (wxAuiManager *) getPtr(bp,memenv); bp += 4;
  unsigned int * flags = (unsigned int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetFlags((int) *flags);
+ This->SetFlags(*flags);
  break;
 }
 case wxAuiManager_SetManagedWindow: { // wxAuiManager::SetManagedWindow
@@ -23887,7 +24033,7 @@ case wxAuiPaneInfo_BestSize_2: { // wxAuiPaneInfo::BestSize
  int * x = (int *) bp; bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxAuiPaneInfo * Result = &This->BestSize((int) *x,(int) *y);
+ wxAuiPaneInfo * Result = &This->BestSize(*x,*y);
  rt.addRef(getRef((void *)Result,memenv), "wxAuiPaneInfo");
  break;
 }
@@ -23989,7 +24135,7 @@ case wxAuiPaneInfo_Direction: { // wxAuiPaneInfo::Direction
  wxAuiPaneInfo *This = (wxAuiPaneInfo *) getPtr(bp,memenv); bp += 4;
  int * direction = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxAuiPaneInfo * Result = &This->Direction((int) *direction);
+ wxAuiPaneInfo * Result = &This->Direction(*direction);
  rt.addRef(getRef((void *)Result,memenv), "wxAuiPaneInfo");
  break;
 }
@@ -24057,7 +24203,7 @@ case wxAuiPaneInfo_FloatingPosition_2: { // wxAuiPaneInfo::FloatingPosition
  int * x = (int *) bp; bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxAuiPaneInfo * Result = &This->FloatingPosition((int) *x,(int) *y);
+ wxAuiPaneInfo * Result = &This->FloatingPosition(*x,*y);
  rt.addRef(getRef((void *)Result,memenv), "wxAuiPaneInfo");
  break;
 }
@@ -24076,7 +24222,7 @@ case wxAuiPaneInfo_FloatingSize_2: { // wxAuiPaneInfo::FloatingSize
  int * x = (int *) bp; bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxAuiPaneInfo * Result = &This->FloatingSize((int) *x,(int) *y);
+ wxAuiPaneInfo * Result = &This->FloatingSize(*x,*y);
  rt.addRef(getRef((void *)Result,memenv), "wxAuiPaneInfo");
  break;
 }
@@ -24133,7 +24279,7 @@ case wxAuiPaneInfo_HasFlag: { // wxAuiPaneInfo::HasFlag
  wxAuiPaneInfo *This = (wxAuiPaneInfo *) getPtr(bp,memenv); bp += 4;
  unsigned int * flag = (unsigned int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->HasFlag((int) *flag);
+ bool Result = This->HasFlag(*flag);
  rt.addBool(Result);
  break;
 }
@@ -24274,7 +24420,7 @@ case wxAuiPaneInfo_Layer: { // wxAuiPaneInfo::Layer
  wxAuiPaneInfo *This = (wxAuiPaneInfo *) getPtr(bp,memenv); bp += 4;
  int * layer = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxAuiPaneInfo * Result = &This->Layer((int) *layer);
+ wxAuiPaneInfo * Result = &This->Layer(*layer);
  rt.addRef(getRef((void *)Result,memenv), "wxAuiPaneInfo");
  break;
 }
@@ -24314,7 +24460,7 @@ case wxAuiPaneInfo_MaxSize_2: { // wxAuiPaneInfo::MaxSize
  int * x = (int *) bp; bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxAuiPaneInfo * Result = &This->MaxSize((int) *x,(int) *y);
+ wxAuiPaneInfo * Result = &This->MaxSize(*x,*y);
  rt.addRef(getRef((void *)Result,memenv), "wxAuiPaneInfo");
  break;
 }
@@ -24347,7 +24493,7 @@ case wxAuiPaneInfo_MinSize_2: { // wxAuiPaneInfo::MinSize
  int * x = (int *) bp; bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxAuiPaneInfo * Result = &This->MinSize((int) *x,(int) *y);
+ wxAuiPaneInfo * Result = &This->MinSize(*x,*y);
  rt.addRef(getRef((void *)Result,memenv), "wxAuiPaneInfo");
  break;
 }
@@ -24421,7 +24567,7 @@ case wxAuiPaneInfo_Position: { // wxAuiPaneInfo::Position
  wxAuiPaneInfo *This = (wxAuiPaneInfo *) getPtr(bp,memenv); bp += 4;
  int * pos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxAuiPaneInfo * Result = &This->Position((int) *pos);
+ wxAuiPaneInfo * Result = &This->Position(*pos);
  rt.addRef(getRef((void *)Result,memenv), "wxAuiPaneInfo");
  break;
 }
@@ -24464,7 +24610,7 @@ case wxAuiPaneInfo_Row: { // wxAuiPaneInfo::Row
  wxAuiPaneInfo *This = (wxAuiPaneInfo *) getPtr(bp,memenv); bp += 4;
  int * row = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxAuiPaneInfo * Result = &This->Row((int) *row);
+ wxAuiPaneInfo * Result = &This->Row(*row);
  rt.addRef(getRef((void *)Result,memenv), "wxAuiPaneInfo");
  break;
 }
@@ -24480,7 +24626,7 @@ case wxAuiPaneInfo_SetFlag: { // wxAuiPaneInfo::SetFlag
  unsigned int * flag = (unsigned int *) bp; bp += 4;
  bool * option_state = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxAuiPaneInfo * Result = &This->SetFlag((int) *flag,(bool) *option_state);
+ wxAuiPaneInfo * Result = &This->SetFlag(*flag,*option_state);
  rt.addRef(getRef((void *)Result,memenv), "wxAuiPaneInfo");
  break;
 }
@@ -24532,6 +24678,102 @@ case wxAuiPaneInfo_Window: { // wxAuiPaneInfo::Window
  if(!This) throw wxe_badarg(0);
  wxAuiPaneInfo * Result = &This->Window(w);
  rt.addRef(getRef((void *)Result,memenv), "wxAuiPaneInfo");
+ break;
+}
+case wxAuiPaneInfo_GetWindow: { // wxAuiPaneInfo::GetWindow
+ wxAuiPaneInfo *This = (wxAuiPaneInfo *) getPtr(bp,memenv); bp += 4;
+ #if 0
+;
+ if(!This) throw wxe_badarg(0);
+ wxWindow * Result = (wxWindow*)This->GetWindow();
+ #endif
+ if(!This) throw wxe_badarg(0);
+ wxWindow* Result = This->window;
+ rt.addRef(getRef((void *)Result,memenv), "wxWindow");
+ break;
+}
+case wxAuiPaneInfo_GetFrame: { // wxAuiPaneInfo::GetFrame
+ wxAuiPaneInfo *This = (wxAuiPaneInfo *) getPtr(bp,memenv); bp += 4;
+ #if 0
+;
+ if(!This) throw wxe_badarg(0);
+ wxFrame * Result = (wxFrame*)This->GetFrame();
+ #endif
+ if(!This) throw wxe_badarg(0);
+ wxFrame* Result = This->frame;
+ rt.addRef(getRef((void *)Result,memenv), "wxFrame");
+ break;
+}
+case wxAuiPaneInfo_GetDirection: { // wxAuiPaneInfo::GetDirection
+ wxAuiPaneInfo *This = (wxAuiPaneInfo *) getPtr(bp,memenv); bp += 4;
+ #if 0
+;
+ if(!This) throw wxe_badarg(0);
+ int Result = This->GetDirection();
+ #endif
+ if(!This) throw wxe_badarg(0);
+ int Result = This->dock_direction;
+ rt.addInt(Result);
+ break;
+}
+case wxAuiPaneInfo_GetLayer: { // wxAuiPaneInfo::GetLayer
+ wxAuiPaneInfo *This = (wxAuiPaneInfo *) getPtr(bp,memenv); bp += 4;
+ #if 0
+;
+ if(!This) throw wxe_badarg(0);
+ int Result = This->GetLayer();
+ #endif
+ if(!This) throw wxe_badarg(0);
+ int Result = This->dock_layer;
+ rt.addInt(Result);
+ break;
+}
+case wxAuiPaneInfo_GetRow: { // wxAuiPaneInfo::GetRow
+ wxAuiPaneInfo *This = (wxAuiPaneInfo *) getPtr(bp,memenv); bp += 4;
+ #if 0
+;
+ if(!This) throw wxe_badarg(0);
+ int Result = This->GetRow();
+ #endif
+ if(!This) throw wxe_badarg(0);
+ int Result = This->dock_row;
+ rt.addInt(Result);
+ break;
+}
+case wxAuiPaneInfo_GetPosition: { // wxAuiPaneInfo::GetPosition
+ wxAuiPaneInfo *This = (wxAuiPaneInfo *) getPtr(bp,memenv); bp += 4;
+ #if 0
+;
+ if(!This) throw wxe_badarg(0);
+ int Result = This->GetPosition();
+ #endif
+ if(!This) throw wxe_badarg(0);
+ int Result = This->dock_pos;
+ rt.addInt(Result);
+ break;
+}
+case wxAuiPaneInfo_GetFloatingPosition: { // wxAuiPaneInfo::GetFloatingPosition
+ wxAuiPaneInfo *This = (wxAuiPaneInfo *) getPtr(bp,memenv); bp += 4;
+ #if 0
+;
+ if(!This) throw wxe_badarg(0);
+ wxPoint Result = This->GetFloatingPosition();
+ #endif
+ if(!This) throw wxe_badarg(0);
+ wxPoint Result = This->floating_pos;
+ rt.add(Result);
+ break;
+}
+case wxAuiPaneInfo_GetFloatingSize: { // wxAuiPaneInfo::GetFloatingSize
+ wxAuiPaneInfo *This = (wxAuiPaneInfo *) getPtr(bp,memenv); bp += 4;
+ #if 0
+;
+ if(!This) throw wxe_badarg(0);
+ wxSize Result = This->GetFloatingSize();
+ #endif
+ if(!This) throw wxe_badarg(0);
+ wxSize Result = This->floating_size;
+ rt.add(Result);
  break;
 }
 #endif // wxUSE_AUI
@@ -24631,7 +24873,7 @@ case wxAuiNotebook_DeletePage: { // wxAuiNotebook::DeletePage
  wxAuiNotebook *This = (wxAuiNotebook *) getPtr(bp,memenv); bp += 4;
  int * page = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->DeletePage((size_t) *page);
+ bool Result = This->DeletePage(*page);
  rt.addBool(Result);
  break;
 }
@@ -24646,7 +24888,7 @@ case wxAuiNotebook_GetPage: { // wxAuiNotebook::GetPage
  wxAuiNotebook *This = (wxAuiNotebook *) getPtr(bp,memenv); bp += 4;
  int * page_idx = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxWindow * Result = (wxWindow*)This->GetPage((size_t) *page_idx);
+ wxWindow * Result = (wxWindow*)This->GetPage(*page_idx);
  rt.addRef(getRef((void *)Result,memenv), "wxWindow");
  break;
 }
@@ -24654,7 +24896,7 @@ case wxAuiNotebook_GetPageBitmap: { // wxAuiNotebook::GetPageBitmap
  wxAuiNotebook *This = (wxAuiNotebook *) getPtr(bp,memenv); bp += 4;
  int * page_idx = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxBitmap * Result = new wxBitmap(This->GetPageBitmap((size_t) *page_idx)); newPtr((void *) Result,3, memenv);;
+ wxBitmap * Result = new EwxBitmap(This->GetPageBitmap(*page_idx)); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxBitmap");
  break;
 }
@@ -24677,7 +24919,7 @@ case wxAuiNotebook_GetPageText: { // wxAuiNotebook::GetPageText
  wxAuiNotebook *This = (wxAuiNotebook *) getPtr(bp,memenv); bp += 4;
  int * page_idx = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxString Result = This->GetPageText((size_t) *page_idx);
+ wxString Result = This->GetPageText(*page_idx);
  rt.add(Result);
  break;
 }
@@ -24706,7 +24948,7 @@ bitmap = (wxBitmap *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->InsertPage((size_t) *page_idx,page,caption,select,*bitmap);
+ bool Result = This->InsertPage(*page_idx,page,caption,select,*bitmap);
  rt.addBool(Result);
  break;
 }
@@ -24714,7 +24956,7 @@ case wxAuiNotebook_RemovePage: { // wxAuiNotebook::RemovePage
  wxAuiNotebook *This = (wxAuiNotebook *) getPtr(bp,memenv); bp += 4;
  int * page = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->RemovePage((size_t) *page);
+ bool Result = This->RemovePage(*page);
  rt.addBool(Result);
  break;
 }
@@ -24738,7 +24980,7 @@ case wxAuiNotebook_SetPageBitmap: { // wxAuiNotebook::SetPageBitmap
  int * page = (int *) bp; bp += 4;
  wxBitmap *bitmap = (wxBitmap *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->SetPageBitmap((size_t) *page,*bitmap);
+ bool Result = This->SetPageBitmap(*page,*bitmap);
  rt.addBool(Result);
  break;
 }
@@ -24749,7 +24991,7 @@ case wxAuiNotebook_SetPageText: { // wxAuiNotebook::SetPageText
  wxString text = wxString(bp, wxConvUTF8);
  bp += *textLen+((8-((4+ *textLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- bool Result = This->SetPageText((size_t) *page,text);
+ bool Result = This->SetPageText(*page,text);
  rt.addBool(Result);
  break;
 }
@@ -24757,7 +24999,7 @@ case wxAuiNotebook_SetSelection: { // wxAuiNotebook::SetSelection
  wxAuiNotebook *This = (wxAuiNotebook *) getPtr(bp,memenv); bp += 4;
  int * new_page = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- size_t Result = This->SetSelection((size_t) *new_page);
+ size_t Result = This->SetSelection(*new_page);
  rt.addInt(Result);
  break;
 }
@@ -24765,7 +25007,7 @@ case wxAuiNotebook_SetTabCtrlHeight: { // wxAuiNotebook::SetTabCtrlHeight
  wxAuiNotebook *This = (wxAuiNotebook *) getPtr(bp,memenv); bp += 4;
  int * height = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetTabCtrlHeight((int) *height);
+ This->SetTabCtrlHeight(*height);
  break;
 }
 case wxAuiNotebook_SetUniformBitmapSize: { // wxAuiNotebook::SetUniformBitmapSize
@@ -24779,8 +25021,128 @@ case wxAuiNotebook_SetUniformBitmapSize: { // wxAuiNotebook::SetUniformBitmapSiz
 }
 #endif // wxUSE_AUI
 #if wxUSE_AUI
+case wxAuiTabArt_SetFlags: { // wxAuiTabArt::SetFlags
+ wxAuiTabArt *This = (wxAuiTabArt *) getPtr(bp,memenv); bp += 4;
+ unsigned int * flags = (unsigned int *) bp; bp += 4;
+ if(!This) throw wxe_badarg(0);
+ This->SetFlags(*flags);
+ break;
+}
+case wxAuiTabArt_SetMeasuringFont: { // wxAuiTabArt::SetMeasuringFont
+ wxAuiTabArt *This = (wxAuiTabArt *) getPtr(bp,memenv); bp += 4;
+ wxFont *font = (wxFont *) getPtr(bp,memenv); bp += 4;
+ if(!This) throw wxe_badarg(0);
+ This->SetMeasuringFont(*font);
+ break;
+}
+case wxAuiTabArt_SetNormalFont: { // wxAuiTabArt::SetNormalFont
+ wxAuiTabArt *This = (wxAuiTabArt *) getPtr(bp,memenv); bp += 4;
+ wxFont *font = (wxFont *) getPtr(bp,memenv); bp += 4;
+ if(!This) throw wxe_badarg(0);
+ This->SetNormalFont(*font);
+ break;
+}
+case wxAuiTabArt_SetSelectedFont: { // wxAuiTabArt::SetSelectedFont
+ wxAuiTabArt *This = (wxAuiTabArt *) getPtr(bp,memenv); bp += 4;
+ wxFont *font = (wxFont *) getPtr(bp,memenv); bp += 4;
+ if(!This) throw wxe_badarg(0);
+ This->SetSelectedFont(*font);
+ break;
+}
+#if wxCHECK_VERSION(3,0,0)
+case wxAuiTabArt_SetColour: { // wxAuiTabArt::SetColour
+ wxAuiTabArt *This = (wxAuiTabArt *) getPtr(bp,memenv); bp += 4;
+ int * colourR = (int *) bp; bp += 4;
+ int * colourG = (int *) bp; bp += 4;
+ int * colourB = (int *) bp; bp += 4;
+ int * colourA = (int *) bp; bp += 4;
+ wxColour colour = wxColour(*colourR,*colourG,*colourB,*colourA);
+ if(!This) throw wxe_badarg(0);
+ This->SetColour(colour);
+ break;
+}
+#endif
+#if wxCHECK_VERSION(3,0,0)
+case wxAuiTabArt_SetActiveColour: { // wxAuiTabArt::SetActiveColour
+ wxAuiTabArt *This = (wxAuiTabArt *) getPtr(bp,memenv); bp += 4;
+ int * colourR = (int *) bp; bp += 4;
+ int * colourG = (int *) bp; bp += 4;
+ int * colourB = (int *) bp; bp += 4;
+ int * colourA = (int *) bp; bp += 4;
+ wxColour colour = wxColour(*colourR,*colourG,*colourB,*colourA);
+ if(!This) throw wxe_badarg(0);
+ This->SetActiveColour(colour);
+ break;
+}
+#endif
 #endif // wxUSE_AUI
 #if wxUSE_AUI
+case wxAuiDockArt_GetColour: { // wxAuiDockArt::GetColour
+ wxAuiDockArt *This = (wxAuiDockArt *) getPtr(bp,memenv); bp += 4;
+ int * id = (int *) bp; bp += 4;
+ if(!This) throw wxe_badarg(0);
+ wxColour Result = This->GetColour(*id);
+ rt.add(Result);
+ break;
+}
+case wxAuiDockArt_GetFont: { // wxAuiDockArt::GetFont
+ wxAuiDockArt *This = (wxAuiDockArt *) getPtr(bp,memenv); bp += 4;
+ int * id = (int *) bp; bp += 4;
+ if(!This) throw wxe_badarg(0);
+ wxFont * Result = new EwxFont(This->GetFont(*id)); newPtr((void *) Result,3, memenv);;
+ rt.addRef(getRef((void *)Result,memenv), "wxFont");
+ break;
+}
+case wxAuiDockArt_GetMetric: { // wxAuiDockArt::GetMetric
+ wxAuiDockArt *This = (wxAuiDockArt *) getPtr(bp,memenv); bp += 4;
+ int * id = (int *) bp; bp += 4;
+ if(!This) throw wxe_badarg(0);
+ int Result = This->GetMetric(*id);
+ rt.addInt(Result);
+ break;
+}
+case wxAuiDockArt_SetColour: { // wxAuiDockArt::SetColour
+ wxAuiDockArt *This = (wxAuiDockArt *) getPtr(bp,memenv); bp += 4;
+ int * id = (int *) bp; bp += 4;
+ int * colourR = (int *) bp; bp += 4;
+ int * colourG = (int *) bp; bp += 4;
+ int * colourB = (int *) bp; bp += 4;
+ int * colourA = (int *) bp; bp += 4;
+ wxColour colour = wxColour(*colourR,*colourG,*colourB,*colourA);
+ if(!This) throw wxe_badarg(0);
+ This->SetColour(*id,colour);
+ break;
+}
+case wxAuiDockArt_SetFont: { // wxAuiDockArt::SetFont
+ wxAuiDockArt *This = (wxAuiDockArt *) getPtr(bp,memenv); bp += 4;
+ int * id = (int *) bp; bp += 4;
+ wxFont *font = (wxFont *) getPtr(bp,memenv); bp += 4;
+ if(!This) throw wxe_badarg(0);
+ This->SetFont(*id,*font);
+ break;
+}
+case wxAuiDockArt_SetMetric: { // wxAuiDockArt::SetMetric
+ wxAuiDockArt *This = (wxAuiDockArt *) getPtr(bp,memenv); bp += 4;
+ int * id = (int *) bp; bp += 4;
+ int * new_val = (int *) bp; bp += 4;
+ if(!This) throw wxe_badarg(0);
+ This->SetMetric(*id,*new_val);
+ break;
+}
+#endif // wxUSE_AUI
+#if wxUSE_AUI
+case wxAuiSimpleTabArt_new: { // wxAuiSimpleTabArt::wxAuiSimpleTabArt
+ wxAuiSimpleTabArt * Result = new wxAuiSimpleTabArt();
+ newPtr((void *) Result, 159, memenv);
+ rt.addRef(getRef((void *)Result,memenv), "wxAuiSimpleTabArt");
+ break;
+}
+case wxAuiSimpleTabArt_destroy: { // wxAuiSimpleTabArt::destroy
+ wxAuiSimpleTabArt *This = (wxAuiSimpleTabArt *) getPtr(bp,memenv); bp += 4;
+ if(This) {   ((WxeApp *) wxTheApp)->clearPtr((void *) This);
+   delete This;}
+ break;
+}
 #endif // wxUSE_AUI
 case wxMDIParentFrame_new_0: { // wxMDIParentFrame::wxMDIParentFrame
  wxMDIParentFrame * Result = new EwxMDIParentFrame();
@@ -24814,7 +25176,7 @@ case wxMDIParentFrame_new_4: { // wxMDIParentFrame::wxMDIParentFrame
  style = (long)*(int *) bp; bp += 4;
   } break;
  }};
- wxMDIParentFrame * Result = new EwxMDIParentFrame(parent,(wxWindowID) *id,title,pos,size,style);
+ wxMDIParentFrame * Result = new EwxMDIParentFrame(parent,*id,title,pos,size,style);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxMDIParentFrame");
  break;
@@ -24871,7 +25233,7 @@ case wxMDIParentFrame_Create: { // wxMDIParentFrame::Create
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(parent,(wxWindowID) *id,title,pos,size,style);
+ bool Result = This->Create(parent,*id,title,pos,size,style);
  rt.addBool(Result);
  break;
 }
@@ -24899,7 +25261,7 @@ orient = *(wxOrientation *) bp; bp += 4;;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->Tile((wxOrientation) orient);
+ This->Tile(orient);
  break;
 }
 case wxMDIChildFrame_new_0: { // wxMDIChildFrame::wxMDIChildFrame
@@ -24934,7 +25296,7 @@ case wxMDIChildFrame_new_4: { // wxMDIChildFrame::wxMDIChildFrame
  style = (long)*(int *) bp; bp += 4;
   } break;
  }};
- wxMDIChildFrame * Result = new EwxMDIChildFrame(parent,(wxWindowID) *id,title,pos,size,style);
+ wxMDIChildFrame * Result = new EwxMDIChildFrame(parent,*id,title,pos,size,style);
  newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxMDIChildFrame");
  break;
@@ -24973,7 +25335,7 @@ case wxMDIChildFrame_Create: { // wxMDIChildFrame::Create
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- bool Result = This->Create(parent,(wxWindowID) *id,title,pos,size,style);
+ bool Result = This->Create(parent,*id,title,pos,size,style);
  rt.addBool(Result);
  break;
 }
@@ -25002,6 +25364,7 @@ case wxMDIClientWindow_new_0: { // wxMDIClientWindow::wxMDIClientWindow
  rt.addRef(getRef((void *)Result,memenv), "wxMDIClientWindow");
  break;
 }
+#if !wxCHECK_VERSION(2,9,0)
 case wxMDIClientWindow_new_2: { // wxMDIClientWindow::wxMDIClientWindow
  long style=0;
  wxMDIParentFrame *parent = (wxMDIParentFrame *) getPtr(bp,memenv); bp += 4;
@@ -25016,6 +25379,7 @@ case wxMDIClientWindow_new_2: { // wxMDIClientWindow::wxMDIClientWindow
  rt.addRef(getRef((void *)Result,memenv), "wxMDIClientWindow");
  break;
 }
+#endif
 case wxMDIClientWindow_CreateClient: { // wxMDIClientWindow::CreateClient
  long style=wxVSCROLL|wxHSCROLL;
  wxMDIClientWindow *This = (wxMDIClientWindow *) getPtr(bp,memenv); bp += 4;
@@ -25115,7 +25479,7 @@ case wxEvent_ResumePropagation: { // wxEvent::ResumePropagation
  wxEvent *This = (wxEvent *) getPtr(bp,memenv); bp += 4;
  int * propagationLevel = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->ResumePropagation((int) *propagationLevel);
+ This->ResumePropagation(*propagationLevel);
  break;
 }
 case wxEvent_ShouldPropagate: { // wxEvent::ShouldPropagate
@@ -25198,7 +25562,7 @@ case wxCommandEvent_SetInt: { // wxCommandEvent::SetInt
  wxCommandEvent *This = (wxCommandEvent *) getPtr(bp,memenv); bp += 4;
  int * i = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetInt((int) *i);
+ This->SetInt(*i);
  break;
 }
 case wxCommandEvent_SetString: { // wxCommandEvent::SetString
@@ -25249,7 +25613,7 @@ case wxMouseEvent_Button: { // wxMouseEvent::Button
  wxMouseEvent *This = (wxMouseEvent *) getPtr(bp,memenv); bp += 4;
  int * but = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->Button((int) *but);
+ bool Result = This->Button(*but);
  rt.addBool(Result);
  break;
 }
@@ -25713,14 +26077,14 @@ case wxCloseEvent_SetCanVeto: { // wxCloseEvent::SetCanVeto
  wxCloseEvent *This = (wxCloseEvent *) getPtr(bp,memenv); bp += 4;
  bool * canVeto = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetCanVeto((bool) *canVeto);
+ This->SetCanVeto(*canVeto);
  break;
 }
 case wxCloseEvent_SetLoggingOff: { // wxCloseEvent::SetLoggingOff
  wxCloseEvent *This = (wxCloseEvent *) getPtr(bp,memenv); bp += 4;
  bool * logOff = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetLoggingOff((bool) *logOff);
+ This->SetLoggingOff(*logOff);
  break;
 }
 case wxCloseEvent_Veto: { // wxCloseEvent::Veto
@@ -25740,7 +26104,7 @@ case wxShowEvent_SetShow: { // wxShowEvent::SetShow
  wxShowEvent *This = (wxShowEvent *) getPtr(bp,memenv); bp += 4;
  bool * show = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetShow((bool) *show);
+ This->SetShow(*show);
  break;
 }
 case wxShowEvent_GetShow: { // wxShowEvent::GetShow
@@ -25865,21 +26229,21 @@ case wxUpdateUIEvent_Check: { // wxUpdateUIEvent::Check
  wxUpdateUIEvent *This = (wxUpdateUIEvent *) getPtr(bp,memenv); bp += 4;
  bool * check = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->Check((bool) *check);
+ This->Check(*check);
  break;
 }
 case wxUpdateUIEvent_Enable: { // wxUpdateUIEvent::Enable
  wxUpdateUIEvent *This = (wxUpdateUIEvent *) getPtr(bp,memenv); bp += 4;
  bool * enable = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->Enable((bool) *enable);
+ This->Enable(*enable);
  break;
 }
 case wxUpdateUIEvent_Show: { // wxUpdateUIEvent::Show
  wxUpdateUIEvent *This = (wxUpdateUIEvent *) getPtr(bp,memenv); bp += 4;
  bool * show = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->Show((bool) *show);
+ This->Show(*show);
  break;
 }
 case wxUpdateUIEvent_GetChecked: { // wxUpdateUIEvent::GetChecked
@@ -25954,7 +26318,7 @@ case wxUpdateUIEvent_ResetUpdateTime: { // wxUpdateUIEvent::ResetUpdateTime
 }
 case wxUpdateUIEvent_SetMode: { // wxUpdateUIEvent::SetMode
  wxUpdateUIMode mode = *(wxUpdateUIMode *) bp; bp += 4;;
- wxUpdateUIEvent::SetMode((wxUpdateUIMode) mode);
+ wxUpdateUIEvent::SetMode(mode);
  break;
 }
 case wxUpdateUIEvent_SetText: { // wxUpdateUIEvent::SetText
@@ -25968,7 +26332,7 @@ case wxUpdateUIEvent_SetText: { // wxUpdateUIEvent::SetText
 }
 case wxUpdateUIEvent_SetUpdateInterval: { // wxUpdateUIEvent::SetUpdateInterval
  int * updateInterval = (int *) bp; bp += 4;
- wxUpdateUIEvent::SetUpdateInterval((long) *updateInterval);
+ wxUpdateUIEvent::SetUpdateInterval(*updateInterval);
  break;
 }
 case wxMouseCaptureChangedEvent_GetCapturedWindow: { // wxMouseCaptureChangedEvent::GetCapturedWindow
@@ -25996,7 +26360,7 @@ case wxQueryNewPaletteEvent_SetPaletteRealized: { // wxQueryNewPaletteEvent::Set
  wxQueryNewPaletteEvent *This = (wxQueryNewPaletteEvent *) getPtr(bp,memenv); bp += 4;
  bool * realized = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetPaletteRealized((bool) *realized);
+ This->SetPaletteRealized(*realized);
  break;
 }
 case wxQueryNewPaletteEvent_GetPaletteRealized: { // wxQueryNewPaletteEvent::GetPaletteRealized
@@ -26017,7 +26381,7 @@ case wxNavigationKeyEvent_SetDirection: { // wxNavigationKeyEvent::SetDirection
  wxNavigationKeyEvent *This = (wxNavigationKeyEvent *) getPtr(bp,memenv); bp += 4;
  bool * bForward = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetDirection((bool) *bForward);
+ This->SetDirection(*bForward);
  break;
 }
 case wxNavigationKeyEvent_IsWindowChange: { // wxNavigationKeyEvent::IsWindowChange
@@ -26031,7 +26395,7 @@ case wxNavigationKeyEvent_SetWindowChange: { // wxNavigationKeyEvent::SetWindowC
  wxNavigationKeyEvent *This = (wxNavigationKeyEvent *) getPtr(bp,memenv); bp += 4;
  bool * bIs = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetWindowChange((bool) *bIs);
+ This->SetWindowChange(*bIs);
  break;
 }
 case wxNavigationKeyEvent_IsFromTab: { // wxNavigationKeyEvent::IsFromTab
@@ -26045,7 +26409,7 @@ case wxNavigationKeyEvent_SetFromTab: { // wxNavigationKeyEvent::SetFromTab
  wxNavigationKeyEvent *This = (wxNavigationKeyEvent *) getPtr(bp,memenv); bp += 4;
  bool * bIs = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetFromTab((bool) *bIs);
+ This->SetFromTab(*bIs);
  break;
 }
 case wxNavigationKeyEvent_GetCurrentFocus: { // wxNavigationKeyEvent::GetCurrentFocus
@@ -26080,7 +26444,7 @@ case wxHelpEvent_SetOrigin: { // wxHelpEvent::SetOrigin
  wxHelpEvent *This = (wxHelpEvent *) getPtr(bp,memenv); bp += 4;
  wxHelpEvent::Origin origin = *(wxHelpEvent::Origin *) bp; bp += 4;;
  if(!This) throw wxe_badarg(0);
- This->SetOrigin((wxHelpEvent::Origin) origin);
+ This->SetOrigin(origin);
  break;
 }
 case wxHelpEvent_SetPosition: { // wxHelpEvent::SetPosition
@@ -26108,12 +26472,14 @@ case wxContextMenuEvent_SetPosition: { // wxContextMenuEvent::SetPosition
  This->SetPosition(pos);
  break;
 }
+#if !wxCHECK_VERSION(2,9,0)
 case wxIdleEvent_CanSend: { // wxIdleEvent::CanSend
  wxWindow *win = (wxWindow *) getPtr(bp,memenv); bp += 4;
  bool Result = wxIdleEvent::CanSend(win);
  rt.addBool(Result);
  break;
 }
+#endif
 case wxIdleEvent_GetMode: { // wxIdleEvent::GetMode
  int Result = wxIdleEvent::GetMode();
  rt.addInt(Result);
@@ -26141,7 +26507,7 @@ case wxIdleEvent_MoreRequested: { // wxIdleEvent::MoreRequested
 }
 case wxIdleEvent_SetMode: { // wxIdleEvent::SetMode
  wxIdleMode mode = *(wxIdleMode *) bp; bp += 4;;
- wxIdleEvent::SetMode((wxIdleMode) mode);
+ wxIdleEvent::SetMode(mode);
  break;
 }
 case wxGridEvent_AltDown: { // wxGridEvent::AltDown
@@ -26362,7 +26728,7 @@ case wxColourPickerEvent_GetColour: { // wxColourPickerEvent::GetColour
 case wxFontPickerEvent_GetFont: { // wxFontPickerEvent::GetFont
  wxFontPickerEvent *This = (wxFontPickerEvent *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- wxFont * Result = new wxFont(This->GetFont()); newPtr((void *) Result,3, memenv);;
+ wxFont * Result = new EwxFont(This->GetFont()); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxFont");
  break;
 }
@@ -26529,7 +26895,7 @@ case wxStyledTextEvent_GetAlt: { // wxStyledTextEvent::GetAlt
 }
 case utils_wxGetKeyState: { // utils::wxGetKeyState
  wxKeyCode key = *(wxKeyCode *) bp; bp += 4;;
- bool Result = ::wxGetKeyState((wxKeyCode) key);
+ bool Result = ::wxGetKeyState(key);
  rt.addBool(Result);
  break;
 }
@@ -26549,7 +26915,7 @@ case utils_wxGetMouseState: { // utils::wxGetMouseState
 }
 case utils_wxSetDetectableAutoRepeat: { // utils::wxSetDetectableAutoRepeat
  bool * flag = (bool *) bp; bp += 4;
- bool Result = ::wxSetDetectableAutoRepeat((bool) *flag);
+ bool Result = ::wxSetDetectableAutoRepeat(*flag);
  rt.addBool(Result);
  break;
 }
@@ -26606,7 +26972,7 @@ case utils_wxIsBusy: { // utils::wxIsBusy
 }
 case utils_wxShutdown: { // utils::wxShutdown
  wxShutdownFlags wFlags = *(wxShutdownFlags *) bp; bp += 4;;
- bool Result = ::wxShutdown((wxShutdownFlags) wFlags);
+ bool Result = ::wxShutdown(wFlags);
  rt.addBool(Result);
  break;
 }
@@ -26659,7 +27025,7 @@ case utils_wxNewId: { // utils::wxNewId
 }
 case utils_wxRegisterId: { // utils::wxRegisterId
  int * id = (int *) bp; bp += 4;
- ::wxRegisterId((long) *id);
+ ::wxRegisterId(*id);
  break;
 }
 case utils_wxGetCurrentId: { // utils::wxGetCurrentId
@@ -26680,6 +27046,20 @@ case utils_wxIsPlatformLittleEndian: { // utils::wxIsPlatformLittleEndian
 case utils_wxIsPlatform64Bit: { // utils::wxIsPlatform64Bit
  bool Result = ::wxIsPlatform64Bit();
  rt.addBool(Result);
+ break;
+}
+case gdicmn_wxDisplaySize: { // gdicmn::wxDisplaySize
+ int width;
+ int height;
+ ::wxDisplaySize(&width,&height);
+ rt.addInt(width);
+ rt.addInt(height);
+ rt.addTupleCount(2);
+ break;
+}
+case gdicmn_wxSetCursor: { // gdicmn::wxSetCursor
+ wxCursor *cursor = (wxCursor *) getPtr(bp,memenv); bp += 4;
+ ::wxSetCursor(*cursor);
  break;
 }
 
@@ -26862,7 +27242,7 @@ case wxPrintout_SetLogicalOrigin: { // wxPrintout::SetLogicalOrigin
  int * x = (int *) bp; bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetLogicalOrigin((wxCoord) *x,(wxCoord) *y);
+ This->SetLogicalOrigin(*x,*y);
  break;
 }
 case wxPrintout_OffsetLogicalOrigin: { // wxPrintout::OffsetLogicalOrigin
@@ -26870,7 +27250,7 @@ case wxPrintout_OffsetLogicalOrigin: { // wxPrintout::OffsetLogicalOrigin
  int * xoff = (int *) bp; bp += 4;
  int * yoff = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->OffsetLogicalOrigin((wxCoord) *xoff,(wxCoord) *yoff);
+ This->OffsetLogicalOrigin(*xoff,*yoff);
  break;
 }
 case wxStyledTextCtrl_new_2: { // wxStyledTextCtrl::wxStyledTextCtrl
@@ -26900,14 +27280,14 @@ case wxStyledTextCtrl_new_2: { // wxStyledTextCtrl::wxStyledTextCtrl
  style = (long)*(int *) bp; bp += 4;
   } break;
  }};
- wxStyledTextCtrl * Result = new wxStyledTextCtrl(parent,id,pos,size,style);
- /* Possible memory leak here, class is missing virt dest */ 
+ wxStyledTextCtrl * Result = new EwxStyledTextCtrl(parent,id,pos,size,style);
+ newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxStyledTextCtrl");
  break;
 }
 case wxStyledTextCtrl_new_0: { // wxStyledTextCtrl::wxStyledTextCtrl
- wxStyledTextCtrl * Result = new wxStyledTextCtrl();
- /* Possible memory leak here, class is missing virt dest */ 
+ wxStyledTextCtrl * Result = new EwxStyledTextCtrl();
+ newPtr((void *) Result, 0, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxStyledTextCtrl");
  break;
 }
@@ -26966,7 +27346,7 @@ case wxStyledTextCtrl_InsertText: { // wxStyledTextCtrl::InsertText
  wxString text = wxString(bp, wxConvUTF8);
  bp += *textLen+((8-((4+ *textLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- This->InsertText((int) *pos,text);
+ This->InsertText(*pos,text);
  break;
 }
 case wxStyledTextCtrl_ClearAll: { // wxStyledTextCtrl::ClearAll
@@ -26992,7 +27372,7 @@ case wxStyledTextCtrl_GetCharAt: { // wxStyledTextCtrl::GetCharAt
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * pos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->GetCharAt((int) *pos);
+ int Result = This->GetCharAt(*pos);
  rt.addInt(Result);
  break;
 }
@@ -27014,7 +27394,7 @@ case wxStyledTextCtrl_GetStyleAt: { // wxStyledTextCtrl::GetStyleAt
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * pos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->GetStyleAt((int) *pos);
+ int Result = This->GetStyleAt(*pos);
  rt.addInt(Result);
  break;
 }
@@ -27028,7 +27408,7 @@ case wxStyledTextCtrl_SetUndoCollection: { // wxStyledTextCtrl::SetUndoCollectio
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  bool * collectUndo = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetUndoCollection((bool) *collectUndo);
+ This->SetUndoCollection(*collectUndo);
  break;
 }
 case wxStyledTextCtrl_SelectAll: { // wxStyledTextCtrl::SelectAll
@@ -27048,7 +27428,7 @@ case wxStyledTextCtrl_GetStyledText: { // wxStyledTextCtrl::GetStyledText
  int * startPos = (int *) bp; bp += 4;
  int * endPos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxMemoryBuffer * Result = new wxMemoryBuffer(This->GetStyledText((int) *startPos,(int) *endPos)); newPtr((void *) Result,3, memenv);;
+ wxMemoryBuffer * Result = new wxMemoryBuffer(This->GetStyledText(*startPos,*endPos)); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxMemoryBuffer");
  break;
 }
@@ -27063,7 +27443,7 @@ case wxStyledTextCtrl_MarkerLineFromHandle: { // wxStyledTextCtrl::MarkerLineFro
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * handle = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->MarkerLineFromHandle((int) *handle);
+ int Result = This->MarkerLineFromHandle(*handle);
  rt.addInt(Result);
  break;
 }
@@ -27071,7 +27451,7 @@ case wxStyledTextCtrl_MarkerDeleteHandle: { // wxStyledTextCtrl::MarkerDeleteHan
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * handle = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->MarkerDeleteHandle((int) *handle);
+ This->MarkerDeleteHandle(*handle);
  break;
 }
 case wxStyledTextCtrl_GetUndoCollection: { // wxStyledTextCtrl::GetUndoCollection
@@ -27092,7 +27472,7 @@ case wxStyledTextCtrl_SetViewWhiteSpace: { // wxStyledTextCtrl::SetViewWhiteSpac
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * viewWS = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetViewWhiteSpace((int) *viewWS);
+ This->SetViewWhiteSpace(*viewWS);
  break;
 }
 case wxStyledTextCtrl_PositionFromPoint: { // wxStyledTextCtrl::PositionFromPoint
@@ -27110,7 +27490,7 @@ case wxStyledTextCtrl_PositionFromPointClose: { // wxStyledTextCtrl::PositionFro
  int * x = (int *) bp; bp += 4;
  int * y = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->PositionFromPointClose((int) *x,(int) *y);
+ int Result = This->PositionFromPointClose(*x,*y);
  rt.addInt(Result);
  break;
 }
@@ -27118,21 +27498,21 @@ case wxStyledTextCtrl_GotoLine: { // wxStyledTextCtrl::GotoLine
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * line = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->GotoLine((int) *line);
+ This->GotoLine(*line);
  break;
 }
 case wxStyledTextCtrl_GotoPos: { // wxStyledTextCtrl::GotoPos
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * pos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->GotoPos((int) *pos);
+ This->GotoPos(*pos);
  break;
 }
 case wxStyledTextCtrl_SetAnchor: { // wxStyledTextCtrl::SetAnchor
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * posAnchor = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetAnchor((int) *posAnchor);
+ This->SetAnchor(*posAnchor);
  break;
 }
 case wxStyledTextCtrl_GetCurLine: { // wxStyledTextCtrl::GetCurLine
@@ -27156,7 +27536,7 @@ case wxStyledTextCtrl_ConvertEOLs: { // wxStyledTextCtrl::ConvertEOLs
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * eolMode = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->ConvertEOLs((int) *eolMode);
+ This->ConvertEOLs(*eolMode);
  break;
 }
 case wxStyledTextCtrl_GetEOLMode: { // wxStyledTextCtrl::GetEOLMode
@@ -27170,7 +27550,7 @@ case wxStyledTextCtrl_SetEOLMode: { // wxStyledTextCtrl::SetEOLMode
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * eolMode = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetEOLMode((int) *eolMode);
+ This->SetEOLMode(*eolMode);
  break;
 }
 case wxStyledTextCtrl_StartStyling: { // wxStyledTextCtrl::StartStyling
@@ -27178,7 +27558,7 @@ case wxStyledTextCtrl_StartStyling: { // wxStyledTextCtrl::StartStyling
  int * pos = (int *) bp; bp += 4;
  int * mask = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->StartStyling((int) *pos,(int) *mask);
+ This->StartStyling(*pos,*mask);
  break;
 }
 case wxStyledTextCtrl_SetStyling: { // wxStyledTextCtrl::SetStyling
@@ -27186,7 +27566,7 @@ case wxStyledTextCtrl_SetStyling: { // wxStyledTextCtrl::SetStyling
  int * length = (int *) bp; bp += 4;
  int * style = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetStyling((int) *length,(int) *style);
+ This->SetStyling(*length,*style);
  break;
 }
 case wxStyledTextCtrl_GetBufferedDraw: { // wxStyledTextCtrl::GetBufferedDraw
@@ -27200,14 +27580,14 @@ case wxStyledTextCtrl_SetBufferedDraw: { // wxStyledTextCtrl::SetBufferedDraw
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  bool * buffered = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetBufferedDraw((bool) *buffered);
+ This->SetBufferedDraw(*buffered);
  break;
 }
 case wxStyledTextCtrl_SetTabWidth: { // wxStyledTextCtrl::SetTabWidth
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * tabWidth = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetTabWidth((int) *tabWidth);
+ This->SetTabWidth(*tabWidth);
  break;
 }
 case wxStyledTextCtrl_GetTabWidth: { // wxStyledTextCtrl::GetTabWidth
@@ -27221,7 +27601,7 @@ case wxStyledTextCtrl_SetCodePage: { // wxStyledTextCtrl::SetCodePage
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * codePage = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetCodePage((int) *codePage);
+ This->SetCodePage(*codePage);
  break;
 }
 case wxStyledTextCtrl_MarkerDefine: { // wxStyledTextCtrl::MarkerDefine
@@ -27250,7 +27630,7 @@ case wxStyledTextCtrl_MarkerDefine: { // wxStyledTextCtrl::MarkerDefine
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->MarkerDefine((int) *markerNumber,(int) *markerSymbol,foreground,background);
+ This->MarkerDefine(*markerNumber,*markerSymbol,foreground,background);
  break;
 }
 case wxStyledTextCtrl_MarkerSetForeground: { // wxStyledTextCtrl::MarkerSetForeground
@@ -27262,7 +27642,7 @@ case wxStyledTextCtrl_MarkerSetForeground: { // wxStyledTextCtrl::MarkerSetForeg
  int * foreA = (int *) bp; bp += 4;
  wxColour fore = wxColour(*foreR,*foreG,*foreB,*foreA);
  if(!This) throw wxe_badarg(0);
- This->MarkerSetForeground((int) *markerNumber,fore);
+ This->MarkerSetForeground(*markerNumber,fore);
  break;
 }
 case wxStyledTextCtrl_MarkerSetBackground: { // wxStyledTextCtrl::MarkerSetBackground
@@ -27274,7 +27654,7 @@ case wxStyledTextCtrl_MarkerSetBackground: { // wxStyledTextCtrl::MarkerSetBackg
  int * backA = (int *) bp; bp += 4;
  wxColour back = wxColour(*backR,*backG,*backB,*backA);
  if(!This) throw wxe_badarg(0);
- This->MarkerSetBackground((int) *markerNumber,back);
+ This->MarkerSetBackground(*markerNumber,back);
  break;
 }
 case wxStyledTextCtrl_MarkerAdd: { // wxStyledTextCtrl::MarkerAdd
@@ -27282,7 +27662,7 @@ case wxStyledTextCtrl_MarkerAdd: { // wxStyledTextCtrl::MarkerAdd
  int * line = (int *) bp; bp += 4;
  int * markerNumber = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->MarkerAdd((int) *line,(int) *markerNumber);
+ int Result = This->MarkerAdd(*line,*markerNumber);
  rt.addInt(Result);
  break;
 }
@@ -27291,21 +27671,21 @@ case wxStyledTextCtrl_MarkerDelete: { // wxStyledTextCtrl::MarkerDelete
  int * line = (int *) bp; bp += 4;
  int * markerNumber = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->MarkerDelete((int) *line,(int) *markerNumber);
+ This->MarkerDelete(*line,*markerNumber);
  break;
 }
 case wxStyledTextCtrl_MarkerDeleteAll: { // wxStyledTextCtrl::MarkerDeleteAll
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * markerNumber = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->MarkerDeleteAll((int) *markerNumber);
+ This->MarkerDeleteAll(*markerNumber);
  break;
 }
 case wxStyledTextCtrl_MarkerGet: { // wxStyledTextCtrl::MarkerGet
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * line = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->MarkerGet((int) *line);
+ int Result = This->MarkerGet(*line);
  rt.addInt(Result);
  break;
 }
@@ -27314,7 +27694,7 @@ case wxStyledTextCtrl_MarkerNext: { // wxStyledTextCtrl::MarkerNext
  int * lineStart = (int *) bp; bp += 4;
  int * markerMask = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->MarkerNext((int) *lineStart,(int) *markerMask);
+ int Result = This->MarkerNext(*lineStart,*markerMask);
  rt.addInt(Result);
  break;
 }
@@ -27323,7 +27703,7 @@ case wxStyledTextCtrl_MarkerPrevious: { // wxStyledTextCtrl::MarkerPrevious
  int * lineStart = (int *) bp; bp += 4;
  int * markerMask = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->MarkerPrevious((int) *lineStart,(int) *markerMask);
+ int Result = This->MarkerPrevious(*lineStart,*markerMask);
  rt.addInt(Result);
  break;
 }
@@ -27332,7 +27712,7 @@ case wxStyledTextCtrl_MarkerDefineBitmap: { // wxStyledTextCtrl::MarkerDefineBit
  int * markerNumber = (int *) bp; bp += 4;
  wxBitmap *bmp = (wxBitmap *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- This->MarkerDefineBitmap((int) *markerNumber,*bmp);
+ This->MarkerDefineBitmap(*markerNumber,*bmp);
  break;
 }
 case wxStyledTextCtrl_MarkerAddSet: { // wxStyledTextCtrl::MarkerAddSet
@@ -27340,7 +27720,7 @@ case wxStyledTextCtrl_MarkerAddSet: { // wxStyledTextCtrl::MarkerAddSet
  int * line = (int *) bp; bp += 4;
  int * set = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->MarkerAddSet((int) *line,(int) *set);
+ This->MarkerAddSet(*line,*set);
  break;
 }
 case wxStyledTextCtrl_MarkerSetAlpha: { // wxStyledTextCtrl::MarkerSetAlpha
@@ -27348,7 +27728,7 @@ case wxStyledTextCtrl_MarkerSetAlpha: { // wxStyledTextCtrl::MarkerSetAlpha
  int * markerNumber = (int *) bp; bp += 4;
  int * alpha = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->MarkerSetAlpha((int) *markerNumber,(int) *alpha);
+ This->MarkerSetAlpha(*markerNumber,*alpha);
  break;
 }
 case wxStyledTextCtrl_SetMarginType: { // wxStyledTextCtrl::SetMarginType
@@ -27356,14 +27736,14 @@ case wxStyledTextCtrl_SetMarginType: { // wxStyledTextCtrl::SetMarginType
  int * margin = (int *) bp; bp += 4;
  int * marginType = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetMarginType((int) *margin,(int) *marginType);
+ This->SetMarginType(*margin,*marginType);
  break;
 }
 case wxStyledTextCtrl_GetMarginType: { // wxStyledTextCtrl::GetMarginType
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * margin = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->GetMarginType((int) *margin);
+ int Result = This->GetMarginType(*margin);
  rt.addInt(Result);
  break;
 }
@@ -27372,14 +27752,14 @@ case wxStyledTextCtrl_SetMarginWidth: { // wxStyledTextCtrl::SetMarginWidth
  int * margin = (int *) bp; bp += 4;
  int * pixelWidth = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetMarginWidth((int) *margin,(int) *pixelWidth);
+ This->SetMarginWidth(*margin,*pixelWidth);
  break;
 }
 case wxStyledTextCtrl_GetMarginWidth: { // wxStyledTextCtrl::GetMarginWidth
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * margin = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->GetMarginWidth((int) *margin);
+ int Result = This->GetMarginWidth(*margin);
  rt.addInt(Result);
  break;
 }
@@ -27388,14 +27768,14 @@ case wxStyledTextCtrl_SetMarginMask: { // wxStyledTextCtrl::SetMarginMask
  int * margin = (int *) bp; bp += 4;
  int * mask = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetMarginMask((int) *margin,(int) *mask);
+ This->SetMarginMask(*margin,*mask);
  break;
 }
 case wxStyledTextCtrl_GetMarginMask: { // wxStyledTextCtrl::GetMarginMask
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * margin = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->GetMarginMask((int) *margin);
+ int Result = This->GetMarginMask(*margin);
  rt.addInt(Result);
  break;
 }
@@ -27404,14 +27784,14 @@ case wxStyledTextCtrl_SetMarginSensitive: { // wxStyledTextCtrl::SetMarginSensit
  int * margin = (int *) bp; bp += 4;
  bool * sensitive = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetMarginSensitive((int) *margin,(bool) *sensitive);
+ This->SetMarginSensitive(*margin,*sensitive);
  break;
 }
 case wxStyledTextCtrl_GetMarginSensitive: { // wxStyledTextCtrl::GetMarginSensitive
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * margin = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->GetMarginSensitive((int) *margin);
+ bool Result = This->GetMarginSensitive(*margin);
  rt.addBool(Result);
  break;
 }
@@ -27430,7 +27810,7 @@ case wxStyledTextCtrl_StyleSetForeground: { // wxStyledTextCtrl::StyleSetForegro
  int * foreA = (int *) bp; bp += 4;
  wxColour fore = wxColour(*foreR,*foreG,*foreB,*foreA);
  if(!This) throw wxe_badarg(0);
- This->StyleSetForeground((int) *style,fore);
+ This->StyleSetForeground(*style,fore);
  break;
 }
 case wxStyledTextCtrl_StyleSetBackground: { // wxStyledTextCtrl::StyleSetBackground
@@ -27442,7 +27822,7 @@ case wxStyledTextCtrl_StyleSetBackground: { // wxStyledTextCtrl::StyleSetBackgro
  int * backA = (int *) bp; bp += 4;
  wxColour back = wxColour(*backR,*backG,*backB,*backA);
  if(!This) throw wxe_badarg(0);
- This->StyleSetBackground((int) *style,back);
+ This->StyleSetBackground(*style,back);
  break;
 }
 case wxStyledTextCtrl_StyleSetBold: { // wxStyledTextCtrl::StyleSetBold
@@ -27450,7 +27830,7 @@ case wxStyledTextCtrl_StyleSetBold: { // wxStyledTextCtrl::StyleSetBold
  int * style = (int *) bp; bp += 4;
  bool * bold = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->StyleSetBold((int) *style,(bool) *bold);
+ This->StyleSetBold(*style,*bold);
  break;
 }
 case wxStyledTextCtrl_StyleSetItalic: { // wxStyledTextCtrl::StyleSetItalic
@@ -27458,7 +27838,7 @@ case wxStyledTextCtrl_StyleSetItalic: { // wxStyledTextCtrl::StyleSetItalic
  int * style = (int *) bp; bp += 4;
  bool * italic = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->StyleSetItalic((int) *style,(bool) *italic);
+ This->StyleSetItalic(*style,*italic);
  break;
 }
 case wxStyledTextCtrl_StyleSetSize: { // wxStyledTextCtrl::StyleSetSize
@@ -27466,7 +27846,7 @@ case wxStyledTextCtrl_StyleSetSize: { // wxStyledTextCtrl::StyleSetSize
  int * style = (int *) bp; bp += 4;
  int * sizePoints = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->StyleSetSize((int) *style,(int) *sizePoints);
+ This->StyleSetSize(*style,*sizePoints);
  break;
 }
 case wxStyledTextCtrl_StyleSetFaceName: { // wxStyledTextCtrl::StyleSetFaceName
@@ -27476,7 +27856,7 @@ case wxStyledTextCtrl_StyleSetFaceName: { // wxStyledTextCtrl::StyleSetFaceName
  wxString fontName = wxString(bp, wxConvUTF8);
  bp += *fontNameLen+((8-((4+ *fontNameLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- This->StyleSetFaceName((int) *style,fontName);
+ This->StyleSetFaceName(*style,fontName);
  break;
 }
 case wxStyledTextCtrl_StyleSetEOLFilled: { // wxStyledTextCtrl::StyleSetEOLFilled
@@ -27484,7 +27864,7 @@ case wxStyledTextCtrl_StyleSetEOLFilled: { // wxStyledTextCtrl::StyleSetEOLFille
  int * style = (int *) bp; bp += 4;
  bool * filled = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->StyleSetEOLFilled((int) *style,(bool) *filled);
+ This->StyleSetEOLFilled(*style,*filled);
  break;
 }
 case wxStyledTextCtrl_StyleResetDefault: { // wxStyledTextCtrl::StyleResetDefault
@@ -27498,7 +27878,7 @@ case wxStyledTextCtrl_StyleSetUnderline: { // wxStyledTextCtrl::StyleSetUnderlin
  int * style = (int *) bp; bp += 4;
  bool * underline = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->StyleSetUnderline((int) *style,(bool) *underline);
+ This->StyleSetUnderline(*style,*underline);
  break;
 }
 case wxStyledTextCtrl_StyleSetCase: { // wxStyledTextCtrl::StyleSetCase
@@ -27506,7 +27886,7 @@ case wxStyledTextCtrl_StyleSetCase: { // wxStyledTextCtrl::StyleSetCase
  int * style = (int *) bp; bp += 4;
  int * caseForce = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->StyleSetCase((int) *style,(int) *caseForce);
+ This->StyleSetCase(*style,*caseForce);
  break;
 }
 case wxStyledTextCtrl_StyleSetHotSpot: { // wxStyledTextCtrl::StyleSetHotSpot
@@ -27514,7 +27894,7 @@ case wxStyledTextCtrl_StyleSetHotSpot: { // wxStyledTextCtrl::StyleSetHotSpot
  int * style = (int *) bp; bp += 4;
  bool * hotspot = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->StyleSetHotSpot((int) *style,(bool) *hotspot);
+ This->StyleSetHotSpot(*style,*hotspot);
  break;
 }
 case wxStyledTextCtrl_SetSelForeground: { // wxStyledTextCtrl::SetSelForeground
@@ -27526,7 +27906,7 @@ case wxStyledTextCtrl_SetSelForeground: { // wxStyledTextCtrl::SetSelForeground
  int * foreA = (int *) bp; bp += 4;
  wxColour fore = wxColour(*foreR,*foreG,*foreB,*foreA);
  if(!This) throw wxe_badarg(0);
- This->SetSelForeground((bool) *useSetting,fore);
+ This->SetSelForeground(*useSetting,fore);
  break;
 }
 case wxStyledTextCtrl_SetSelBackground: { // wxStyledTextCtrl::SetSelBackground
@@ -27538,7 +27918,7 @@ case wxStyledTextCtrl_SetSelBackground: { // wxStyledTextCtrl::SetSelBackground
  int * backA = (int *) bp; bp += 4;
  wxColour back = wxColour(*backR,*backG,*backB,*backA);
  if(!This) throw wxe_badarg(0);
- This->SetSelBackground((bool) *useSetting,back);
+ This->SetSelBackground(*useSetting,back);
  break;
 }
 case wxStyledTextCtrl_GetSelAlpha: { // wxStyledTextCtrl::GetSelAlpha
@@ -27552,7 +27932,7 @@ case wxStyledTextCtrl_SetSelAlpha: { // wxStyledTextCtrl::SetSelAlpha
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * alpha = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetSelAlpha((int) *alpha);
+ This->SetSelAlpha(*alpha);
  break;
 }
 case wxStyledTextCtrl_SetCaretForeground: { // wxStyledTextCtrl::SetCaretForeground
@@ -27572,7 +27952,7 @@ case wxStyledTextCtrl_CmdKeyAssign: { // wxStyledTextCtrl::CmdKeyAssign
  int * modifiers = (int *) bp; bp += 4;
  int * cmd = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->CmdKeyAssign((int) *key,(int) *modifiers,(int) *cmd);
+ This->CmdKeyAssign(*key,*modifiers,*cmd);
  break;
 }
 case wxStyledTextCtrl_CmdKeyClear: { // wxStyledTextCtrl::CmdKeyClear
@@ -27580,7 +27960,7 @@ case wxStyledTextCtrl_CmdKeyClear: { // wxStyledTextCtrl::CmdKeyClear
  int * key = (int *) bp; bp += 4;
  int * modifiers = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->CmdKeyClear((int) *key,(int) *modifiers);
+ This->CmdKeyClear(*key,*modifiers);
  break;
 }
 case wxStyledTextCtrl_CmdKeyClearAll: { // wxStyledTextCtrl::CmdKeyClearAll
@@ -27594,7 +27974,7 @@ case wxStyledTextCtrl_SetStyleBytes: { // wxStyledTextCtrl::SetStyleBytes
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * length = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetStyleBytes((int) *length,&styleBytes);
+ This->SetStyleBytes(*length,&styleBytes);
  rt.addInt(styleBytes);
  break;
 }
@@ -27603,7 +27983,7 @@ case wxStyledTextCtrl_StyleSetVisible: { // wxStyledTextCtrl::StyleSetVisible
  int * style = (int *) bp; bp += 4;
  bool * visible = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->StyleSetVisible((int) *style,(bool) *visible);
+ This->StyleSetVisible(*style,*visible);
  break;
 }
 case wxStyledTextCtrl_GetCaretPeriod: { // wxStyledTextCtrl::GetCaretPeriod
@@ -27617,7 +27997,7 @@ case wxStyledTextCtrl_SetCaretPeriod: { // wxStyledTextCtrl::SetCaretPeriod
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * periodMilliseconds = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetCaretPeriod((int) *periodMilliseconds);
+ This->SetCaretPeriod(*periodMilliseconds);
  break;
 }
 case wxStyledTextCtrl_SetWordChars: { // wxStyledTextCtrl::SetWordChars
@@ -27646,14 +28026,14 @@ case wxStyledTextCtrl_IndicatorSetStyle: { // wxStyledTextCtrl::IndicatorSetStyl
  int * indic = (int *) bp; bp += 4;
  int * style = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->IndicatorSetStyle((int) *indic,(int) *style);
+ This->IndicatorSetStyle(*indic,*style);
  break;
 }
 case wxStyledTextCtrl_IndicatorGetStyle: { // wxStyledTextCtrl::IndicatorGetStyle
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * indic = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->IndicatorGetStyle((int) *indic);
+ int Result = This->IndicatorGetStyle(*indic);
  rt.addInt(Result);
  break;
 }
@@ -27666,14 +28046,14 @@ case wxStyledTextCtrl_IndicatorSetForeground: { // wxStyledTextCtrl::IndicatorSe
  int * foreA = (int *) bp; bp += 4;
  wxColour fore = wxColour(*foreR,*foreG,*foreB,*foreA);
  if(!This) throw wxe_badarg(0);
- This->IndicatorSetForeground((int) *indic,fore);
+ This->IndicatorSetForeground(*indic,fore);
  break;
 }
 case wxStyledTextCtrl_IndicatorGetForeground: { // wxStyledTextCtrl::IndicatorGetForeground
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * indic = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxColour Result = This->IndicatorGetForeground((int) *indic);
+ wxColour Result = This->IndicatorGetForeground(*indic);
  rt.add(Result);
  break;
 }
@@ -27686,7 +28066,7 @@ case wxStyledTextCtrl_SetWhitespaceForeground: { // wxStyledTextCtrl::SetWhitesp
  int * foreA = (int *) bp; bp += 4;
  wxColour fore = wxColour(*foreR,*foreG,*foreB,*foreA);
  if(!This) throw wxe_badarg(0);
- This->SetWhitespaceForeground((bool) *useSetting,fore);
+ This->SetWhitespaceForeground(*useSetting,fore);
  break;
 }
 case wxStyledTextCtrl_SetWhitespaceBackground: { // wxStyledTextCtrl::SetWhitespaceBackground
@@ -27698,7 +28078,7 @@ case wxStyledTextCtrl_SetWhitespaceBackground: { // wxStyledTextCtrl::SetWhitesp
  int * backA = (int *) bp; bp += 4;
  wxColour back = wxColour(*backR,*backG,*backB,*backA);
  if(!This) throw wxe_badarg(0);
- This->SetWhitespaceBackground((bool) *useSetting,back);
+ This->SetWhitespaceBackground(*useSetting,back);
  break;
 }
 case wxStyledTextCtrl_GetStyleBits: { // wxStyledTextCtrl::GetStyleBits
@@ -27713,14 +28093,14 @@ case wxStyledTextCtrl_SetLineState: { // wxStyledTextCtrl::SetLineState
  int * line = (int *) bp; bp += 4;
  int * state = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetLineState((int) *line,(int) *state);
+ This->SetLineState(*line,*state);
  break;
 }
 case wxStyledTextCtrl_GetLineState: { // wxStyledTextCtrl::GetLineState
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * line = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->GetLineState((int) *line);
+ int Result = This->GetLineState(*line);
  rt.addInt(Result);
  break;
 }
@@ -27742,7 +28122,7 @@ case wxStyledTextCtrl_SetCaretLineVisible: { // wxStyledTextCtrl::SetCaretLineVi
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  bool * show = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetCaretLineVisible((bool) *show);
+ This->SetCaretLineVisible(*show);
  break;
 }
 case wxStyledTextCtrl_GetCaretLineBackground: { // wxStyledTextCtrl::GetCaretLineBackground
@@ -27770,7 +28150,7 @@ case wxStyledTextCtrl_AutoCompShow: { // wxStyledTextCtrl::AutoCompShow
  wxString itemList = wxString(bp, wxConvUTF8);
  bp += *itemListLen+((8-((4+ *itemListLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- This->AutoCompShow((int) *lenEntered,itemList);
+ This->AutoCompShow(*lenEntered,itemList);
  break;
 }
 case wxStyledTextCtrl_AutoCompCancel: { // wxStyledTextCtrl::AutoCompCancel
@@ -27812,7 +28192,7 @@ case wxStyledTextCtrl_AutoCompSetSeparator: { // wxStyledTextCtrl::AutoCompSetSe
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * separatorCharacter = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->AutoCompSetSeparator((int) *separatorCharacter);
+ This->AutoCompSetSeparator(*separatorCharacter);
  break;
 }
 case wxStyledTextCtrl_AutoCompGetSeparator: { // wxStyledTextCtrl::AutoCompGetSeparator
@@ -27835,7 +28215,7 @@ case wxStyledTextCtrl_AutoCompSetCancelAtStart: { // wxStyledTextCtrl::AutoCompS
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  bool * cancel = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->AutoCompSetCancelAtStart((bool) *cancel);
+ This->AutoCompSetCancelAtStart(*cancel);
  break;
 }
 case wxStyledTextCtrl_AutoCompGetCancelAtStart: { // wxStyledTextCtrl::AutoCompGetCancelAtStart
@@ -27858,7 +28238,7 @@ case wxStyledTextCtrl_AutoCompSetChooseSingle: { // wxStyledTextCtrl::AutoCompSe
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  bool * chooseSingle = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->AutoCompSetChooseSingle((bool) *chooseSingle);
+ This->AutoCompSetChooseSingle(*chooseSingle);
  break;
 }
 case wxStyledTextCtrl_AutoCompGetChooseSingle: { // wxStyledTextCtrl::AutoCompGetChooseSingle
@@ -27872,7 +28252,7 @@ case wxStyledTextCtrl_AutoCompSetIgnoreCase: { // wxStyledTextCtrl::AutoCompSetI
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  bool * ignoreCase = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->AutoCompSetIgnoreCase((bool) *ignoreCase);
+ This->AutoCompSetIgnoreCase(*ignoreCase);
  break;
 }
 case wxStyledTextCtrl_AutoCompGetIgnoreCase: { // wxStyledTextCtrl::AutoCompGetIgnoreCase
@@ -27889,14 +28269,14 @@ case wxStyledTextCtrl_UserListShow: { // wxStyledTextCtrl::UserListShow
  wxString itemList = wxString(bp, wxConvUTF8);
  bp += *itemListLen+((8-((4+ *itemListLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- This->UserListShow((int) *listType,itemList);
+ This->UserListShow(*listType,itemList);
  break;
 }
 case wxStyledTextCtrl_AutoCompSetAutoHide: { // wxStyledTextCtrl::AutoCompSetAutoHide
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  bool * autoHide = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->AutoCompSetAutoHide((bool) *autoHide);
+ This->AutoCompSetAutoHide(*autoHide);
  break;
 }
 case wxStyledTextCtrl_AutoCompGetAutoHide: { // wxStyledTextCtrl::AutoCompGetAutoHide
@@ -27910,7 +28290,7 @@ case wxStyledTextCtrl_AutoCompSetDropRestOfWord: { // wxStyledTextCtrl::AutoComp
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  bool * dropRestOfWord = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->AutoCompSetDropRestOfWord((bool) *dropRestOfWord);
+ This->AutoCompSetDropRestOfWord(*dropRestOfWord);
  break;
 }
 case wxStyledTextCtrl_AutoCompGetDropRestOfWord: { // wxStyledTextCtrl::AutoCompGetDropRestOfWord
@@ -27925,7 +28305,7 @@ case wxStyledTextCtrl_RegisterImage: { // wxStyledTextCtrl::RegisterImage
  int * type = (int *) bp; bp += 4;
  wxBitmap *bmp = (wxBitmap *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- This->RegisterImage((int) *type,*bmp);
+ This->RegisterImage(*type,*bmp);
  break;
 }
 case wxStyledTextCtrl_ClearRegisteredImages: { // wxStyledTextCtrl::ClearRegisteredImages
@@ -27945,14 +28325,14 @@ case wxStyledTextCtrl_AutoCompSetTypeSeparator: { // wxStyledTextCtrl::AutoCompS
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * separatorCharacter = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->AutoCompSetTypeSeparator((int) *separatorCharacter);
+ This->AutoCompSetTypeSeparator(*separatorCharacter);
  break;
 }
 case wxStyledTextCtrl_AutoCompSetMaxWidth: { // wxStyledTextCtrl::AutoCompSetMaxWidth
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * characterCount = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->AutoCompSetMaxWidth((int) *characterCount);
+ This->AutoCompSetMaxWidth(*characterCount);
  break;
 }
 case wxStyledTextCtrl_AutoCompGetMaxWidth: { // wxStyledTextCtrl::AutoCompGetMaxWidth
@@ -27966,7 +28346,7 @@ case wxStyledTextCtrl_AutoCompSetMaxHeight: { // wxStyledTextCtrl::AutoCompSetMa
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * rowCount = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->AutoCompSetMaxHeight((int) *rowCount);
+ This->AutoCompSetMaxHeight(*rowCount);
  break;
 }
 case wxStyledTextCtrl_AutoCompGetMaxHeight: { // wxStyledTextCtrl::AutoCompGetMaxHeight
@@ -27980,7 +28360,7 @@ case wxStyledTextCtrl_SetIndent: { // wxStyledTextCtrl::SetIndent
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * indentSize = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetIndent((int) *indentSize);
+ This->SetIndent(*indentSize);
  break;
 }
 case wxStyledTextCtrl_GetIndent: { // wxStyledTextCtrl::GetIndent
@@ -27994,7 +28374,7 @@ case wxStyledTextCtrl_SetUseTabs: { // wxStyledTextCtrl::SetUseTabs
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  bool * useTabs = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetUseTabs((bool) *useTabs);
+ This->SetUseTabs(*useTabs);
  break;
 }
 case wxStyledTextCtrl_GetUseTabs: { // wxStyledTextCtrl::GetUseTabs
@@ -28009,14 +28389,14 @@ case wxStyledTextCtrl_SetLineIndentation: { // wxStyledTextCtrl::SetLineIndentat
  int * line = (int *) bp; bp += 4;
  int * indentSize = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetLineIndentation((int) *line,(int) *indentSize);
+ This->SetLineIndentation(*line,*indentSize);
  break;
 }
 case wxStyledTextCtrl_GetLineIndentation: { // wxStyledTextCtrl::GetLineIndentation
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * line = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->GetLineIndentation((int) *line);
+ int Result = This->GetLineIndentation(*line);
  rt.addInt(Result);
  break;
 }
@@ -28024,7 +28404,7 @@ case wxStyledTextCtrl_GetLineIndentPosition: { // wxStyledTextCtrl::GetLineInden
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * line = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->GetLineIndentPosition((int) *line);
+ int Result = This->GetLineIndentPosition(*line);
  rt.addInt(Result);
  break;
 }
@@ -28032,7 +28412,7 @@ case wxStyledTextCtrl_GetColumn: { // wxStyledTextCtrl::GetColumn
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * pos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->GetColumn((int) *pos);
+ int Result = This->GetColumn(*pos);
  rt.addInt(Result);
  break;
 }
@@ -28040,7 +28420,7 @@ case wxStyledTextCtrl_SetUseHorizontalScrollBar: { // wxStyledTextCtrl::SetUseHo
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  bool * show = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetUseHorizontalScrollBar((bool) *show);
+ This->SetUseHorizontalScrollBar(*show);
  break;
 }
 case wxStyledTextCtrl_GetUseHorizontalScrollBar: { // wxStyledTextCtrl::GetUseHorizontalScrollBar
@@ -28054,7 +28434,7 @@ case wxStyledTextCtrl_SetIndentationGuides: { // wxStyledTextCtrl::SetIndentatio
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  bool * show = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetIndentationGuides((bool) *show);
+ This->SetIndentationGuides(*show);
  break;
 }
 case wxStyledTextCtrl_GetIndentationGuides: { // wxStyledTextCtrl::GetIndentationGuides
@@ -28068,7 +28448,7 @@ case wxStyledTextCtrl_SetHighlightGuide: { // wxStyledTextCtrl::SetHighlightGuid
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * column = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetHighlightGuide((int) *column);
+ This->SetHighlightGuide(*column);
  break;
 }
 case wxStyledTextCtrl_GetHighlightGuide: { // wxStyledTextCtrl::GetHighlightGuide
@@ -28082,7 +28462,7 @@ case wxStyledTextCtrl_GetLineEndPosition: { // wxStyledTextCtrl::GetLineEndPosit
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * line = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->GetLineEndPosition((int) *line);
+ int Result = This->GetLineEndPosition(*line);
  rt.addInt(Result);
  break;
 }
@@ -28111,14 +28491,14 @@ case wxStyledTextCtrl_SetCurrentPos: { // wxStyledTextCtrl::SetCurrentPos
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * pos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetCurrentPos((int) *pos);
+ This->SetCurrentPos(*pos);
  break;
 }
 case wxStyledTextCtrl_SetSelectionStart: { // wxStyledTextCtrl::SetSelectionStart
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * pos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetSelectionStart((int) *pos);
+ This->SetSelectionStart(*pos);
  break;
 }
 case wxStyledTextCtrl_GetSelectionStart: { // wxStyledTextCtrl::GetSelectionStart
@@ -28132,7 +28512,7 @@ case wxStyledTextCtrl_SetSelectionEnd: { // wxStyledTextCtrl::SetSelectionEnd
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * pos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetSelectionEnd((int) *pos);
+ This->SetSelectionEnd(*pos);
  break;
 }
 case wxStyledTextCtrl_GetSelectionEnd: { // wxStyledTextCtrl::GetSelectionEnd
@@ -28146,7 +28526,7 @@ case wxStyledTextCtrl_SetPrintMagnification: { // wxStyledTextCtrl::SetPrintMagn
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * magnification = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetPrintMagnification((int) *magnification);
+ This->SetPrintMagnification(*magnification);
  break;
 }
 case wxStyledTextCtrl_GetPrintMagnification: { // wxStyledTextCtrl::GetPrintMagnification
@@ -28160,7 +28540,7 @@ case wxStyledTextCtrl_SetPrintColourMode: { // wxStyledTextCtrl::SetPrintColourM
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * mode = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetPrintColourMode((int) *mode);
+ This->SetPrintColourMode(*mode);
  break;
 }
 case wxStyledTextCtrl_GetPrintColourMode: { // wxStyledTextCtrl::GetPrintColourMode
@@ -28184,7 +28564,7 @@ case wxStyledTextCtrl_FindText: { // wxStyledTextCtrl::FindText
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- int Result = This->FindText((int) *minPos,(int) *maxPos,text,flags);
+ int Result = This->FindText(*minPos,*maxPos,text,flags);
  rt.addInt(Result);
  break;
 }
@@ -28206,7 +28586,7 @@ case wxStyledTextCtrl_FormatRange: { // wxStyledTextCtrl::FormatRange
  int * pageRectH = (int *) bp; bp += 4;
  wxRect pageRect = wxRect(*pageRectX,*pageRectY,*pageRectW,*pageRectH);
  if(!This) throw wxe_badarg(0);
- int Result = This->FormatRange((bool) *doDraw,(int) *startPos,(int) *endPos,draw,target,renderRect,pageRect);
+ int Result = This->FormatRange(*doDraw,*startPos,*endPos,draw,target,renderRect,pageRect);
  rt.addInt(Result);
  break;
 }
@@ -28221,7 +28601,7 @@ case wxStyledTextCtrl_GetLine: { // wxStyledTextCtrl::GetLine
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * line = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxString Result = This->GetLine((int) *line);
+ wxString Result = This->GetLine(*line);
  rt.add(Result);
  break;
 }
@@ -28236,7 +28616,7 @@ case wxStyledTextCtrl_SetMarginLeft: { // wxStyledTextCtrl::SetMarginLeft
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * pixelWidth = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetMarginLeft((int) *pixelWidth);
+ This->SetMarginLeft(*pixelWidth);
  break;
 }
 case wxStyledTextCtrl_GetMarginLeft: { // wxStyledTextCtrl::GetMarginLeft
@@ -28250,7 +28630,7 @@ case wxStyledTextCtrl_SetMarginRight: { // wxStyledTextCtrl::SetMarginRight
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * pixelWidth = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetMarginRight((int) *pixelWidth);
+ This->SetMarginRight(*pixelWidth);
  break;
 }
 case wxStyledTextCtrl_GetMarginRight: { // wxStyledTextCtrl::GetMarginRight
@@ -28272,7 +28652,7 @@ case wxStyledTextCtrl_SetSelection: { // wxStyledTextCtrl::SetSelection
  int * start = (int *) bp; bp += 4;
  int * end = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetSelection((int) *start,(int) *end);
+ This->SetSelection(*start,*end);
  break;
 }
 case wxStyledTextCtrl_GetSelectedText: { // wxStyledTextCtrl::GetSelectedText
@@ -28287,7 +28667,7 @@ case wxStyledTextCtrl_GetTextRange: { // wxStyledTextCtrl::GetTextRange
  int * startPos = (int *) bp; bp += 4;
  int * endPos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxString Result = This->GetTextRange((int) *startPos,(int) *endPos);
+ wxString Result = This->GetTextRange(*startPos,*endPos);
  rt.add(Result);
  break;
 }
@@ -28295,14 +28675,14 @@ case wxStyledTextCtrl_HideSelection: { // wxStyledTextCtrl::HideSelection
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  bool * normal = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->HideSelection((bool) *normal);
+ This->HideSelection(*normal);
  break;
 }
 case wxStyledTextCtrl_LineFromPosition: { // wxStyledTextCtrl::LineFromPosition
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * pos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->LineFromPosition((int) *pos);
+ int Result = This->LineFromPosition(*pos);
  rt.addInt(Result);
  break;
 }
@@ -28310,7 +28690,7 @@ case wxStyledTextCtrl_PositionFromLine: { // wxStyledTextCtrl::PositionFromLine
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * line = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->PositionFromLine((int) *line);
+ int Result = This->PositionFromLine(*line);
  rt.addInt(Result);
  break;
 }
@@ -28319,7 +28699,7 @@ case wxStyledTextCtrl_LineScroll: { // wxStyledTextCtrl::LineScroll
  int * columns = (int *) bp; bp += 4;
  int * lines = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->LineScroll((int) *columns,(int) *lines);
+ This->LineScroll(*columns,*lines);
  break;
 }
 case wxStyledTextCtrl_EnsureCaretVisible: { // wxStyledTextCtrl::EnsureCaretVisible
@@ -28341,7 +28721,7 @@ case wxStyledTextCtrl_SetReadOnly: { // wxStyledTextCtrl::SetReadOnly
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  bool * readOnly = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetReadOnly((bool) *readOnly);
+ This->SetReadOnly(*readOnly);
  break;
 }
 case wxStyledTextCtrl_CanPaste: { // wxStyledTextCtrl::CanPaste
@@ -28428,7 +28808,7 @@ case wxStyledTextCtrl_SetCaretWidth: { // wxStyledTextCtrl::SetCaretWidth
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * pixelWidth = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetCaretWidth((int) *pixelWidth);
+ This->SetCaretWidth(*pixelWidth);
  break;
 }
 case wxStyledTextCtrl_GetCaretWidth: { // wxStyledTextCtrl::GetCaretWidth
@@ -28442,7 +28822,7 @@ case wxStyledTextCtrl_SetTargetStart: { // wxStyledTextCtrl::SetTargetStart
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * pos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetTargetStart((int) *pos);
+ This->SetTargetStart(*pos);
  break;
 }
 case wxStyledTextCtrl_GetTargetStart: { // wxStyledTextCtrl::GetTargetStart
@@ -28456,7 +28836,7 @@ case wxStyledTextCtrl_SetTargetEnd: { // wxStyledTextCtrl::SetTargetEnd
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * pos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetTargetEnd((int) *pos);
+ This->SetTargetEnd(*pos);
  break;
 }
 case wxStyledTextCtrl_GetTargetEnd: { // wxStyledTextCtrl::GetTargetEnd
@@ -28490,7 +28870,7 @@ case wxStyledTextCtrl_SetSearchFlags: { // wxStyledTextCtrl::SetSearchFlags
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * flags = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetSearchFlags((int) *flags);
+ This->SetSearchFlags(*flags);
  break;
 }
 case wxStyledTextCtrl_GetSearchFlags: { // wxStyledTextCtrl::GetSearchFlags
@@ -28507,7 +28887,7 @@ case wxStyledTextCtrl_CallTipShow: { // wxStyledTextCtrl::CallTipShow
  wxString definition = wxString(bp, wxConvUTF8);
  bp += *definitionLen+((8-((4+ *definitionLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- This->CallTipShow((int) *pos,definition);
+ This->CallTipShow(*pos,definition);
  break;
 }
 case wxStyledTextCtrl_CallTipCancel: { // wxStyledTextCtrl::CallTipCancel
@@ -28535,7 +28915,7 @@ case wxStyledTextCtrl_CallTipSetHighlight: { // wxStyledTextCtrl::CallTipSetHigh
  int * start = (int *) bp; bp += 4;
  int * end = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->CallTipSetHighlight((int) *start,(int) *end);
+ This->CallTipSetHighlight(*start,*end);
  break;
 }
 case wxStyledTextCtrl_CallTipSetBackground: { // wxStyledTextCtrl::CallTipSetBackground
@@ -28575,14 +28955,14 @@ case wxStyledTextCtrl_CallTipUseStyle: { // wxStyledTextCtrl::CallTipUseStyle
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * tabSize = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->CallTipUseStyle((int) *tabSize);
+ This->CallTipUseStyle(*tabSize);
  break;
 }
 case wxStyledTextCtrl_VisibleFromDocLine: { // wxStyledTextCtrl::VisibleFromDocLine
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * line = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->VisibleFromDocLine((int) *line);
+ int Result = This->VisibleFromDocLine(*line);
  rt.addInt(Result);
  break;
 }
@@ -28590,7 +28970,7 @@ case wxStyledTextCtrl_DocLineFromVisible: { // wxStyledTextCtrl::DocLineFromVisi
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * lineDisplay = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->DocLineFromVisible((int) *lineDisplay);
+ int Result = This->DocLineFromVisible(*lineDisplay);
  rt.addInt(Result);
  break;
 }
@@ -28598,7 +28978,7 @@ case wxStyledTextCtrl_WrapCount: { // wxStyledTextCtrl::WrapCount
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * line = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->WrapCount((int) *line);
+ int Result = This->WrapCount(*line);
  rt.addInt(Result);
  break;
 }
@@ -28607,14 +28987,14 @@ case wxStyledTextCtrl_SetFoldLevel: { // wxStyledTextCtrl::SetFoldLevel
  int * line = (int *) bp; bp += 4;
  int * level = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetFoldLevel((int) *line,(int) *level);
+ This->SetFoldLevel(*line,*level);
  break;
 }
 case wxStyledTextCtrl_GetFoldLevel: { // wxStyledTextCtrl::GetFoldLevel
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * line = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->GetFoldLevel((int) *line);
+ int Result = This->GetFoldLevel(*line);
  rt.addInt(Result);
  break;
 }
@@ -28623,7 +29003,7 @@ case wxStyledTextCtrl_GetLastChild: { // wxStyledTextCtrl::GetLastChild
  int * line = (int *) bp; bp += 4;
  int * level = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->GetLastChild((int) *line,(int) *level);
+ int Result = This->GetLastChild(*line,*level);
  rt.addInt(Result);
  break;
 }
@@ -28631,7 +29011,7 @@ case wxStyledTextCtrl_GetFoldParent: { // wxStyledTextCtrl::GetFoldParent
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * line = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->GetFoldParent((int) *line);
+ int Result = This->GetFoldParent(*line);
  rt.addInt(Result);
  break;
 }
@@ -28640,7 +29020,7 @@ case wxStyledTextCtrl_ShowLines: { // wxStyledTextCtrl::ShowLines
  int * lineStart = (int *) bp; bp += 4;
  int * lineEnd = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->ShowLines((int) *lineStart,(int) *lineEnd);
+ This->ShowLines(*lineStart,*lineEnd);
  break;
 }
 case wxStyledTextCtrl_HideLines: { // wxStyledTextCtrl::HideLines
@@ -28648,14 +29028,14 @@ case wxStyledTextCtrl_HideLines: { // wxStyledTextCtrl::HideLines
  int * lineStart = (int *) bp; bp += 4;
  int * lineEnd = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->HideLines((int) *lineStart,(int) *lineEnd);
+ This->HideLines(*lineStart,*lineEnd);
  break;
 }
 case wxStyledTextCtrl_GetLineVisible: { // wxStyledTextCtrl::GetLineVisible
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * line = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->GetLineVisible((int) *line);
+ bool Result = This->GetLineVisible(*line);
  rt.addBool(Result);
  break;
 }
@@ -28664,14 +29044,14 @@ case wxStyledTextCtrl_SetFoldExpanded: { // wxStyledTextCtrl::SetFoldExpanded
  int * line = (int *) bp; bp += 4;
  bool * expanded = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetFoldExpanded((int) *line,(bool) *expanded);
+ This->SetFoldExpanded(*line,*expanded);
  break;
 }
 case wxStyledTextCtrl_GetFoldExpanded: { // wxStyledTextCtrl::GetFoldExpanded
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * line = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- bool Result = This->GetFoldExpanded((int) *line);
+ bool Result = This->GetFoldExpanded(*line);
  rt.addBool(Result);
  break;
 }
@@ -28679,35 +29059,35 @@ case wxStyledTextCtrl_ToggleFold: { // wxStyledTextCtrl::ToggleFold
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * line = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->ToggleFold((int) *line);
+ This->ToggleFold(*line);
  break;
 }
 case wxStyledTextCtrl_EnsureVisible: { // wxStyledTextCtrl::EnsureVisible
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * line = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->EnsureVisible((int) *line);
+ This->EnsureVisible(*line);
  break;
 }
 case wxStyledTextCtrl_SetFoldFlags: { // wxStyledTextCtrl::SetFoldFlags
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * flags = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetFoldFlags((int) *flags);
+ This->SetFoldFlags(*flags);
  break;
 }
 case wxStyledTextCtrl_EnsureVisibleEnforcePolicy: { // wxStyledTextCtrl::EnsureVisibleEnforcePolicy
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * line = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->EnsureVisibleEnforcePolicy((int) *line);
+ This->EnsureVisibleEnforcePolicy(*line);
  break;
 }
 case wxStyledTextCtrl_SetTabIndents: { // wxStyledTextCtrl::SetTabIndents
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  bool * tabIndents = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetTabIndents((bool) *tabIndents);
+ This->SetTabIndents(*tabIndents);
  break;
 }
 case wxStyledTextCtrl_GetTabIndents: { // wxStyledTextCtrl::GetTabIndents
@@ -28721,7 +29101,7 @@ case wxStyledTextCtrl_SetBackSpaceUnIndents: { // wxStyledTextCtrl::SetBackSpace
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  bool * bsUnIndents = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetBackSpaceUnIndents((bool) *bsUnIndents);
+ This->SetBackSpaceUnIndents(*bsUnIndents);
  break;
 }
 case wxStyledTextCtrl_GetBackSpaceUnIndents: { // wxStyledTextCtrl::GetBackSpaceUnIndents
@@ -28735,7 +29115,7 @@ case wxStyledTextCtrl_SetMouseDwellTime: { // wxStyledTextCtrl::SetMouseDwellTim
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * periodMilliseconds = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetMouseDwellTime((int) *periodMilliseconds);
+ This->SetMouseDwellTime(*periodMilliseconds);
  break;
 }
 case wxStyledTextCtrl_GetMouseDwellTime: { // wxStyledTextCtrl::GetMouseDwellTime
@@ -28750,7 +29130,7 @@ case wxStyledTextCtrl_WordStartPosition: { // wxStyledTextCtrl::WordStartPositio
  int * pos = (int *) bp; bp += 4;
  bool * onlyWordCharacters = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->WordStartPosition((int) *pos,(bool) *onlyWordCharacters);
+ int Result = This->WordStartPosition(*pos,*onlyWordCharacters);
  rt.addInt(Result);
  break;
 }
@@ -28759,7 +29139,7 @@ case wxStyledTextCtrl_WordEndPosition: { // wxStyledTextCtrl::WordEndPosition
  int * pos = (int *) bp; bp += 4;
  bool * onlyWordCharacters = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->WordEndPosition((int) *pos,(bool) *onlyWordCharacters);
+ int Result = This->WordEndPosition(*pos,*onlyWordCharacters);
  rt.addInt(Result);
  break;
 }
@@ -28767,7 +29147,7 @@ case wxStyledTextCtrl_SetWrapMode: { // wxStyledTextCtrl::SetWrapMode
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * mode = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetWrapMode((int) *mode);
+ This->SetWrapMode(*mode);
  break;
 }
 case wxStyledTextCtrl_GetWrapMode: { // wxStyledTextCtrl::GetWrapMode
@@ -28781,7 +29161,7 @@ case wxStyledTextCtrl_SetWrapVisualFlags: { // wxStyledTextCtrl::SetWrapVisualFl
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * wrapVisualFlags = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetWrapVisualFlags((int) *wrapVisualFlags);
+ This->SetWrapVisualFlags(*wrapVisualFlags);
  break;
 }
 case wxStyledTextCtrl_GetWrapVisualFlags: { // wxStyledTextCtrl::GetWrapVisualFlags
@@ -28795,7 +29175,7 @@ case wxStyledTextCtrl_SetWrapVisualFlagsLocation: { // wxStyledTextCtrl::SetWrap
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * wrapVisualFlagsLocation = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetWrapVisualFlagsLocation((int) *wrapVisualFlagsLocation);
+ This->SetWrapVisualFlagsLocation(*wrapVisualFlagsLocation);
  break;
 }
 case wxStyledTextCtrl_GetWrapVisualFlagsLocation: { // wxStyledTextCtrl::GetWrapVisualFlagsLocation
@@ -28809,7 +29189,7 @@ case wxStyledTextCtrl_SetWrapStartIndent: { // wxStyledTextCtrl::SetWrapStartInd
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * indent = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetWrapStartIndent((int) *indent);
+ This->SetWrapStartIndent(*indent);
  break;
 }
 case wxStyledTextCtrl_GetWrapStartIndent: { // wxStyledTextCtrl::GetWrapStartIndent
@@ -28823,7 +29203,7 @@ case wxStyledTextCtrl_SetLayoutCache: { // wxStyledTextCtrl::SetLayoutCache
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * mode = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetLayoutCache((int) *mode);
+ This->SetLayoutCache(*mode);
  break;
 }
 case wxStyledTextCtrl_GetLayoutCache: { // wxStyledTextCtrl::GetLayoutCache
@@ -28837,7 +29217,7 @@ case wxStyledTextCtrl_SetScrollWidth: { // wxStyledTextCtrl::SetScrollWidth
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * pixelWidth = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetScrollWidth((int) *pixelWidth);
+ This->SetScrollWidth(*pixelWidth);
  break;
 }
 case wxStyledTextCtrl_GetScrollWidth: { // wxStyledTextCtrl::GetScrollWidth
@@ -28854,7 +29234,7 @@ case wxStyledTextCtrl_TextWidth: { // wxStyledTextCtrl::TextWidth
  wxString text = wxString(bp, wxConvUTF8);
  bp += *textLen+((8-((4+ *textLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- int Result = This->TextWidth((int) *style,text);
+ int Result = This->TextWidth(*style,text);
  rt.addInt(Result);
  break;
 }
@@ -28869,7 +29249,7 @@ case wxStyledTextCtrl_TextHeight: { // wxStyledTextCtrl::TextHeight
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * line = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->TextHeight((int) *line);
+ int Result = This->TextHeight(*line);
  rt.addInt(Result);
  break;
 }
@@ -28877,7 +29257,7 @@ case wxStyledTextCtrl_SetUseVerticalScrollBar: { // wxStyledTextCtrl::SetUseVert
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  bool * show = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetUseVerticalScrollBar((bool) *show);
+ This->SetUseVerticalScrollBar(*show);
  break;
 }
 case wxStyledTextCtrl_GetUseVerticalScrollBar: { // wxStyledTextCtrl::GetUseVerticalScrollBar
@@ -28907,7 +29287,7 @@ case wxStyledTextCtrl_SetTwoPhaseDraw: { // wxStyledTextCtrl::SetTwoPhaseDraw
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  bool * twoPhase = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetTwoPhaseDraw((bool) *twoPhase);
+ This->SetTwoPhaseDraw(*twoPhase);
  break;
 }
 case wxStyledTextCtrl_TargetFromSelection: { // wxStyledTextCtrl::TargetFromSelection
@@ -28926,7 +29306,7 @@ case wxStyledTextCtrl_LinesSplit: { // wxStyledTextCtrl::LinesSplit
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * pixelWidth = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->LinesSplit((int) *pixelWidth);
+ This->LinesSplit(*pixelWidth);
  break;
 }
 case wxStyledTextCtrl_SetFoldMarginColour: { // wxStyledTextCtrl::SetFoldMarginColour
@@ -28938,7 +29318,7 @@ case wxStyledTextCtrl_SetFoldMarginColour: { // wxStyledTextCtrl::SetFoldMarginC
  int * backA = (int *) bp; bp += 4;
  wxColour back = wxColour(*backR,*backG,*backB,*backA);
  if(!This) throw wxe_badarg(0);
- This->SetFoldMarginColour((bool) *useSetting,back);
+ This->SetFoldMarginColour(*useSetting,back);
  break;
 }
 case wxStyledTextCtrl_SetFoldMarginHiColour: { // wxStyledTextCtrl::SetFoldMarginHiColour
@@ -28950,7 +29330,7 @@ case wxStyledTextCtrl_SetFoldMarginHiColour: { // wxStyledTextCtrl::SetFoldMargi
  int * foreA = (int *) bp; bp += 4;
  wxColour fore = wxColour(*foreR,*foreG,*foreB,*foreA);
  if(!This) throw wxe_badarg(0);
- This->SetFoldMarginHiColour((bool) *useSetting,fore);
+ This->SetFoldMarginHiColour(*useSetting,fore);
  break;
 }
 case wxStyledTextCtrl_LineDown: { // wxStyledTextCtrl::LineDown
@@ -29299,7 +29679,7 @@ case wxStyledTextCtrl_LineLength: { // wxStyledTextCtrl::LineLength
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * line = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->LineLength((int) *line);
+ int Result = This->LineLength(*line);
  rt.addInt(Result);
  break;
 }
@@ -29308,21 +29688,21 @@ case wxStyledTextCtrl_BraceHighlight: { // wxStyledTextCtrl::BraceHighlight
  int * pos1 = (int *) bp; bp += 4;
  int * pos2 = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->BraceHighlight((int) *pos1,(int) *pos2);
+ This->BraceHighlight(*pos1,*pos2);
  break;
 }
 case wxStyledTextCtrl_BraceBadLight: { // wxStyledTextCtrl::BraceBadLight
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * pos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->BraceBadLight((int) *pos);
+ This->BraceBadLight(*pos);
  break;
 }
 case wxStyledTextCtrl_BraceMatch: { // wxStyledTextCtrl::BraceMatch
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * pos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->BraceMatch((int) *pos);
+ int Result = This->BraceMatch(*pos);
  rt.addInt(Result);
  break;
 }
@@ -29337,14 +29717,14 @@ case wxStyledTextCtrl_SetViewEOL: { // wxStyledTextCtrl::SetViewEOL
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  bool * visible = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetViewEOL((bool) *visible);
+ This->SetViewEOL(*visible);
  break;
 }
 case wxStyledTextCtrl_SetModEventMask: { // wxStyledTextCtrl::SetModEventMask
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * mask = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetModEventMask((int) *mask);
+ This->SetModEventMask(*mask);
  break;
 }
 case wxStyledTextCtrl_GetEdgeColumn: { // wxStyledTextCtrl::GetEdgeColumn
@@ -29358,14 +29738,14 @@ case wxStyledTextCtrl_SetEdgeColumn: { // wxStyledTextCtrl::SetEdgeColumn
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * column = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetEdgeColumn((int) *column);
+ This->SetEdgeColumn(*column);
  break;
 }
 case wxStyledTextCtrl_SetEdgeMode: { // wxStyledTextCtrl::SetEdgeMode
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * mode = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetEdgeMode((int) *mode);
+ This->SetEdgeMode(*mode);
  break;
 }
 case wxStyledTextCtrl_GetEdgeMode: { // wxStyledTextCtrl::GetEdgeMode
@@ -29406,7 +29786,7 @@ case wxStyledTextCtrl_SearchNext: { // wxStyledTextCtrl::SearchNext
  wxString text = wxString(bp, wxConvUTF8);
  bp += *textLen+((8-((4+ *textLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- int Result = This->SearchNext((int) *flags,text);
+ int Result = This->SearchNext(*flags,text);
  rt.addInt(Result);
  break;
 }
@@ -29417,7 +29797,7 @@ case wxStyledTextCtrl_SearchPrev: { // wxStyledTextCtrl::SearchPrev
  wxString text = wxString(bp, wxConvUTF8);
  bp += *textLen+((8-((4+ *textLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- int Result = This->SearchPrev((int) *flags,text);
+ int Result = This->SearchPrev(*flags,text);
  rt.addInt(Result);
  break;
 }
@@ -29432,7 +29812,7 @@ case wxStyledTextCtrl_UsePopUp: { // wxStyledTextCtrl::UsePopUp
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  bool * allowPopUp = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->UsePopUp((bool) *allowPopUp);
+ This->UsePopUp(*allowPopUp);
  break;
 }
 case wxStyledTextCtrl_SelectionIsRectangle: { // wxStyledTextCtrl::SelectionIsRectangle
@@ -29446,7 +29826,7 @@ case wxStyledTextCtrl_SetZoom: { // wxStyledTextCtrl::SetZoom
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * zoom = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetZoom((int) *zoom);
+ This->SetZoom(*zoom);
  break;
 }
 case wxStyledTextCtrl_GetZoom: { // wxStyledTextCtrl::GetZoom
@@ -29467,7 +29847,7 @@ case wxStyledTextCtrl_SetSTCFocus: { // wxStyledTextCtrl::SetSTCFocus
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  bool * focus = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetSTCFocus((bool) *focus);
+ This->SetSTCFocus(*focus);
  break;
 }
 case wxStyledTextCtrl_GetSTCFocus: { // wxStyledTextCtrl::GetSTCFocus
@@ -29481,7 +29861,7 @@ case wxStyledTextCtrl_SetStatus: { // wxStyledTextCtrl::SetStatus
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * statusCode = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetStatus((int) *statusCode);
+ This->SetStatus(*statusCode);
  break;
 }
 case wxStyledTextCtrl_GetStatus: { // wxStyledTextCtrl::GetStatus
@@ -29495,7 +29875,7 @@ case wxStyledTextCtrl_SetMouseDownCaptures: { // wxStyledTextCtrl::SetMouseDownC
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  bool * captures = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetMouseDownCaptures((bool) *captures);
+ This->SetMouseDownCaptures(*captures);
  break;
 }
 case wxStyledTextCtrl_GetMouseDownCaptures: { // wxStyledTextCtrl::GetMouseDownCaptures
@@ -29509,7 +29889,7 @@ case wxStyledTextCtrl_SetSTCCursor: { // wxStyledTextCtrl::SetSTCCursor
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * cursorType = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetSTCCursor((int) *cursorType);
+ This->SetSTCCursor(*cursorType);
  break;
 }
 case wxStyledTextCtrl_GetSTCCursor: { // wxStyledTextCtrl::GetSTCCursor
@@ -29523,7 +29903,7 @@ case wxStyledTextCtrl_SetControlCharSymbol: { // wxStyledTextCtrl::SetControlCha
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * symbol = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetControlCharSymbol((int) *symbol);
+ This->SetControlCharSymbol(*symbol);
  break;
 }
 case wxStyledTextCtrl_GetControlCharSymbol: { // wxStyledTextCtrl::GetControlCharSymbol
@@ -29562,7 +29942,7 @@ case wxStyledTextCtrl_SetVisiblePolicy: { // wxStyledTextCtrl::SetVisiblePolicy
  int * visiblePolicy = (int *) bp; bp += 4;
  int * visibleSlop = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetVisiblePolicy((int) *visiblePolicy,(int) *visibleSlop);
+ This->SetVisiblePolicy(*visiblePolicy,*visibleSlop);
  break;
 }
 case wxStyledTextCtrl_DelLineLeft: { // wxStyledTextCtrl::DelLineLeft
@@ -29595,7 +29975,7 @@ case wxStyledTextCtrl_SetXCaretPolicy: { // wxStyledTextCtrl::SetXCaretPolicy
  int * caretPolicy = (int *) bp; bp += 4;
  int * caretSlop = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetXCaretPolicy((int) *caretPolicy,(int) *caretSlop);
+ This->SetXCaretPolicy(*caretPolicy,*caretSlop);
  break;
 }
 case wxStyledTextCtrl_SetYCaretPolicy: { // wxStyledTextCtrl::SetYCaretPolicy
@@ -29603,7 +29983,7 @@ case wxStyledTextCtrl_SetYCaretPolicy: { // wxStyledTextCtrl::SetYCaretPolicy
  int * caretPolicy = (int *) bp; bp += 4;
  int * caretSlop = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetYCaretPolicy((int) *caretPolicy,(int) *caretSlop);
+ This->SetYCaretPolicy(*caretPolicy,*caretSlop);
  break;
 }
 case wxStyledTextCtrl_GetPrintWrapMode: { // wxStyledTextCtrl::GetPrintWrapMode
@@ -29622,7 +30002,7 @@ case wxStyledTextCtrl_SetHotspotActiveForeground: { // wxStyledTextCtrl::SetHots
  int * foreA = (int *) bp; bp += 4;
  wxColour fore = wxColour(*foreR,*foreG,*foreB,*foreA);
  if(!This) throw wxe_badarg(0);
- This->SetHotspotActiveForeground((bool) *useSetting,fore);
+ This->SetHotspotActiveForeground(*useSetting,fore);
  break;
 }
 case wxStyledTextCtrl_SetHotspotActiveBackground: { // wxStyledTextCtrl::SetHotspotActiveBackground
@@ -29634,21 +30014,21 @@ case wxStyledTextCtrl_SetHotspotActiveBackground: { // wxStyledTextCtrl::SetHots
  int * backA = (int *) bp; bp += 4;
  wxColour back = wxColour(*backR,*backG,*backB,*backA);
  if(!This) throw wxe_badarg(0);
- This->SetHotspotActiveBackground((bool) *useSetting,back);
+ This->SetHotspotActiveBackground(*useSetting,back);
  break;
 }
 case wxStyledTextCtrl_SetHotspotActiveUnderline: { // wxStyledTextCtrl::SetHotspotActiveUnderline
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  bool * underline = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetHotspotActiveUnderline((bool) *underline);
+ This->SetHotspotActiveUnderline(*underline);
  break;
 }
 case wxStyledTextCtrl_SetHotspotSingleLine: { // wxStyledTextCtrl::SetHotspotSingleLine
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  bool * singleLine = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetHotspotSingleLine((bool) *singleLine);
+ This->SetHotspotSingleLine(*singleLine);
  break;
 }
 case wxStyledTextCtrl_ParaDownExtend: { // wxStyledTextCtrl::ParaDownExtend
@@ -29673,7 +30053,7 @@ case wxStyledTextCtrl_PositionBefore: { // wxStyledTextCtrl::PositionBefore
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * pos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->PositionBefore((int) *pos);
+ int Result = This->PositionBefore(*pos);
  rt.addInt(Result);
  break;
 }
@@ -29681,7 +30061,7 @@ case wxStyledTextCtrl_PositionAfter: { // wxStyledTextCtrl::PositionAfter
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * pos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->PositionAfter((int) *pos);
+ int Result = This->PositionAfter(*pos);
  rt.addInt(Result);
  break;
 }
@@ -29690,7 +30070,7 @@ case wxStyledTextCtrl_CopyRange: { // wxStyledTextCtrl::CopyRange
  int * start = (int *) bp; bp += 4;
  int * end = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->CopyRange((int) *start,(int) *end);
+ This->CopyRange(*start,*end);
  break;
 }
 case wxStyledTextCtrl_CopyText: { // wxStyledTextCtrl::CopyText
@@ -29700,14 +30080,14 @@ case wxStyledTextCtrl_CopyText: { // wxStyledTextCtrl::CopyText
  wxString text = wxString(bp, wxConvUTF8);
  bp += *textLen+((8-((4+ *textLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- This->CopyText((int) *length,text);
+ This->CopyText(*length,text);
  break;
 }
 case wxStyledTextCtrl_SetSelectionMode: { // wxStyledTextCtrl::SetSelectionMode
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * mode = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetSelectionMode((int) *mode);
+ This->SetSelectionMode(*mode);
  break;
 }
 case wxStyledTextCtrl_GetSelectionMode: { // wxStyledTextCtrl::GetSelectionMode
@@ -29845,7 +30225,7 @@ case wxStyledTextCtrl_Allocate: { // wxStyledTextCtrl::Allocate
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * bytes = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->Allocate((int) *bytes);
+ This->Allocate(*bytes);
  break;
 }
 case wxStyledTextCtrl_FindColumn: { // wxStyledTextCtrl::FindColumn
@@ -29853,7 +30233,7 @@ case wxStyledTextCtrl_FindColumn: { // wxStyledTextCtrl::FindColumn
  int * line = (int *) bp; bp += 4;
  int * column = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- int Result = This->FindColumn((int) *line,(int) *column);
+ int Result = This->FindColumn(*line,*column);
  rt.addInt(Result);
  break;
 }
@@ -29868,7 +30248,7 @@ case wxStyledTextCtrl_SetCaretSticky: { // wxStyledTextCtrl::SetCaretSticky
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  bool * useCaretStickyBehaviour = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetCaretSticky((bool) *useCaretStickyBehaviour);
+ This->SetCaretSticky(*useCaretStickyBehaviour);
  break;
 }
 case wxStyledTextCtrl_ToggleCaretSticky: { // wxStyledTextCtrl::ToggleCaretSticky
@@ -29881,7 +30261,7 @@ case wxStyledTextCtrl_SetPasteConvertEndings: { // wxStyledTextCtrl::SetPasteCon
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  bool * convert = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetPasteConvertEndings((bool) *convert);
+ This->SetPasteConvertEndings(*convert);
  break;
 }
 case wxStyledTextCtrl_GetPasteConvertEndings: { // wxStyledTextCtrl::GetPasteConvertEndings
@@ -29901,7 +30281,7 @@ case wxStyledTextCtrl_SetCaretLineBackAlpha: { // wxStyledTextCtrl::SetCaretLine
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * alpha = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetCaretLineBackAlpha((int) *alpha);
+ This->SetCaretLineBackAlpha(*alpha);
  break;
 }
 case wxStyledTextCtrl_GetCaretLineBackAlpha: { // wxStyledTextCtrl::GetCaretLineBackAlpha
@@ -29927,7 +30307,7 @@ case wxStyledTextCtrl_SetLexer: { // wxStyledTextCtrl::SetLexer
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * lexer = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetLexer((int) *lexer);
+ This->SetLexer(*lexer);
  break;
 }
 case wxStyledTextCtrl_GetLexer: { // wxStyledTextCtrl::GetLexer
@@ -29942,7 +30322,7 @@ case wxStyledTextCtrl_Colourise: { // wxStyledTextCtrl::Colourise
  int * start = (int *) bp; bp += 4;
  int * end = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->Colourise((int) *start,(int) *end);
+ This->Colourise(*start,*end);
  break;
 }
 case wxStyledTextCtrl_SetProperty: { // wxStyledTextCtrl::SetProperty
@@ -29964,7 +30344,7 @@ case wxStyledTextCtrl_SetKeyWords: { // wxStyledTextCtrl::SetKeyWords
  wxString keyWords = wxString(bp, wxConvUTF8);
  bp += *keyWordsLen+((8-((4+ *keyWordsLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- This->SetKeyWords((int) *keywordSet,keyWords);
+ This->SetKeyWords(*keywordSet,keyWords);
  break;
 }
 case wxStyledTextCtrl_SetLexerLanguage: { // wxStyledTextCtrl::SetLexerLanguage
@@ -30007,7 +30387,7 @@ case wxStyledTextCtrl_StyleSetSpec: { // wxStyledTextCtrl::StyleSetSpec
  wxString spec = wxString(bp, wxConvUTF8);
  bp += *specLen+((8-((4+ *specLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- This->StyleSetSpec((int) *styleNum,spec);
+ This->StyleSetSpec(*styleNum,spec);
  break;
 }
 case wxStyledTextCtrl_StyleSetFont: { // wxStyledTextCtrl::StyleSetFont
@@ -30015,7 +30395,7 @@ case wxStyledTextCtrl_StyleSetFont: { // wxStyledTextCtrl::StyleSetFont
  int * styleNum = (int *) bp; bp += 4;
  wxFont *font = (wxFont *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- This->StyleSetFont((int) *styleNum,*font);
+ This->StyleSetFont(*styleNum,*font);
  break;
 }
 case wxStyledTextCtrl_StyleSetFontAttr: { // wxStyledTextCtrl::StyleSetFontAttr
@@ -30036,7 +30416,7 @@ encoding = *(wxFontEncoding *) bp; bp += 4;;
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->StyleSetFontAttr((int) *styleNum,(int) *size,faceName,(bool) *bold,(bool) *italic,(bool) *underline,(wxFontEncoding) encoding);
+ This->StyleSetFontAttr(*styleNum,*size,faceName,*bold,*italic,*underline,encoding);
  break;
 }
 case wxStyledTextCtrl_StyleSetCharacterSet: { // wxStyledTextCtrl::StyleSetCharacterSet
@@ -30044,7 +30424,7 @@ case wxStyledTextCtrl_StyleSetCharacterSet: { // wxStyledTextCtrl::StyleSetChara
  int * style = (int *) bp; bp += 4;
  int * characterSet = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->StyleSetCharacterSet((int) *style,(int) *characterSet);
+ This->StyleSetCharacterSet(*style,*characterSet);
  break;
 }
 case wxStyledTextCtrl_StyleSetFontEncoding: { // wxStyledTextCtrl::StyleSetFontEncoding
@@ -30052,14 +30432,14 @@ case wxStyledTextCtrl_StyleSetFontEncoding: { // wxStyledTextCtrl::StyleSetFontE
  int * style = (int *) bp; bp += 4;
  wxFontEncoding encoding = *(wxFontEncoding *) bp; bp += 4;;
  if(!This) throw wxe_badarg(0);
- This->StyleSetFontEncoding((int) *style,(wxFontEncoding) encoding);
+ This->StyleSetFontEncoding(*style,encoding);
  break;
 }
 case wxStyledTextCtrl_CmdKeyExecute: { // wxStyledTextCtrl::CmdKeyExecute
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * cmd = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->CmdKeyExecute((int) *cmd);
+ This->CmdKeyExecute(*cmd);
  break;
 }
 case wxStyledTextCtrl_SetMargins: { // wxStyledTextCtrl::SetMargins
@@ -30067,7 +30447,7 @@ case wxStyledTextCtrl_SetMargins: { // wxStyledTextCtrl::SetMargins
  int * left = (int *) bp; bp += 4;
  int * right = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetMargins((int) *left,(int) *right);
+ This->SetMargins(*left,*right);
  break;
 }
 case wxStyledTextCtrl_GetSelection: { // wxStyledTextCtrl::GetSelection
@@ -30085,7 +30465,7 @@ case wxStyledTextCtrl_PointFromPosition: { // wxStyledTextCtrl::PointFromPositio
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * pos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- wxPoint Result = This->PointFromPosition((int) *pos);
+ wxPoint Result = This->PointFromPosition(*pos);
  rt.add(Result);
  break;
 }
@@ -30093,32 +30473,14 @@ case wxStyledTextCtrl_ScrollToLine: { // wxStyledTextCtrl::ScrollToLine
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * line = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->ScrollToLine((int) *line);
+ This->ScrollToLine(*line);
  break;
 }
 case wxStyledTextCtrl_ScrollToColumn: { // wxStyledTextCtrl::ScrollToColumn
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * column = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->ScrollToColumn((int) *column);
- break;
-}
-case wxStyledTextCtrl_SendMsg: { // wxStyledTextCtrl::SendMsg
- long wp=0;
- long lp=0;
- wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
- int * msg = (int *) bp; bp += 4;
- while( * (int*) bp) { switch (* (int*) bp) {
-  case 1: {bp += 4;
- wp = (long)*(int *) bp; bp += 4;
-  } break;
-  case 2: {bp += 4;
- lp = (long)*(int *) bp; bp += 4;
-  } break;
- }};
- if(!This) throw wxe_badarg(0);
- long Result = This->SendMsg((int) *msg,wp,lp);
- rt.addInt(Result);
+ This->ScrollToColumn(*column);
  break;
 }
 case wxStyledTextCtrl_SetVScrollBar: { // wxStyledTextCtrl::SetVScrollBar
@@ -30146,7 +30508,7 @@ case wxStyledTextCtrl_SetLastKeydownProcessed: { // wxStyledTextCtrl::SetLastKey
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  bool * val = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetLastKeydownProcessed((bool) *val);
+ This->SetLastKeydownProcessed(*val);
  break;
 }
 case wxStyledTextCtrl_SaveFile: { // wxStyledTextCtrl::SaveFile
@@ -30175,7 +30537,7 @@ case wxStyledTextCtrl_DoDragOver: { // wxStyledTextCtrl::DoDragOver
  int * y = (int *) bp; bp += 4;
  wxDragResult def = *(wxDragResult *) bp; bp += 4;;
  if(!This) throw wxe_badarg(0);
- int Result = This->DoDragOver((wxCoord) *x,(wxCoord) *y,(wxDragResult) def);
+ int Result = This->DoDragOver(*x,*y,def);
  rt.addInt(Result);
  break;
 }
@@ -30187,7 +30549,7 @@ case wxStyledTextCtrl_DoDropText: { // wxStyledTextCtrl::DoDropText
  wxString data = wxString(bp, wxConvUTF8);
  bp += *dataLen+((8-((0+ *dataLen) & 7)) & 7);
  if(!This) throw wxe_badarg(0);
- bool Result = This->DoDropText((long) *x,(long) *y,data);
+ bool Result = This->DoDropText(*x,*y,data);
  rt.addBool(Result);
  break;
 }
@@ -30200,7 +30562,7 @@ case wxStyledTextCtrl_GetUseAntiAliasing: { // wxStyledTextCtrl::GetUseAntiAlias
 }
 case wxStyledTextCtrl_AddTextRaw: { // wxStyledTextCtrl::AddTextRaw
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
- const char * text = (const char*) Ecmd.bin[0]->base;
+ const char * text = (const char*) Ecmd.bin[0].base;
  if(!This) throw wxe_badarg(0);
  This->AddTextRaw(text);
  break;
@@ -30208,9 +30570,9 @@ case wxStyledTextCtrl_AddTextRaw: { // wxStyledTextCtrl::AddTextRaw
 case wxStyledTextCtrl_InsertTextRaw: { // wxStyledTextCtrl::InsertTextRaw
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * pos = (int *) bp; bp += 4;
- const char * text = (const char*) Ecmd.bin[0]->base;
+ const char * text = (const char*) Ecmd.bin[0].base;
  if(!This) throw wxe_badarg(0);
- This->InsertTextRaw((int) *pos,text);
+ This->InsertTextRaw(*pos,text);
  break;
 }
 case wxStyledTextCtrl_GetCurLineRaw: { // wxStyledTextCtrl::GetCurLineRaw
@@ -30229,7 +30591,7 @@ case wxStyledTextCtrl_GetLineRaw: { // wxStyledTextCtrl::GetLineRaw
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
  int * line = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- char * Result = This->GetLineRaw((int) *line).data();
+ char * Result = This->GetLineRaw(*line).data();
  if(Result) {
     rt.addBinary(Result, strlen(Result));
  } else {rt.addAtom("null");};
@@ -30249,7 +30611,7 @@ case wxStyledTextCtrl_GetTextRangeRaw: { // wxStyledTextCtrl::GetTextRangeRaw
  int * startPos = (int *) bp; bp += 4;
  int * endPos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- char * Result = This->GetTextRangeRaw((int) *startPos,(int) *endPos).data();
+ char * Result = This->GetTextRangeRaw(*startPos,*endPos).data();
  if(Result) {
     rt.addBinary(Result, strlen(Result));
  } else {rt.addAtom("null");};
@@ -30257,7 +30619,7 @@ case wxStyledTextCtrl_GetTextRangeRaw: { // wxStyledTextCtrl::GetTextRangeRaw
 }
 case wxStyledTextCtrl_SetTextRaw: { // wxStyledTextCtrl::SetTextRaw
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
- const char * text = (const char*) Ecmd.bin[0]->base;
+ const char * text = (const char*) Ecmd.bin[0].base;
  if(!This) throw wxe_badarg(0);
  This->SetTextRaw(text);
  break;
@@ -30273,7 +30635,7 @@ case wxStyledTextCtrl_GetTextRaw: { // wxStyledTextCtrl::GetTextRaw
 }
 case wxStyledTextCtrl_AppendTextRaw: { // wxStyledTextCtrl::AppendTextRaw
  wxStyledTextCtrl *This = (wxStyledTextCtrl *) getPtr(bp,memenv); bp += 4;
- const char * text = (const char*) Ecmd.bin[0]->base;
+ const char * text = (const char*) Ecmd.bin[0].base;
  if(!This) throw wxe_badarg(0);
  This->AppendTextRaw(text);
  break;
@@ -30297,7 +30659,7 @@ case wxArtProvider_GetBitmap: { // wxArtProvider::GetBitmap
  bp += 4; /* Align */
   } break;
  }};
- wxBitmap * Result = new wxBitmap(wxArtProvider::GetBitmap(id,client,size)); newPtr((void *) Result,3, memenv);;
+ wxBitmap * Result = new EwxBitmap(wxArtProvider::GetBitmap(id,client,size)); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxBitmap");
  break;
 }
@@ -30320,7 +30682,7 @@ case wxArtProvider_GetIcon: { // wxArtProvider::GetIcon
  bp += 4; /* Align */
   } break;
  }};
- wxIcon * Result = new wxIcon(wxArtProvider::GetIcon(id,client,size)); newPtr((void *) Result,3, memenv);;
+ wxIcon * Result = new EwxIcon(wxArtProvider::GetIcon(id,client,size)); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxIcon");
  break;
 }
@@ -30400,19 +30762,19 @@ case wxNotebookEvent_SetOldSelection: { // wxNotebookEvent::SetOldSelection
  wxNotebookEvent *This = (wxNotebookEvent *) getPtr(bp,memenv); bp += 4;
  int * nOldSel = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetOldSelection((int) *nOldSel);
+ This->SetOldSelection(*nOldSel);
  break;
 }
 case wxNotebookEvent_SetSelection: { // wxNotebookEvent::SetSelection
  wxNotebookEvent *This = (wxNotebookEvent *) getPtr(bp,memenv); bp += 4;
  int * nSel = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetSelection((int) *nSel);
+ This->SetSelection(*nSel);
  break;
 }
 case wxFileDataObject_new: { // wxFileDataObject::wxFileDataObject
  wxFileDataObject * Result = new wxFileDataObject();
- newPtr((void *) Result, 212, memenv);
+ newPtr((void *) Result, 213, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxFileDataObject");
  break;
 }
@@ -30448,7 +30810,7 @@ case wxTextDataObject_new: { // wxTextDataObject::wxTextDataObject
   } break;
  }};
  wxTextDataObject * Result = new wxTextDataObject(text);
- newPtr((void *) Result, 213, memenv);
+ newPtr((void *) Result, 214, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxTextDataObject");
  break;
 }
@@ -30484,7 +30846,7 @@ case wxTextDataObject_destroy: { // wxTextDataObject::destroy
 case wxBitmapDataObject_new_1_1: { // wxBitmapDataObject::wxBitmapDataObject
  wxBitmap *bitmap = (wxBitmap *) getPtr(bp,memenv); bp += 4;
  wxBitmapDataObject * Result = new wxBitmapDataObject(*bitmap);
- newPtr((void *) Result, 214, memenv);
+ newPtr((void *) Result, 215, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxBitmapDataObject");
  break;
 }
@@ -30496,14 +30858,14 @@ bitmap = (wxBitmap *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
  wxBitmapDataObject * Result = new wxBitmapDataObject(*bitmap);
- newPtr((void *) Result, 214, memenv);
+ newPtr((void *) Result, 215, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxBitmapDataObject");
  break;
 }
 case wxBitmapDataObject_GetBitmap: { // wxBitmapDataObject::GetBitmap
  wxBitmapDataObject *This = (wxBitmapDataObject *) getPtr(bp,memenv); bp += 4;
  if(!This) throw wxe_badarg(0);
- wxBitmap * Result = new wxBitmap(This->GetBitmap()); newPtr((void *) Result,3, memenv);;
+ wxBitmap * Result = new EwxBitmap(This->GetBitmap()); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxBitmap");
  break;
 }
@@ -30598,9 +30960,9 @@ case wxClipboard_UsePrimarySelection: { // wxClipboard::UsePrimarySelection
 }
 case wxClipboard_IsSupported: { // wxClipboard::IsSupported
  wxClipboard *This = (wxClipboard *) getPtr(bp,memenv); bp += 4;
- const int * format = (const int *) bp; bp += 4;
+ wxDataFormatId format = *(wxDataFormatId *) bp; bp += 4;;
  if(!This) throw wxe_badarg(0);
- bool Result = This->IsSupported((wxDataFormatId) *format);
+ bool Result = This->IsSupported(format);
  rt.addBool(Result);
  break;
 }
@@ -30620,7 +30982,7 @@ case wxSpinEvent_SetPosition: { // wxSpinEvent::SetPosition
  wxSpinEvent *This = (wxSpinEvent *) getPtr(bp,memenv); bp += 4;
  int * pos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetPosition((int) *pos);
+ This->SetPosition(*pos);
  break;
 }
 case wxSplitterWindow_new_0: { // wxSplitterWindow::wxSplitterWindow
@@ -30763,7 +31125,7 @@ case wxSplitterWindow_SetSashGravity: { // wxSplitterWindow::SetSashGravity
  bp += 4; /* Align */
  double * gravity = (double *) bp; bp += 8;
  if(!This) throw wxe_badarg(0);
- This->SetSashGravity((double) *gravity);
+ This->SetSashGravity(*gravity);
  break;
 }
 case wxSplitterWindow_SetSashPosition: { // wxSplitterWindow::SetSashPosition
@@ -30776,28 +31138,28 @@ case wxSplitterWindow_SetSashPosition: { // wxSplitterWindow::SetSashPosition
   } break;
  }};
  if(!This) throw wxe_badarg(0);
- This->SetSashPosition((int) *position,redraw);
+ This->SetSashPosition(*position,redraw);
  break;
 }
 case wxSplitterWindow_SetSashSize: { // wxSplitterWindow::SetSashSize
  wxSplitterWindow *This = (wxSplitterWindow *) getPtr(bp,memenv); bp += 4;
  int * width = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetSashSize((int) *width);
+ This->SetSashSize(*width);
  break;
 }
 case wxSplitterWindow_SetMinimumPaneSize: { // wxSplitterWindow::SetMinimumPaneSize
  wxSplitterWindow *This = (wxSplitterWindow *) getPtr(bp,memenv); bp += 4;
  int * min = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetMinimumPaneSize((int) *min);
+ This->SetMinimumPaneSize(*min);
  break;
 }
 case wxSplitterWindow_SetSplitMode: { // wxSplitterWindow::SetSplitMode
  wxSplitterWindow *This = (wxSplitterWindow *) getPtr(bp,memenv); bp += 4;
  int * mode = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetSplitMode((int) *mode);
+ This->SetSplitMode(*mode);
  break;
 }
 case wxSplitterWindow_SplitHorizontally: { // wxSplitterWindow::SplitHorizontally
@@ -30884,7 +31246,7 @@ case wxSplitterEvent_SetSashPosition: { // wxSplitterEvent::SetSashPosition
  wxSplitterEvent *This = (wxSplitterEvent *) getPtr(bp,memenv); bp += 4;
  int * pos = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetSashPosition((int) *pos);
+ This->SetSashPosition(*pos);
  break;
 }
 case wxHtmlWindow_new_0: { // wxHtmlWindow::wxHtmlWindow
@@ -31053,7 +31415,7 @@ case wxHtmlWindow_SetBorders: { // wxHtmlWindow::SetBorders
  wxHtmlWindow *This = (wxHtmlWindow *) getPtr(bp,memenv); bp += 4;
  int * b = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetBorders((int) *b);
+ This->SetBorders(*b);
  break;
 }
 case wxHtmlWindow_SetFonts: { // wxHtmlWindow::SetFonts
@@ -31098,7 +31460,7 @@ case wxHtmlWindow_SetRelatedStatusBar: { // wxHtmlWindow::SetRelatedStatusBar
  wxHtmlWindow *This = (wxHtmlWindow *) getPtr(bp,memenv); bp += 4;
  int * bar = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetRelatedStatusBar((int) *bar);
+ This->SetRelatedStatusBar(*bar);
  break;
 }
 case wxHtmlWindow_ToText: { // wxHtmlWindow::ToText
@@ -31117,13 +31479,13 @@ case wxHtmlLinkEvent_GetLinkInfo: { // wxHtmlLinkEvent::GetLinkInfo
 }
 case wxSystemSettings_GetColour: { // wxSystemSettings::GetColour
  wxSystemColour index = *(wxSystemColour *) bp; bp += 4;;
- wxColour Result = wxSystemSettings::GetColour((wxSystemColour) index);
+ wxColour Result = wxSystemSettings::GetColour(index);
  rt.add(Result);
  break;
 }
 case wxSystemSettings_GetFont: { // wxSystemSettings::GetFont
  wxSystemFont index = *(wxSystemFont *) bp; bp += 4;;
- wxFont * Result = new wxFont(wxSystemSettings::GetFont((wxSystemFont) index)); newPtr((void *) Result,3, memenv);;
+ wxFont * Result = new EwxFont(wxSystemSettings::GetFont(index)); newPtr((void *) Result,3, memenv);;
  rt.addRef(getRef((void *)Result,memenv), "wxFont");
  break;
 }
@@ -31136,7 +31498,7 @@ case wxSystemSettings_GetMetric: { // wxSystemSettings::GetMetric
 win = (wxWindow *) getPtr(bp,memenv); bp += 4;
   } break;
  }};
- int Result = wxSystemSettings::GetMetric((wxSystemMetric) index,win);
+ int Result = wxSystemSettings::GetMetric(index,win);
  rt.addInt(Result);
  break;
 }
@@ -31192,14 +31554,14 @@ case wxSystemOptions_SetOption_2_0: { // wxSystemOptions::SetOption
  wxString name = wxString(bp, wxConvUTF8);
  bp += *nameLen+((8-((4+ *nameLen) & 7)) & 7);
  int * value = (int *) bp; bp += 4;
- wxSystemOptions::SetOption(name,(int) *value);
+ wxSystemOptions::SetOption(name,*value);
  break;
 }
 case wxAuiNotebookEvent_SetSelection: { // wxAuiNotebookEvent::SetSelection
  wxAuiNotebookEvent *This = (wxAuiNotebookEvent *) getPtr(bp,memenv); bp += 4;
  int * s = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetSelection((int) *s);
+ This->SetSelection(*s);
  break;
 }
 case wxAuiNotebookEvent_GetSelection: { // wxAuiNotebookEvent::GetSelection
@@ -31213,7 +31575,7 @@ case wxAuiNotebookEvent_SetOldSelection: { // wxAuiNotebookEvent::SetOldSelectio
  wxAuiNotebookEvent *This = (wxAuiNotebookEvent *) getPtr(bp,memenv); bp += 4;
  int * s = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetOldSelection((int) *s);
+ This->SetOldSelection(*s);
  break;
 }
 case wxAuiNotebookEvent_GetOldSelection: { // wxAuiNotebookEvent::GetOldSelection
@@ -31269,7 +31631,7 @@ case wxAuiManagerEvent_SetButton: { // wxAuiManagerEvent::SetButton
  wxAuiManagerEvent *This = (wxAuiManagerEvent *) getPtr(bp,memenv); bp += 4;
  int * b = (int *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetButton((int) *b);
+ This->SetButton(*b);
  break;
 }
 case wxAuiManagerEvent_GetButton: { // wxAuiManagerEvent::GetButton
@@ -31317,7 +31679,7 @@ case wxAuiManagerEvent_SetCanVeto: { // wxAuiManagerEvent::SetCanVeto
  wxAuiManagerEvent *This = (wxAuiManagerEvent *) getPtr(bp,memenv); bp += 4;
  bool * can_veto = (bool *) bp; bp += 4;
  if(!This) throw wxe_badarg(0);
- This->SetCanVeto((bool) *can_veto);
+ This->SetCanVeto(*can_veto);
  break;
 }
 case wxAuiManagerEvent_CanVeto: { // wxAuiManagerEvent::CanVeto
@@ -31329,7 +31691,7 @@ case wxAuiManagerEvent_CanVeto: { // wxAuiManagerEvent::CanVeto
 }
 case wxLogNull_new: { // wxLogNull::wxLogNull
  wxLogNull * Result = new wxLogNull();
- newPtr((void *) Result, 225, memenv);
+ newPtr((void *) Result, 227, memenv);
  rt.addRef(getRef((void *)Result,memenv), "wxLogNull");
  break;
 }
@@ -31376,9 +31738,384 @@ case wxTaskBarIcon_SetIcon: { // wxTaskBarIcon::SetIcon
  rt.addBool(Result);
  break;
 }
+case wxLocale_new_0: { // wxLocale::wxLocale
+ wxLocale * Result = new EwxLocale();
+ newPtr((void *) Result, 231, memenv);
+ rt.addRef(getRef((void *)Result,memenv), "wxLocale");
+ break;
+}
+case wxLocale_new_2: { // wxLocale::wxLocale
+ int flags=wxLOCALE_LOAD_DEFAULT|wxLOCALE_CONV_ENCODING;
+ int * language = (int *) bp; bp += 4;
+ bp += 4; /* Align */
+ while( * (int*) bp) { switch (* (int*) bp) {
+  case 1: {bp += 4;
+ flags = (int)*(int *) bp; bp += 4;
+  } break;
+ }};
+ wxLocale * Result = new EwxLocale(*language,flags);
+ newPtr((void *) Result, 231, memenv);
+ rt.addRef(getRef((void *)Result,memenv), "wxLocale");
+ break;
+}
+case wxLocale_destruct: { // wxLocale::~wxLocale
+ wxLocale *This = (wxLocale *) getPtr(bp,memenv); bp += 4;
+ if(This) {   ((WxeApp *) wxTheApp)->clearPtr((void *) This);
+   delete This;}
+ break;
+}
+case wxLocale_Init: { // wxLocale::Init
+ int language=wxLANGUAGE_DEFAULT;
+ int flags=wxLOCALE_LOAD_DEFAULT|wxLOCALE_CONV_ENCODING;
+ wxLocale *This = (wxLocale *) getPtr(bp,memenv); bp += 4;
+ bp += 4; /* Align */
+ while( * (int*) bp) { switch (* (int*) bp) {
+  case 1: {bp += 4;
+ language = (int)*(int *) bp; bp += 4;
+  } break;
+  case 2: {bp += 4;
+ flags = (int)*(int *) bp; bp += 4;
+  } break;
+ }};
+ if(!This) throw wxe_badarg(0);
+ bool Result = This->Init(language,flags);
+ rt.addBool(Result);
+ break;
+}
+case wxLocale_AddCatalog_1: { // wxLocale::AddCatalog
+ wxLocale *This = (wxLocale *) getPtr(bp,memenv); bp += 4;
+ int * szDomainLen = (int *) bp; bp += 4;
+ wxString szDomain = wxString(bp, wxConvUTF8);
+ bp += *szDomainLen+((8-((0+ *szDomainLen) & 7)) & 7);
+ if(!This) throw wxe_badarg(0);
+ bool Result = This->AddCatalog(szDomain);
+ rt.addBool(Result);
+ break;
+}
+case wxLocale_AddCatalog_3: { // wxLocale::AddCatalog
+ wxLocale *This = (wxLocale *) getPtr(bp,memenv); bp += 4;
+ int * szDomainLen = (int *) bp; bp += 4;
+ wxString szDomain = wxString(bp, wxConvUTF8);
+ bp += *szDomainLen+((8-((0+ *szDomainLen) & 7)) & 7);
+ wxLanguage msgIdLanguage = *(wxLanguage *) bp; bp += 4;;
+ int * msgIdCharsetLen = (int *) bp; bp += 4;
+ wxString msgIdCharset = wxString(bp, wxConvUTF8);
+ bp += *msgIdCharsetLen+((8-((0+ *msgIdCharsetLen) & 7)) & 7);
+ if(!This) throw wxe_badarg(0);
+ bool Result = This->AddCatalog(szDomain,msgIdLanguage,msgIdCharset);
+ rt.addBool(Result);
+ break;
+}
+case wxLocale_AddCatalogLookupPathPrefix: { // wxLocale::AddCatalogLookupPathPrefix
+ int * prefixLen = (int *) bp; bp += 4;
+ wxString prefix = wxString(bp, wxConvUTF8);
+ bp += *prefixLen+((8-((4+ *prefixLen) & 7)) & 7);
+ wxLocale::AddCatalogLookupPathPrefix(prefix);
+ break;
+}
+case wxLocale_GetCanonicalName: { // wxLocale::GetCanonicalName
+ wxLocale *This = (wxLocale *) getPtr(bp,memenv); bp += 4;
+ if(!This) throw wxe_badarg(0);
+ wxString Result = This->GetCanonicalName();
+ rt.add(Result);
+ break;
+}
+case wxLocale_GetLanguage: { // wxLocale::GetLanguage
+ wxLocale *This = (wxLocale *) getPtr(bp,memenv); bp += 4;
+ if(!This) throw wxe_badarg(0);
+ int Result = This->GetLanguage();
+ rt.addInt(Result);
+ break;
+}
+case wxLocale_GetLanguageName: { // wxLocale::GetLanguageName
+ int * lang = (int *) bp; bp += 4;
+ wxString Result = wxLocale::GetLanguageName(*lang);
+ rt.add(Result);
+ break;
+}
+case wxLocale_GetLocale: { // wxLocale::GetLocale
+ wxLocale *This = (wxLocale *) getPtr(bp,memenv); bp += 4;
+ if(!This) throw wxe_badarg(0);
+ const wxeLocaleC Result = This->GetLocale();
+ rt.add(wxeLocaleC2String(Result));
+ break;
+}
+case wxLocale_GetName: { // wxLocale::GetName
+ wxLocale *This = (wxLocale *) getPtr(bp,memenv); bp += 4;
+ if(!This) throw wxe_badarg(0);
+ const wxString * Result = &This->GetName();
+ rt.add(Result);
+ break;
+}
+case wxLocale_GetString_2: { // wxLocale::GetString
+ wxString szDomain= wxEmptyString;
+ wxLocale *This = (wxLocale *) getPtr(bp,memenv); bp += 4;
+ int * szOrigStringLen = (int *) bp; bp += 4;
+ wxString szOrigString = wxString(bp, wxConvUTF8);
+ bp += *szOrigStringLen+((8-((0+ *szOrigStringLen) & 7)) & 7);
+ while( * (int*) bp) { switch (* (int*) bp) {
+  case 1: {bp += 4;
+ int * szDomainLen = (int *) bp; bp += 4;
+ szDomain = wxString(bp, wxConvUTF8);
+ bp += *szDomainLen+((8-((0+ *szDomainLen) & 7)) & 7);
+  } break;
+ }};
+ if(!This) throw wxe_badarg(0);
+ const wxeLocaleC Result = This->GetString(szOrigString,szDomain);
+ rt.add(wxeLocaleC2String(Result));
+ break;
+}
+case wxLocale_GetString_4: { // wxLocale::GetString
+ wxString szDomain= wxEmptyString;
+ wxLocale *This = (wxLocale *) getPtr(bp,memenv); bp += 4;
+ int * szOrigStringLen = (int *) bp; bp += 4;
+ wxString szOrigString = wxString(bp, wxConvUTF8);
+ bp += *szOrigStringLen+((8-((0+ *szOrigStringLen) & 7)) & 7);
+ int * szOrigString2Len = (int *) bp; bp += 4;
+ wxString szOrigString2 = wxString(bp, wxConvUTF8);
+ bp += *szOrigString2Len+((8-((4+ *szOrigString2Len) & 7)) & 7);
+ int * n = (int *) bp; bp += 4;
+ bp += 4; /* Align */
+ while( * (int*) bp) { switch (* (int*) bp) {
+  case 1: {bp += 4;
+ int * szDomainLen = (int *) bp; bp += 4;
+ szDomain = wxString(bp, wxConvUTF8);
+ bp += *szDomainLen+((8-((0+ *szDomainLen) & 7)) & 7);
+  } break;
+ }};
+ if(!This) throw wxe_badarg(0);
+ const wxeLocaleC Result = This->GetString(szOrigString,szOrigString2,*n,szDomain);
+ rt.add(wxeLocaleC2String(Result));
+ break;
+}
+case wxLocale_GetHeaderValue: { // wxLocale::GetHeaderValue
+ wxString szDomain= wxEmptyString;
+ wxLocale *This = (wxLocale *) getPtr(bp,memenv); bp += 4;
+ int * szHeaderLen = (int *) bp; bp += 4;
+ wxString szHeader = wxString(bp, wxConvUTF8);
+ bp += *szHeaderLen+((8-((0+ *szHeaderLen) & 7)) & 7);
+ while( * (int*) bp) { switch (* (int*) bp) {
+  case 1: {bp += 4;
+ int * szDomainLen = (int *) bp; bp += 4;
+ szDomain = wxString(bp, wxConvUTF8);
+ bp += *szDomainLen+((8-((0+ *szDomainLen) & 7)) & 7);
+  } break;
+ }};
+ if(!This) throw wxe_badarg(0);
+ wxString Result = This->GetHeaderValue(szHeader,szDomain);
+ rt.add(Result);
+ break;
+}
+case wxLocale_GetSysName: { // wxLocale::GetSysName
+ wxLocale *This = (wxLocale *) getPtr(bp,memenv); bp += 4;
+ if(!This) throw wxe_badarg(0);
+ wxString Result = This->GetSysName();
+ rt.add(Result);
+ break;
+}
+case wxLocale_GetSystemEncoding: { // wxLocale::GetSystemEncoding
+ int Result = wxLocale::GetSystemEncoding();
+ rt.addInt(Result);
+ break;
+}
+case wxLocale_GetSystemEncodingName: { // wxLocale::GetSystemEncodingName
+ wxString Result = wxLocale::GetSystemEncodingName();
+ rt.add(Result);
+ break;
+}
+case wxLocale_GetSystemLanguage: { // wxLocale::GetSystemLanguage
+ int Result = wxLocale::GetSystemLanguage();
+ rt.addInt(Result);
+ break;
+}
+case wxLocale_IsLoaded: { // wxLocale::IsLoaded
+ wxLocale *This = (wxLocale *) getPtr(bp,memenv); bp += 4;
+ int * szDomainLen = (int *) bp; bp += 4;
+ wxString szDomain = wxString(bp, wxConvUTF8);
+ bp += *szDomainLen+((8-((0+ *szDomainLen) & 7)) & 7);
+ if(!This) throw wxe_badarg(0);
+ bool Result = This->IsLoaded(szDomain);
+ rt.addBool(Result);
+ break;
+}
+case wxLocale_IsOk: { // wxLocale::IsOk
+ wxLocale *This = (wxLocale *) getPtr(bp,memenv); bp += 4;
+ if(!This) throw wxe_badarg(0);
+ bool Result = This->IsOk();
+ rt.addBool(Result);
+ break;
+}
+case wxActivateEvent_GetActive: { // wxActivateEvent::GetActive
+ wxActivateEvent *This = (wxActivateEvent *) getPtr(bp,memenv); bp += 4;
+ if(!This) throw wxe_badarg(0);
+ bool Result = This->GetActive();
+ rt.addBool(Result);
+ break;
+}
+#if wxUSE_POPUPWIN
+case wxPopupWindow_new_2: { // wxPopupWindow::wxPopupWindow
+ int flags=wxBORDER_NONE;
+ wxWindow *parent = (wxWindow *) getPtr(bp,memenv); bp += 4;
+ bp += 4; /* Align */
+ while( * (int*) bp) { switch (* (int*) bp) {
+  case 1: {bp += 4;
+ flags = (int)*(int *) bp; bp += 4;
+  } break;
+ }};
+ wxPopupWindow * Result = new EwxPopupWindow(parent,flags);
+ newPtr((void *) Result, 0, memenv);
+ rt.addRef(getRef((void *)Result,memenv), "wxPopupWindow");
+ break;
+}
+case wxPopupWindow_new_0: { // wxPopupWindow::wxPopupWindow
+ wxPopupWindow * Result = new EwxPopupWindow();
+ newPtr((void *) Result, 0, memenv);
+ rt.addRef(getRef((void *)Result,memenv), "wxPopupWindow");
+ break;
+}
+case wxPopupWindow_Create: { // wxPopupWindow::Create
+ int flags=wxBORDER_NONE;
+ wxPopupWindow *This = (wxPopupWindow *) getPtr(bp,memenv); bp += 4;
+ wxWindow *parent = (wxWindow *) getPtr(bp,memenv); bp += 4;
+ while( * (int*) bp) { switch (* (int*) bp) {
+  case 1: {bp += 4;
+ flags = (int)*(int *) bp; bp += 4;
+  } break;
+ }};
+ if(!This) throw wxe_badarg(0);
+ bool Result = This->Create(parent,flags);
+ rt.addBool(Result);
+ break;
+}
+case wxPopupWindow_Position: { // wxPopupWindow::Position
+ wxPopupWindow *This = (wxPopupWindow *) getPtr(bp,memenv); bp += 4;
+ int * ptOriginX = (int *) bp; bp += 4;
+ int * ptOriginY = (int *) bp; bp += 4;
+ wxPoint ptOrigin = wxPoint(*ptOriginX,*ptOriginY);
+ int * sizeW = (int *) bp; bp += 4;
+ int * sizeH = (int *) bp; bp += 4;
+ wxSize size = wxSize(*sizeW,*sizeH);
+ if(!This) throw wxe_badarg(0);
+ This->Position(ptOrigin,size);
+ break;
+}
+#endif // wxUSE_POPUPWIN
+#if wxUSE_POPUPWIN
+case wxPopupTransientWindow_new_0: { // wxPopupTransientWindow::wxPopupTransientWindow
+ wxPopupTransientWindow * Result = new EwxPopupTransientWindow();
+ newPtr((void *) Result, 0, memenv);
+ rt.addRef(getRef((void *)Result,memenv), "wxPopupTransientWindow");
+ break;
+}
+case wxPopupTransientWindow_new_2: { // wxPopupTransientWindow::wxPopupTransientWindow
+ int style=wxBORDER_NONE;
+ wxWindow *parent = (wxWindow *) getPtr(bp,memenv); bp += 4;
+ bp += 4; /* Align */
+ while( * (int*) bp) { switch (* (int*) bp) {
+  case 1: {bp += 4;
+ style = (int)*(int *) bp; bp += 4;
+  } break;
+ }};
+ wxPopupTransientWindow * Result = new EwxPopupTransientWindow(parent,style);
+ newPtr((void *) Result, 0, memenv);
+ rt.addRef(getRef((void *)Result,memenv), "wxPopupTransientWindow");
+ break;
+}
+case wxPopupTransientWindow_Popup: { // wxPopupTransientWindow::Popup
+ wxWindow * focus=NULL;
+ wxPopupTransientWindow *This = (wxPopupTransientWindow *) getPtr(bp,memenv); bp += 4;
+ bp += 4; /* Align */
+ while( * (int*) bp) { switch (* (int*) bp) {
+  case 1: {bp += 4;
+focus = (wxWindow *) getPtr(bp,memenv); bp += 4;
+  } break;
+ }};
+ if(!This) throw wxe_badarg(0);
+ This->Popup(focus);
+ break;
+}
+case wxPopupTransientWindow_Dismiss: { // wxPopupTransientWindow::Dismiss
+ wxPopupTransientWindow *This = (wxPopupTransientWindow *) getPtr(bp,memenv); bp += 4;
+ if(!This) throw wxe_badarg(0);
+ This->Dismiss();
+ break;
+}
+#endif // wxUSE_POPUPWIN
+case wxOverlay_new: { // wxOverlay::wxOverlay
+ wxOverlay * Result = new wxOverlay();
+ newPtr((void *) Result, 236, memenv);
+ rt.addRef(getRef((void *)Result,memenv), "wxOverlay");
+ break;
+}
+case wxOverlay_destruct: { // wxOverlay::~wxOverlay
+ wxOverlay *This = (wxOverlay *) getPtr(bp,memenv); bp += 4;
+ if(This) {   ((WxeApp *) wxTheApp)->clearPtr((void *) This);
+   delete This;}
+ break;
+}
+case wxOverlay_Reset: { // wxOverlay::Reset
+ wxOverlay *This = (wxOverlay *) getPtr(bp,memenv); bp += 4;
+ if(!This) throw wxe_badarg(0);
+ This->Reset();
+ break;
+}
+case wxDCOverlay_new_6: { // wxDCOverlay::wxDCOverlay
+ wxOverlay *overlay = (wxOverlay *) getPtr(bp,memenv); bp += 4;
+ wxWindowDC *dc = (wxWindowDC *) getPtr(bp,memenv); bp += 4;
+ int * x = (int *) bp; bp += 4;
+ int * y = (int *) bp; bp += 4;
+ int * width = (int *) bp; bp += 4;
+ int * height = (int *) bp; bp += 4;
+ wxDCOverlay * Result = new EwxDCOverlay(*overlay,dc,*x,*y,*width,*height);
+ newPtr((void *) Result, 237, memenv);
+ rt.addRef(getRef((void *)Result,memenv), "wxDCOverlay");
+ break;
+}
+case wxDCOverlay_new_2: { // wxDCOverlay::wxDCOverlay
+ wxOverlay *overlay = (wxOverlay *) getPtr(bp,memenv); bp += 4;
+ wxWindowDC *dc = (wxWindowDC *) getPtr(bp,memenv); bp += 4;
+ wxDCOverlay * Result = new EwxDCOverlay(*overlay,dc);
+ newPtr((void *) Result, 237, memenv);
+ rt.addRef(getRef((void *)Result,memenv), "wxDCOverlay");
+ break;
+}
+case wxDCOverlay_destruct: { // wxDCOverlay::~wxDCOverlay
+ wxDCOverlay *This = (wxDCOverlay *) getPtr(bp,memenv); bp += 4;
+ if(This) {   ((WxeApp *) wxTheApp)->clearPtr((void *) This);
+   delete This;}
+ break;
+}
+case wxDCOverlay_Clear: { // wxDCOverlay::Clear
+ wxDCOverlay *This = (wxDCOverlay *) getPtr(bp,memenv); bp += 4;
+ if(!This) throw wxe_badarg(0);
+ This->Clear();
+ break;
+}
+case wxDropFilesEvent_GetPosition: { // wxDropFilesEvent::GetPosition
+ wxDropFilesEvent *This = (wxDropFilesEvent *) getPtr(bp,memenv); bp += 4;
+ if(!This) throw wxe_badarg(0);
+ wxPoint Result = This->GetPosition();
+ rt.add(Result);
+ break;
+}
+case wxDropFilesEvent_GetNumberOfFiles: { // wxDropFilesEvent::GetNumberOfFiles
+ wxDropFilesEvent *This = (wxDropFilesEvent *) getPtr(bp,memenv); bp += 4;
+ if(!This) throw wxe_badarg(0);
+ int Result = This->GetNumberOfFiles();
+ rt.addInt(Result);
+ break;
+}
+case wxDropFilesEvent_GetFiles: { // wxDropFilesEvent::GetFiles
+ wxDropFilesEvent *This = (wxDropFilesEvent *) getPtr(bp,memenv); bp += 4;
+ if(!This) throw wxe_badarg(0);
+ wxString * Result = (wxString*)This->GetFiles();
+ wxArrayString tmpArrayStr(This->m_noFiles, Result);
+ rt.add(tmpArrayStr);
+ break;
+}
   default: {
     wxeReturn error = wxeReturn(WXE_DRV_PORT, Ecmd.caller, false);    error.addAtom("_wxe_error_");
-    error.addInt((int) Ecmd.op);
+    error.addInt((int) op);
     error.addAtom("not_supported");
     error.addTupleCount(3);
     error.send();
@@ -31388,7 +32125,7 @@ case wxTaskBarIcon_SetIcon: { // wxTaskBarIcon::SetIcon
  rt.send();
 } catch (wxe_badarg badarg) {  // try
     wxeReturn error = wxeReturn(WXE_DRV_PORT, Ecmd.caller, false);    error.addAtom("_wxe_error_");
-    error.addInt((int) Ecmd.op);
+    error.addInt((int) op);
     error.addAtom("badarg");
     error.addInt((int) badarg.ref);
     error.addTupleCount(2);
@@ -31397,8 +32134,21 @@ case wxTaskBarIcon_SetIcon: { // wxTaskBarIcon::SetIcon
 }} /* The End */
 
 
-void WxeApp::delete_object(void *ptr, wxeRefData *refd) {
+bool WxeApp::delete_object(void *ptr, wxeRefData *refd) {
+ if(wxe_debug) {
+     wxString msg;
+	    const wxChar *class_info = wxT("unknown");
+	    if(refd->type < 10) {
+		wxClassInfo *cinfo = ((wxObject *)ptr)->GetClassInfo();
+		    class_info = cinfo->GetClassName();
+	       }
+      msg.Printf(wxT("Deleting {wx_ref, %d, %s} at %p "), refd->ref, class_info, ptr);
+      send_msg("debug", &msg);
+ };
  switch(refd->type) {
+#if wxUSE_GRAPHICS_CONTEXT
+  case 4: delete (wxGraphicsObject *) ptr; break;
+#endif
   case 24: delete (wxGridCellBoolRenderer *) ptr; break;
   case 25: delete (wxGridCellBoolEditor *) ptr; break;
   case 26: delete (wxGridCellFloatRenderer *) ptr; break;
@@ -31416,10 +32166,16 @@ void WxeApp::delete_object(void *ptr, wxeRefData *refd) {
   case 101: delete (wxListItemAttr *) ptr; break;
   case 103: delete (wxTextAttr *) ptr; break;
   case 155: delete (wxAuiPaneInfo *) ptr; break;
-  case 212: /* delete (wxFileDataObject *) ptr;These objects must be deleted by owner object */ break;
-  case 213: /* delete (wxTextDataObject *) ptr;These objects must be deleted by owner object */ break;
-  case 214: /* delete (wxBitmapDataObject *) ptr;These objects must be deleted by owner object */ break;
-  case 225: delete (wxLogNull *) ptr; break;
-  default: delete (wxObject *) ptr;
-}}
+  case 159: /* delete (wxAuiSimpleTabArt *) ptr;These objects must be deleted by owner object */ break;
+  case 213: /* delete (wxFileDataObject *) ptr;These objects must be deleted by owner object */ break;
+  case 214: /* delete (wxTextDataObject *) ptr;These objects must be deleted by owner object */ break;
+  case 215: /* delete (wxBitmapDataObject *) ptr;These objects must be deleted by owner object */ break;
+  case 227: delete (wxLogNull *) ptr; break;
+  case 231: delete (EwxLocale *) ptr; return false;
+  case 236: delete (wxOverlay *) ptr; break;
+  case 237: delete (EwxDCOverlay *) ptr; return false;
+  default: delete (wxObject *) ptr; return false;
+  }
+  return true;
+}
 

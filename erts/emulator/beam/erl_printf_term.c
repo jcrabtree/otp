@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2005-2011. All Rights Reserved.
+ * Copyright Ericsson AB 2005-2018. All Rights Reserved.
  *
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  * %CopyrightEnd%
  */
@@ -24,6 +25,8 @@
 #include "erl_printf_term.h"
 #include "sys.h"
 #include "big.h"
+#include "erl_map.h"
+#include "erl_binary.h"
 
 #define PRINT_CHAR(CNT, FN, ARG, C)					\
 do {									\
@@ -57,17 +60,17 @@ do {									\
     (CNT) += res__;							\
 } while (0)
 
-#define PRINT_ULONG(CNT, FN, ARG, C, P, W, I)				\
+#define PRINT_UWORD(CNT, FN, ARG, C, P, W, I)				\
 do {									\
-    int res__ = erts_printf_ulong((FN), (ARG), (C), (P), (W), (I));	\
+    int res__ = erts_printf_uword((FN), (ARG), (C), (P), (W), (I));	\
     if (res__ < 0)							\
 	return res__;							\
     (CNT) += res__;							\
 } while (0)
 
-#define PRINT_SLONG(CNT, FN, ARG, C, P, W, I)				\
+#define PRINT_SWORD(CNT, FN, ARG, C, P, W, I)				\
 do {									\
-    int res__ = erts_printf_slong((FN), (ARG), (C), (P), (W), (I));	\
+    int res__ = erts_printf_sword((FN), (ARG), (C), (P), (W), (I));	\
     if (res__ < 0)							\
 	return res__;							\
     (CNT) += res__;							\
@@ -114,13 +117,12 @@ do {									\
 /* return 0 if list is not a non-empty flat list of printable characters */
 
 static int
-is_printable_string(Eterm list, Eterm* base)
-{
+is_printable_string(Eterm list) {
     int len = 0;
     int c;
 
     while(is_list(list)) {
-	Eterm* consp = list_val_rel(list, base);
+	Eterm* consp = list_val(list);
 	Eterm hd = CAR(consp);
 
 	if (!is_byte(hd))
@@ -135,6 +137,25 @@ is_printable_string(Eterm list, Eterm* base)
     if (is_nil(list))
 	return len;
     return 0;
+}
+
+static int is_printable_ascii(byte* bytep, Uint bytesize, Uint bitoffs)
+{
+    if (!bitoffs) {
+	while (bytesize--) {
+	    if (*bytep < ' ' || *bytep >= 127)
+		return 0;
+	    bytep++;
+	}
+    } else {
+	while (bytesize--) {
+	    byte octet = (bytep[0] << bitoffs) | (bytep[1] >> (8-bitoffs));
+	    if (octet < ' ' || octet >= 127)
+		return 0;
+	    bytep++;
+	}
+    }
+    return 1;
 }
 
 /* print a atom doing what quoting is necessary */
@@ -153,7 +174,7 @@ static int print_atom_name(fmtfn_t fn, void* arg, Eterm atom, long *dcount)
 
     if ((i < 0) || (i >= atom_table_size()) ||  (atom_tab(i) == NULL)) {
 	PRINT_STRING(res, fn, arg, "<bad atom index: ");
-	PRINT_SLONG(res, fn, arg, 'd', 0, 1, (signed long) i);
+	PRINT_SWORD(res, fn, arg, 'd', 0, 1, (ErlPfSWord) i);
 	PRINT_CHAR(res, fn, arg, '>');
 	return res;
     }
@@ -203,7 +224,7 @@ static int print_atom_name(fmtfn_t fn, void* arg, Eterm atom, long *dcount)
 	default:
 	    if (IS_CNTRL(c)) {
 		PRINT_CHAR(res, fn, arg, '\\');
-		PRINT_ULONG(res, fn, arg, 'o', 1, 3, (unsigned long) c);
+		PRINT_UWORD(res, fn, arg, 'o', 1, 3, (ErlPfUWord) c);
 	    }
 	    else
 		PRINT_CHAR(res, fn, arg, (char) c);
@@ -216,19 +237,29 @@ static int print_atom_name(fmtfn_t fn, void* arg, Eterm atom, long *dcount)
 }
 
 
-#define PRT_BAR ((Eterm) 0)
-#define PRT_COMMA ((Eterm) 1)
-#define PRT_CLOSE_LIST ((Eterm) 2)
-#define PRT_CLOSE_TUPLE ((Eterm) 3)
-#define PRT_TERM ((Eterm) 4)
-#define PRT_ONE_CONS ((Eterm) 5)
-#define PRT_PATCH_FUN_SIZE ((Eterm) 6)
-#define PRT_LAST_ARRAY_ELEMENT ((Eterm) 7) /* Note! Must be last... */
+#define PRT_BAR                ((Eterm) 0)
+#define PRT_COMMA              ((Eterm) 1)
+#define PRT_CLOSE_LIST         ((Eterm) 2)
+#define PRT_CLOSE_TUPLE        ((Eterm) 3)
+#define PRT_ASSOC              ((Eterm) 4)
+#define PRT_TERM               ((Eterm) 5)
+#define PRT_ONE_CONS           ((Eterm) 6)
+#define PRT_PATCH_FUN_SIZE     ((Eterm) 7)
+#define PRT_LAST_ARRAY_ELEMENT ((Eterm) 8) /* Note! Must be last... */
+
+#if 0
+static char *format_binary(Uint16 x, char *b) {
+    int z;
+    b[16] = '\0';
+    for (z = 0; z < 16; z++) { 
+	b[15-z] = ((x>>z) & 0x1) ? '1' : '0'; 
+    }
+    return b;
+}
+#endif
 
 static int
-print_term(fmtfn_t fn, void* arg, Eterm obj, long *dcount,
-	   Eterm* obj_base) /* ignored if !HALFWORD_HEAP */
-{
+print_term(fmtfn_t fn, void* arg, Eterm obj, long *dcount) {
     DECLARE_WSTACK(s);
     int res;
     int i;
@@ -260,6 +291,9 @@ print_term(fmtfn_t fn, void* arg, Eterm obj, long *dcount,
 	case PRT_CLOSE_TUPLE:
 	    PRINT_CHAR(res, fn, arg, '}');
 	    goto L_outer_loop;
+	case PRT_ASSOC:
+	    PRINT_STRING(res, fn, arg, "=>");
+	    goto L_outer_loop;
 	default:
 	    popped.word = WSTACK_POP(s);
 
@@ -271,20 +305,16 @@ print_term(fmtfn_t fn, void* arg, Eterm obj, long *dcount,
 		obj = (Eterm) popped.word;
 	    L_print_one_cons:
 		{
-		    Eterm* cons = list_val_rel(obj, obj_base);
+		    Eterm* cons = list_val(obj);
 		    Eterm tl;
 		    
 		    obj = CAR(cons);
 		    tl = CDR(cons);
 		    if (is_not_nil(tl)) {
 			if (is_list(tl)) {
-			    WSTACK_PUSH(s, tl);
-			    WSTACK_PUSH(s, PRT_ONE_CONS);
-			    WSTACK_PUSH(s, PRT_COMMA);
+			    WSTACK_PUSH3(s, tl, PRT_ONE_CONS, PRT_COMMA);
 			} else {
-			    WSTACK_PUSH(s, tl);
-			    WSTACK_PUSH(s, PRT_TERM);
-			    WSTACK_PUSH(s, PRT_BAR);
+			    WSTACK_PUSH3(s, tl, PRT_TERM, PRT_BAR);
 			}
 		    }
 		}
@@ -294,9 +324,7 @@ print_term(fmtfn_t fn, void* arg, Eterm obj, long *dcount,
 		break;
 	    default:		/* PRT_LAST_ARRAY_ELEMENT+1 and upwards */
 		obj = *popped.ptr;
-	        WSTACK_PUSH(s, (UWord) (popped.ptr + 1));
-		WSTACK_PUSH(s, val-1);
-		WSTACK_PUSH(s, PRT_COMMA);
+	        WSTACK_PUSH3(s, (UWord) (popped.ptr + 1), val-1, PRT_COMMA);
 		break;
 	    }
 	    break;
@@ -313,11 +341,7 @@ print_term(fmtfn_t fn, void* arg, Eterm obj, long *dcount,
 	    PRINT_CHAR(res, fn, arg, '>');
 	    goto L_done;
 	}
-#if HALFWORD_HEAP
-	wobj = is_immed(obj) ? (Wterm)obj : rterm2wterm(obj, obj_base);
-#else
 	wobj = (Wterm)obj;
-#endif
 	switch (tag_val_def(wobj)) {
 	case NIL_DEF:
 	    PRINT_STRING(res, fn, arg, "[]");
@@ -334,19 +358,19 @@ print_term(fmtfn_t fn, void* arg, Eterm obj, long *dcount,
 	    break;
 	}
 	case SMALL_DEF:
-	    PRINT_SLONG(res, fn, arg, 'd', 0, 1, (signed long) signed_val(obj));
+	    PRINT_SWORD(res, fn, arg, 'd', 0, 1, (ErlPfSWord) signed_val(obj));
 	    break;
 	case BIG_DEF: {
 	    int print_res;
 	    char def_buf[64];
 	    char *buf, *big_str;
-	    Uint sz = (Uint) big_decimal_estimate(wobj);
+	    Uint sz = (Uint) big_integer_estimate(wobj, 10);
 	    sz++;
 	    if (sz <= 64)
 		buf = &def_buf[0];
 	    else
 		buf = erts_alloc(ERTS_ALC_T_TMP, sz);
-	    big_str = erts_big_to_string(wobj, buf, sz);
+	    big_str = erts_big_to_string(wobj, 10, buf, sz);
 	    print_res = erts_printf_string(fn, arg, big_str);
 	    if (buf != &def_buf[0])
 		erts_free(ERTS_ALC_T_TMP, (void *) buf);
@@ -358,45 +382,48 @@ print_term(fmtfn_t fn, void* arg, Eterm obj, long *dcount,
 	    break;
 	}
 	case REF_DEF:
+            if (!ERTS_IS_CRASH_DUMPING)
+                erts_magic_ref_save_bin(obj);
+            /* fall through... */
 	case EXTERNAL_REF_DEF:
 	    PRINT_STRING(res, fn, arg, "#Ref<");
-	    PRINT_ULONG(res, fn, arg, 'u', 0, 1,
-			(unsigned long) ref_channel_no(wobj));
+	    PRINT_UWORD(res, fn, arg, 'u', 0, 1,
+			(ErlPfUWord) ref_channel_no(wobj));
 	    ref_num = ref_numbers(wobj);
-	    for (i = ref_no_of_numbers(wobj)-1; i >= 0; i--) {
+	    for (i = ref_no_numbers(wobj)-1; i >= 0; i--) {
 		PRINT_CHAR(res, fn, arg, '.');
-		PRINT_ULONG(res, fn, arg, 'u', 0, 1, (unsigned long) ref_num[i]);
+		PRINT_UWORD(res, fn, arg, 'u', 0, 1, (ErlPfUWord) ref_num[i]);
 	    }
 	    PRINT_CHAR(res, fn, arg, '>');
 	    break;
 	case PID_DEF:
 	case EXTERNAL_PID_DEF:
 	    PRINT_CHAR(res, fn, arg, '<');
-	    PRINT_ULONG(res, fn, arg, 'u', 0, 1,
-			(unsigned long) pid_channel_no(wobj));
+	    PRINT_UWORD(res, fn, arg, 'u', 0, 1,
+			(ErlPfUWord) pid_channel_no(wobj));
 	    PRINT_CHAR(res, fn, arg, '.');
-	    PRINT_ULONG(res, fn, arg, 'u', 0, 1,
-			(unsigned long) pid_number(wobj));
+	    PRINT_UWORD(res, fn, arg, 'u', 0, 1,
+			(ErlPfUWord) pid_number(wobj));
 	    PRINT_CHAR(res, fn, arg, '.');
-	    PRINT_ULONG(res, fn, arg, 'u', 0, 1,
-			(unsigned long) pid_serial(wobj));
+	    PRINT_UWORD(res, fn, arg, 'u', 0, 1,
+			(ErlPfUWord) pid_serial(wobj));
 	    PRINT_CHAR(res, fn, arg, '>');
 	    break;
 	case PORT_DEF:
 	case EXTERNAL_PORT_DEF:
 	    PRINT_STRING(res, fn, arg, "#Port<");
-	    PRINT_ULONG(res, fn, arg, 'u', 0, 1,
-			(unsigned long) port_channel_no(wobj));
+	    PRINT_UWORD(res, fn, arg, 'u', 0, 1,
+			(ErlPfUWord) port_channel_no(wobj));
 	    PRINT_CHAR(res, fn, arg, '.');
-	    PRINT_ULONG(res, fn, arg, 'u', 0, 1,
-			(unsigned long) port_number(wobj));
+	    PRINT_UWORD(res, fn, arg, 'u', 0, 1,
+			(ErlPfUWord) port_number(wobj));
 	    PRINT_CHAR(res, fn, arg, '>');
 	    break;
 	case LIST_DEF:
-	    if (is_printable_string(obj, obj_base)) {
+	    if (is_printable_string(obj)) {
 		int c;
 		PRINT_CHAR(res, fn, arg, '"');
-		nobj = list_val_rel(obj, obj_base);
+		nobj = list_val(obj);
 		while (1) {
 		    if ((*dcount)-- <= 0)
 			goto L_done;
@@ -410,7 +437,7 @@ print_term(fmtfn_t fn, void* arg, Eterm obj, long *dcount,
 		    }
 		    if (is_not_list(*nobj))
 			break;
-		    nobj = list_val_rel(*nobj, obj_base);
+		    nobj = list_val(*nobj);
 		}
 		PRINT_CHAR(res, fn, arg, '"');
 	    } else {
@@ -426,8 +453,7 @@ print_term(fmtfn_t fn, void* arg, Eterm obj, long *dcount,
 	    WSTACK_PUSH(s,PRT_CLOSE_TUPLE);
 	    ++nobj;
 	    if (i > 0) {
-		WSTACK_PUSH(s, (UWord) nobj);
-		WSTACK_PUSH(s, PRT_LAST_ARRAY_ELEMENT+i-1);
+		WSTACK_PUSH2(s, (UWord) nobj, PRT_LAST_ARRAY_ELEMENT+i-1);
 	    }
 	    break;
 	case FLOAT_DEF: {
@@ -438,30 +464,81 @@ print_term(fmtfn_t fn, void* arg, Eterm obj, long *dcount,
 	    break;
 	case BINARY_DEF:
 	    {
-		ProcBin* pb = (ProcBin *) binary_val(wobj);
-		if (pb->size == 1)
-		    PRINT_STRING(res, fn, arg, "<<1 byte>>");
-		else {
+		byte* bytep;
+		Uint bytesize = binary_size(obj);
+		Uint bitoffs;
+		Uint bitsize;
+		byte octet;
+		ERTS_GET_BINARY_BYTES(obj, bytep, bitoffs, bitsize);
+
+		if (bitsize || !bytesize
+		    || !is_printable_ascii(bytep, bytesize, bitoffs)) {
+		    int is_first = 1;
 		    PRINT_STRING(res, fn, arg, "<<");
-		    PRINT_ULONG(res, fn, arg, 'u', 0, 1, (unsigned long) pb->size);
-		    PRINT_STRING(res, fn, arg, " bytes>>");
+		    while (bytesize) {
+			if (is_first)
+			    is_first = 0;
+			else
+			    PRINT_CHAR(res, fn, arg, ',');
+			if (bitoffs)
+			    octet = (bytep[0] << bitoffs) | (bytep[1] >> (8-bitoffs));
+			else
+			    octet = bytep[0];
+			PRINT_UWORD(res, fn, arg, 'u', 0, 1, octet);
+			++bytep;
+			--bytesize;
+		    }
+		    if (bitsize) {
+			Uint bits = bitoffs + bitsize;
+			octet = bytep[0];
+			if (bits < 8)
+			    octet >>= 8 - bits;
+			else if (bits > 8) {
+			    bits -= 8;  /* bits in last byte */
+			    octet <<= bits;
+			    octet |= bytep[1] >> (8 - bits);
+			}
+			octet &= (1 << bitsize) - 1;
+			if (is_first)
+			    is_first = 0;
+			else
+			    PRINT_CHAR(res, fn, arg, ',');
+			PRINT_UWORD(res, fn, arg, 'u', 0, 1, octet);
+			PRINT_CHAR(res, fn, arg, ':');
+			PRINT_UWORD(res, fn, arg, 'u', 0, 1, bitsize);
+		    }
+		    PRINT_STRING(res, fn, arg, ">>");
+		}
+		else {
+		    PRINT_STRING(res, fn, arg, "<<\"");
+		    while (bytesize) {
+			if (bitoffs)
+			    octet = (bytep[0] << bitoffs) | (bytep[1] >> (8-bitoffs));
+			else
+			    octet = bytep[0];
+			if (octet == '"')
+			    PRINT_CHAR(res, fn, arg, '\\');
+			PRINT_CHAR(res, fn, arg, octet);
+			++bytep;
+			--bytesize;
+		    }
+		    PRINT_STRING(res, fn, arg, "\">>");
 		}
 	    }
 	    break;
 	case EXPORT_DEF:
 	    {
 		Export* ep = *((Export **) (export_val(wobj) + 1));
-		Atom* module = atom_tab(atom_val(ep->code[0]));
-		Atom* name = atom_tab(atom_val(ep->code[1]));
+		Atom* module = atom_tab(atom_val(ep->info.mfa.module));
+		Atom* name = atom_tab(atom_val(ep->info.mfa.function));
 
-		PRINT_STRING(res, fn, arg, "#Fun<");
+		PRINT_STRING(res, fn, arg, "fun ");
 		PRINT_BUF(res, fn, arg, module->name, module->len);
-		PRINT_CHAR(res, fn, arg, '.');
+		PRINT_CHAR(res, fn, arg, ':');
 		PRINT_BUF(res, fn, arg, name->name, name->len);
-		PRINT_CHAR(res, fn, arg, '.');
-		PRINT_SLONG(res, fn, arg, 'd', 0, 1,
-			    (signed long) ep->code[2]);
-		PRINT_CHAR(res, fn, arg, '>');
+		PRINT_CHAR(res, fn, arg, '/');
+		PRINT_SWORD(res, fn, arg, 'd', 0, 1,
+			    (ErlPfSWord) ep->info.mfa.arity);
 	    }
 	    break;
 	case FUN_DEF:
@@ -472,15 +549,86 @@ print_term(fmtfn_t fn, void* arg, Eterm obj, long *dcount,
 		PRINT_STRING(res, fn, arg, "#Fun<");
 		PRINT_BUF(res, fn, arg, ap->name, ap->len);
 		PRINT_CHAR(res, fn, arg, '.');
-		PRINT_SLONG(res, fn, arg, 'd', 0, 1,
-			    (signed long) funp->fe->old_index);
+		PRINT_SWORD(res, fn, arg, 'd', 0, 1,
+			    (ErlPfSWord) funp->fe->old_index);
 		PRINT_CHAR(res, fn, arg, '.');
-		PRINT_SLONG(res, fn, arg, 'd', 0, 1,
-			    (signed long) funp->fe->old_uniq);
+		PRINT_SWORD(res, fn, arg, 'd', 0, 1,
+			    (ErlPfSWord) funp->fe->old_uniq);
 		PRINT_CHAR(res, fn, arg, '>');
 	    }
 	    break;
-	default:
+	case MAP_DEF:
+            if (is_flatmap(wobj)) {
+                Uint n;
+                Eterm *ks, *vs;
+                flatmap_t *mp = (flatmap_t *)flatmap_val(wobj);
+                n  = flatmap_get_size(mp);
+                ks = flatmap_get_keys(mp);
+                vs = flatmap_get_values(mp);
+
+                PRINT_CHAR(res, fn, arg, '#');
+                PRINT_CHAR(res, fn, arg, '{');
+                WSTACK_PUSH(s, PRT_CLOSE_TUPLE);
+                if (n > 0) {
+                    n--;
+                    WSTACK_PUSH5(s, vs[n], PRT_TERM, PRT_ASSOC, ks[n], PRT_TERM);
+                    while (n--) {
+                        WSTACK_PUSH6(s, PRT_COMMA, vs[n], PRT_TERM, PRT_ASSOC,
+                                ks[n], PRT_TERM);
+                    }
+                }
+            } else {
+                Uint n, mapval;
+                Eterm *head;
+                head = hashmap_val(wobj);
+                mapval = MAP_HEADER_VAL(*head);
+                switch (MAP_HEADER_TYPE(*head)) {
+                case MAP_HEADER_TAG_HAMT_HEAD_ARRAY:
+                case MAP_HEADER_TAG_HAMT_HEAD_BITMAP:
+                    PRINT_STRING(res, fn, arg, "#<");
+                    PRINT_UWORD(res, fn, arg, 'x', 0, 1, mapval);
+                    PRINT_STRING(res, fn, arg, ">{");
+                    WSTACK_PUSH(s,PRT_CLOSE_TUPLE);
+                    n = hashmap_bitcount(mapval);
+                    ASSERT(n < 17);
+                    head += 2;
+                    if (n > 0) {
+                        n--;
+                        WSTACK_PUSH(s, head[n]);
+                        WSTACK_PUSH(s, PRT_TERM);
+                        while (n--) {
+                            WSTACK_PUSH(s, PRT_COMMA);
+                            WSTACK_PUSH(s, head[n]);
+                            WSTACK_PUSH(s, PRT_TERM);
+                        }
+                    }
+                    break;
+                case MAP_HEADER_TAG_HAMT_NODE_BITMAP:
+                    n = hashmap_bitcount(mapval);
+                    head++;
+                    PRINT_CHAR(res, fn, arg, '<');
+                    PRINT_UWORD(res, fn, arg, 'x', 0, 1, mapval);
+                    PRINT_STRING(res, fn, arg, ">{");
+                    WSTACK_PUSH(s,PRT_CLOSE_TUPLE);
+                    ASSERT(n < 17);
+                    if (n > 0) {
+                        n--;
+                        WSTACK_PUSH(s, head[n]);
+                        WSTACK_PUSH(s, PRT_TERM);
+                        while (n--) {
+                            WSTACK_PUSH(s, PRT_COMMA);
+                            WSTACK_PUSH(s, head[n]);
+                            WSTACK_PUSH(s, PRT_TERM);
+                        }
+                    }
+                    break;
+                }
+            }
+            break;
+	case MATCHSTATE_DEF:
+	    PRINT_STRING(res, fn, arg, "#MatchState");
+	    break;
+        default:
 	    PRINT_STRING(res, fn, arg, "<unknown:");
 	    PRINT_POINTER(res, fn, arg, wobj);
 	    PRINT_CHAR(res, fn, arg, '>');
@@ -489,16 +637,17 @@ print_term(fmtfn_t fn, void* arg, Eterm obj, long *dcount,
     }
 
  L_done:
-    
     DESTROY_WSTACK(s);
     return res;
 }
 
+
 int
-erts_printf_term(fmtfn_t fn, void* arg, unsigned long term, long precision,
-		 unsigned long* term_base)
-{
-    int res = print_term(fn, arg, (Eterm)term, &precision, (Eterm*)term_base);
+erts_printf_term(fmtfn_t fn, void* arg, ErlPfEterm term, long precision) {
+    int res;
+    ERTS_CT_ASSERT(sizeof(ErlPfEterm) == sizeof(Eterm));
+
+    res = print_term(fn, arg, (Eterm)term, &precision);
     if (res < 0)
 	return res;
     if (precision <= 0)

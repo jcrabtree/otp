@@ -1,22 +1,16 @@
 %% -*- erlang-indent-level: 2 -*-
-%%------------------------------------------------------------------------
-%% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2009-2012. All Rights Reserved.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%%     http://www.apache.org/licenses/LICENSE-2.0
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
-%%
-%% %CopyrightEnd%
-%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
 %%%-----------------------------------------------------------------------
 %%% File    : dialyzer_gui_wx.erl
@@ -51,7 +45,6 @@
 		    add_dir           :: wx:wx_object(),
 		    add_rec           :: wx:wx_object(),
 		    chosen_box        :: wx:wx_object(),
-		    analysis_pid      :: pid(),
 		    del_file          :: wx:wx_object(),
 		    doc_plt           :: dialyzer_plt:plt(),
 		    clear_chosen      :: wx:wx_object(),
@@ -61,7 +54,7 @@
 		    init_plt          :: dialyzer_plt:plt(),
 		    dir_entry         :: wx:wx_object(),
 		    file_box          :: wx:wx_object(),
-		    files_to_analyze  :: ordset(string()),
+		    files_to_analyze  :: ordsets:ordset(string()),
 		    gui               :: wx:wx_object(),
 		    log               :: wx:wx_object(),
 		    menu              :: menu(),
@@ -71,11 +64,11 @@
 		    stop              :: wx:wx_object(),
 		    frame             :: wx:wx_object(),
 		    warnings_box      :: wx:wx_object(),
-		    explanation_box   :: wx:wx_object(),
+		    explanation_box   :: wx:wx_object() | 'undefined',
 		    wantedWarnings    :: list(),
 		    rawWarnings       :: list(),
-		    backend_pid       :: pid(),
-		    expl_pid          :: pid()}).
+		    backend_pid       :: pid() | 'undefined',
+		    expl_pid          :: pid() | 'undefined'}).
 	       
 %%------------------------------------------------------------------------
 
@@ -192,48 +185,50 @@ create_window(Wx, #options{init_plts = InitPltFiles} = DialyzerOptions) ->
   RunButtons = wxBoxSizer:new(?wxHORIZONTAL),
   Buttons = wxFlexGridSizer:new(3),
   
-  wxSizer:add(ChooseButtons, DeleteButton, ?BorderOpt),
-  wxSizer:add(ChooseButtons, DeleteAllButton, ?BorderOpt),
-  wxSizer:add(ChooseItem, Lab1, Center),
-  wxSizer:add(ChooseItem, ChosenBox, Opts),
-  wxSizer:add(ChooseItem, ChooseButtons, ?BorderOpt),
-  wxSizer:add(FileTypeItem, OptionsLabel),
-  wxSizer:add(FileTypeItem, FileType, [{border, 5}, {flag, ?wxALL}]),
-  wxSizer:add(LogItem, LogLabel, Center),
-  wxSizer:add(LogItem, LogBox, Opts3),
-  wxSizer:add(LogItem, ClearLogButton, ?BorderOpt),
-  wxSizer:add(FileItem, FileLabel),
-  wxSizer:add(FileItem, FilePicker),
-  wxSizer:add(DirItem, DirLabel),
-  wxSizer:add(DirItem, DirPicker),
-  wxSizer:add(AddDirButtons, AddDirButton, ?BorderOpt),
-  wxSizer:add(AddDirButtons, AddRecButton, ?BorderOpt),
-  wxSizer:add(FileDirItem, FileItem),
-  wxSizer:add(FileDirItem, AddButton, ?BorderOpt),
-  wxSizer:add(FileDirItem, DirItem, ?BorderOpt),
-  wxSizer:add(FileDirItem, AddDirButtons, ?BorderOpt),
-  wxSizer:add(WarnButtons, ExplainWarnButton, ?BorderOpt),
-  wxSizer:add(WarnButtons, ClearWarningsButton, ?BorderOpt),
-  wxSizer:add(RunButtons, RunButton, ?BorderOpt),
-  wxSizer:add(RunButtons, StopButton, ?BorderOpt),
-  wxSizer:add(Buttons, WarnButtons),
-  wxSizer:add(Buttons, wxStaticText:new(Frame, ?LABEL7, ""), [{flag, ?wxEXPAND}]),
-  wxSizer:add(Buttons, RunButtons),
-  wxFlexGridSizer:addGrowableCol(Buttons, 1),
-  wxSizer:add(WarningsItem, WarningsLabel, Center),
-  wxSizer:add(WarningsItem, WarningsBox, Opts3),
-  wxSizer:add(WarningsItem, Buttons, [{flag, ?wxEXPAND bor ?wxALL},?Border]),
- 
-  wxSizer:add(Left, ChooseItem, Opts),
-  wxSizer:add(Left, FileDirItem, [{proportion, 1}, {border, 60}, {flag, ?wxTOP}]),
-  wxSizer:add(RightUp, FileTypeItem, ?BorderOpt),
-  wxSizer:add(RightUp, LogItem, Opts3),
-  wxSizer:add(Right, RightUp, Opts3),
-  wxSizer:add(Right, WarningsItem, Opts3),
-  wxSizer:add(Top, Left, Opts),
-  wxSizer:add(Top, Right, Opts3),
+  _ = wxSizer:add(ChooseButtons, DeleteButton, ?BorderOpt),
+  _ = wxSizer:add(ChooseButtons, DeleteAllButton, ?BorderOpt),
+  _ = wxSizer:add(ChooseItem, Lab1, Center),
+  _ = wxSizer:add(ChooseItem, ChosenBox, Opts),
+  _ = wxSizer:add(ChooseItem, ChooseButtons, ?BorderOpt),
+  _ = wxSizer:add(FileTypeItem, OptionsLabel),
+  _ = wxSizer:add(FileTypeItem, FileType, [{border, 5}, {flag, ?wxALL}]),
+  _ = wxSizer:add(LogItem, LogLabel, Center),
+  _ = wxSizer:add(LogItem, LogBox, Opts3),
+  _ = wxSizer:add(LogItem, ClearLogButton, ?BorderOpt),
+  _ = wxSizer:add(FileItem, FileLabel),
+  _ = wxSizer:add(FileItem, FilePicker),
+  _ = wxSizer:add(DirItem, DirLabel),
+  _ = wxSizer:add(DirItem, DirPicker),
+  _ = wxSizer:add(AddDirButtons, AddDirButton, ?BorderOpt),
+  _ = wxSizer:add(AddDirButtons, AddRecButton, ?BorderOpt),
+  _ = wxSizer:add(FileDirItem, FileItem),
+  _ = wxSizer:add(FileDirItem, AddButton, ?BorderOpt),
+  _ = wxSizer:add(FileDirItem, DirItem, ?BorderOpt),
+  _ = wxSizer:add(FileDirItem, AddDirButtons, ?BorderOpt),
+  _ = wxSizer:add(WarnButtons, ExplainWarnButton, ?BorderOpt),
+  _ = wxSizer:add(WarnButtons, ClearWarningsButton, ?BorderOpt),
+  _ = wxSizer:add(RunButtons, RunButton, ?BorderOpt),
+  _ = wxSizer:add(RunButtons, StopButton, ?BorderOpt),
+  _ = wxSizer:add(Buttons, WarnButtons),
+  _ = wxSizer:add(Buttons, wxStaticText:new(Frame, ?LABEL7, ""),
+		  [{flag, ?wxEXPAND}]),
+  _ = wxSizer:add(Buttons, RunButtons),
+  _ = wxFlexGridSizer:addGrowableCol(Buttons, 1),
+  _ = wxSizer:add(WarningsItem, WarningsLabel, Center),
+  _ = wxSizer:add(WarningsItem, WarningsBox, Opts3),
+  _ = wxSizer:add(WarningsItem, Buttons,
+		  [{flag, ?wxEXPAND bor ?wxALL}, ?Border]),
+  _ = wxSizer:add(Left, ChooseItem, Opts),
+  _ = wxSizer:add(Left, FileDirItem,
+		  [{proportion, 1}, {border, 60}, {flag, ?wxTOP}]),
+  _ = wxSizer:add(RightUp, FileTypeItem, ?BorderOpt),
+  _ = wxSizer:add(RightUp, LogItem, Opts3),
+  _ = wxSizer:add(Right, RightUp, Opts3),
+  _ = wxSizer:add(Right, WarningsItem, Opts3),
+  _ = wxSizer:add(Top, Left, Opts),
+  _ = wxSizer:add(Top, Right, Opts3),
 
-  wxSizer:add(All, Top, Opts),
+  _ = wxSizer:add(All, Top, Opts),
   wxWindow:setSizer(Frame, All),
   wxWindow:setSizeHints(Frame, {1150,600}),
   wxWindow:show(Frame),
@@ -294,91 +289,67 @@ create_window(Wx, #options{init_plts = InitPltFiles} = DialyzerOptions) ->
 
 createFileMenu() ->
   FileMenu = wxMenu:new(),
-  wxMenu:append(FileMenu, wxMenuItem:new([{id,   ?menuID_FILE_SAVE_WARNINGS},
-					  {text, "Save &Warnings"}])),
-  wxMenu:append(FileMenu, wxMenuItem:new([{id,   ?menuID_FILE_SAVE_LOG},
-					  {text, "Save &Log"}])),
-  wxMenu:append(FileMenu, wxMenuItem:new([{id,   ?menuID_FILE_QUIT},
-					  {text, "E&xit\tAlt-X"}])),
+  _ = wxMenu:append(FileMenu, wxMenuItem:new([{id, ?menuID_FILE_SAVE_WARNINGS},
+					      {text, "Save &Warnings"}])),
+  _ = wxMenu:append(FileMenu, wxMenuItem:new([{id,   ?menuID_FILE_SAVE_LOG},
+					      {text, "Save &Log"}])),
+  _ = wxMenu:append(FileMenu, wxMenuItem:new([{id,   ?menuID_FILE_QUIT},
+					      {text, "E&xit\tAlt-X"}])),
   FileMenu.
 
 createWarningsMenu() ->
   WarningsMenu = wxMenu:new(),
-  wxMenu:appendCheckItem(WarningsMenu, 
-			 ?menuID_WARN_MATCH_FAILURES,
-			 "Match failures"),
-  wxMenu:check(WarningsMenu, ?menuID_WARN_MATCH_FAILURES, true),
-  wxMenu:appendCheckItem(WarningsMenu, 
-			 ?menuID_WARN_FAIL_FUN_CALLS,
-			 "Failing function calls"),
-  wxMenu:check(WarningsMenu, ?menuID_WARN_FAIL_FUN_CALLS, true),
-  wxMenu:appendCheckItem(WarningsMenu, 
-			 ?menuID_WARN_BAD_FUN,
-			 "Bad fun applications"),
-  wxMenu:check(WarningsMenu, ?menuID_WARN_BAD_FUN, true),
-  wxMenu:appendCheckItem(WarningsMenu,
-			 ?menuID_WARN_OPAQUE,
-			 "Opaqueness violations"),
-  wxMenu:check(WarningsMenu, ?menuID_WARN_OPAQUE, true),
-  wxMenu:appendCheckItem(WarningsMenu,
-			 ?menuID_WARN_LIST_CONSTR,
-			 "Improper list constructions"),
-  wxMenu:check(WarningsMenu, ?menuID_WARN_LIST_CONSTR, true),
-  wxMenu:appendCheckItem(WarningsMenu, 
-			 ?menuID_WARN_UNUSED_FUN,
-			 "Unused functions"),
-  wxMenu:check(WarningsMenu, ?menuID_WARN_UNUSED_FUN, true),
-  wxMenu:appendCheckItem(WarningsMenu, 
-			 ?menuID_WARN_ERROR_HANDLING_FUN,
-			 "Error handling functions"),
-  wxMenu:appendCheckItem(WarningsMenu, 
-			 ?menuID_WARN_NO_RETURN_FUN,
-			 "Functions of no return"),
-  wxMenu:check(WarningsMenu, ?menuID_WARN_NO_RETURN_FUN, true),
-  wxMenu:appendCheckItem(WarningsMenu,
-			 ?menuID_WARN_UNEXPORTED_FUN,
-			 "Call to unexported function"),
-  wxMenu:check(WarningsMenu, ?menuID_WARN_UNEXPORTED_FUN, true),
-  wxMenu:appendCheckItem(WarningsMenu,
-			 ?menuID_WARN_RACE_CONDITIONS,
-			 "Possible race conditions"),
-  wxMenu:appendCheckItem(WarningsMenu,
-			 ?menuID_WARN_WRONG_CONTRACTS,
-			 "Wrong contracts"),
-  wxMenu:check(WarningsMenu, ?menuID_WARN_WRONG_CONTRACTS, true),
-  wxMenu:appendCheckItem(WarningsMenu,
-			 ?menuID_WARN_CONTRACT_SYNTAX,
-			 "Wrong contract syntax"),
-  wxMenu:check(WarningsMenu, ?menuID_WARN_CONTRACT_SYNTAX, true),
+  addCheckedItem(WarningsMenu, ?menuID_WARN_MATCH_FAILURES, "Match failures"),
+  addCheckedItem(WarningsMenu, ?menuID_WARN_FAIL_FUN_CALLS,
+		 "Failing function calls"),
+  addCheckedItem(WarningsMenu, ?menuID_WARN_BAD_FUN, "Bad fun applications"),
+  addCheckedItem(WarningsMenu, ?menuID_WARN_OPAQUE, "Opacity violations"),
+  addCheckedItem(WarningsMenu, ?menuID_WARN_LIST_CONSTR,
+		 "Improper list constructions"),
+  addCheckedItem(WarningsMenu, ?menuID_WARN_UNUSED_FUN, "Unused functions"),
+  _ = wxMenu:appendCheckItem(WarningsMenu, ?menuID_WARN_ERROR_HANDLING_FUN,
+			     "Error handling functions"),
+  addCheckedItem(WarningsMenu, ?menuID_WARN_NO_RETURN_FUN,
+		 "Functions of no return"),
+  addCheckedItem(WarningsMenu, ?menuID_WARN_UNEXPORTED_FUN,
+		 "Call to unexported function"),
+  _ = wxMenu:appendCheckItem(WarningsMenu, ?menuID_WARN_RACE_CONDITIONS,
+			     "Possible race conditions"),
+  addCheckedItem(WarningsMenu, ?menuID_WARN_WRONG_CONTRACTS, "Wrong contracts"),
+  addCheckedItem(WarningsMenu, ?menuID_WARN_CONTRACT_SYNTAX,
+		 "Wrong contract syntax"),
   WarningsMenu.
+
+addCheckedItem(Menu, ItemId, Str) ->
+  _ = wxMenu:appendCheckItem(Menu, ItemId, Str), 
+  wxMenu:check(Menu, ItemId, true).
 
 createPltMenu() ->
   PltMenu = wxMenu:new(),
-  wxMenu:appendCheckItem(PltMenu, 
-			 ?menuID_PLT_INIT_EMPTY,
-			 "Init with empty PLT"),
-  wxMenu:append(PltMenu, wxMenuItem:new([{id,   ?menuID_PLT_SHOW_CONTENTS},
-					 {text, "Show contents"}])),
-  wxMenu:append(PltMenu, wxMenuItem:new([{id,   ?menuID_PLT_SEARCH_CONTENTS},
-					 {text, "Search contents"}])),
+  _ = wxMenu:appendCheckItem(PltMenu, ?menuID_PLT_INIT_EMPTY,
+			     "Init with empty PLT"),
+  _ = wxMenu:append(PltMenu, wxMenuItem:new([{id, ?menuID_PLT_SHOW_CONTENTS},
+					     {text, "Show contents"}])),
+  _ = wxMenu:append(PltMenu, wxMenuItem:new([{id, ?menuID_PLT_SEARCH_CONTENTS},
+					     {text, "Search contents"}])),
   PltMenu.
 
 createOptionsMenu() ->
   OptsMenu  = wxMenu:new(),
-  wxMenu:append(OptsMenu, wxMenuItem:new([{id,   ?menuID_OPTIONS_MACRO},
-					  {text, "Manage Macro Definitions"}])),
-  wxMenu:append(OptsMenu, wxMenuItem:new([{id,   ?menuID_OPTIONS_INCLUDE_DIR},
-					  {text, "Manage Include Directories"}])),
+  _ = wxMenu:append(OptsMenu, wxMenuItem:new([{id, ?menuID_OPTIONS_MACRO},
+					      {text, "Manage Macro Definitions"}])),
+  _ = wxMenu:append(OptsMenu, wxMenuItem:new([{id, ?menuID_OPTIONS_INCLUDE_DIR},
+					      {text, "Manage Include Directories"}])),
   OptsMenu.
 
 createHelpMenu() ->
   HelpMenu = wxMenu:new(),
-  wxMenu:append(HelpMenu, wxMenuItem:new([{id,   ?menuID_HELP_MANUAL},
-					  {text, "Manual"}])),
-  wxMenu:append(HelpMenu, wxMenuItem:new([{id,   ?menuID_HELP_WARNING_OPTIONS},
-					  {text, "Warning Options"}])),
-  wxMenu:append(HelpMenu, wxMenuItem:new([{id,   ?menuID_HELP_ABOUT},
-					  {text, "About"}])),
+  _ = wxMenu:append(HelpMenu, wxMenuItem:new([{id, ?menuID_HELP_MANUAL},
+					      {text, "Manual"}])),
+  _ = wxMenu:append(HelpMenu, wxMenuItem:new([{id, ?menuID_HELP_WARNING_OPTIONS},
+					      {text, "Warning Options"}])),
+  _ = wxMenu:append(HelpMenu, wxMenuItem:new([{id, ?menuID_HELP_ABOUT},
+					      {text, "About"}])),
   HelpMenu.
 
 %% ----------------------------------------------------------------
@@ -444,7 +415,7 @@ gui_loop(#gui_state{backend_pid = BackendPid, doc_plt = DocPlt,
     #wx{id=?menuID_HELP_ABOUT, obj=Frame, 
 	event=#wxCommand{type=command_menu_selected}} ->
       Message = "	       This is DIALYZER version "  ++ ?VSN ++  " \n"++
-	"DIALYZER is a DIscrepany AnaLYZer for ERlang programs.\n\n"++
+	"DIALYZER is a DIscrepancy AnaLYZer for ERlang programs.\n\n"++
 	"     Copyright (C) Tobias Lindahl <tobiasl@it.uu.se>\n"++
 	"                   Kostis Sagonas <kostis@it.uu.se>\n\n",
       output_sms(State, "About Dialyzer", Message, info),
@@ -498,18 +469,18 @@ gui_loop(#gui_state{backend_pid = BackendPid, doc_plt = DocPlt,
       Msg = io_lib:format("The following functions are called "
 			  "but type information about them is not available.\n"
 			  "The analysis might get more precise by including "
-			  "the modules containing these functions:\n\n\t~p\n", 
+			  "the modules containing these functions:\n\n\t~tp\n",
 			  [ExtCalls]),
       free_editor(State,"Analysis Done",  Msg),
       gui_loop(State);
     {BackendPid, ext_types, ExtTypes} ->
-      Map = fun({M,F,A}) -> io_lib:format("~p:~p/~p",[M,F,A]) end,
-      ExtTypeString = string:join(lists:map(Map, ExtTypes), "\n"),
+      Map = fun({M,F,A}) -> io_lib:format("~tp:~tp/~p",[M,F,A]) end,
+      ExtTypeString = lists:join("\n", lists:map(Map, ExtTypes)),
       Msg = io_lib:format("The following remote types are being used "
 			  "but information about them is not available.\n"
 			  "The analysis might get more precise by including "
 			  "the modules containing these types and making sure "
-			  "that they are exported:\n~s\n", [ExtTypeString]),
+			  "that they are exported:\n~ts\n", [ExtTypeString]),
       free_editor(State, "Analysis done", Msg),
       gui_loop(State);
     {BackendPid, log, LogMsg} ->
@@ -527,8 +498,9 @@ gui_loop(#gui_state{backend_pid = BackendPid, doc_plt = DocPlt,
 	end,
       ExplanationPid = spawn_link(Fun),
       gui_loop(State#gui_state{expl_pid = ExplanationPid});
-    {BackendPid, done, _NewPlt, NewDocPlt} ->
+    {BackendPid, done, NewPlt, NewDocPlt} ->
       message(State, "Analysis done"),
+      dialyzer_plt:delete(NewPlt),
       config_gui_stop(State),
       gui_loop(State#gui_state{doc_plt = NewDocPlt});
     {'EXIT', BackendPid, {error, Reason}} ->
@@ -536,7 +508,7 @@ gui_loop(#gui_state{backend_pid = BackendPid, doc_plt = DocPlt,
       config_gui_stop(State),
       gui_loop(State);
     {'EXIT', BackendPid, Reason} when Reason =/= 'normal' ->
-      free_editor(State, ?DIALYZER_ERROR_TITLE, io_lib:format("~p", [Reason])),
+      free_editor(State, ?DIALYZER_ERROR_TITLE, io_lib:format("~tp", [Reason])),
       config_gui_stop(State),
       gui_loop(State)
   end.
@@ -583,20 +555,20 @@ search_doc_plt(#gui_state{gui = Wx} = State) ->
   ArLayout = wxBoxSizer:new(?wxVERTICAL),
   Buttons = wxBoxSizer:new(?wxHORIZONTAL),
 
-  wxSizer:add(ModLayout, ModLabel, ?BorderOpt),
-  wxSizer:add(ModLayout,ModText, ?BorderOpt),
-  wxSizer:add(FunLayout, FunLabel, ?BorderOpt),
-  wxSizer:add(FunLayout,FunText, ?BorderOpt),
-  wxSizer:add(ArLayout, ArLabel, ?BorderOpt),
-  wxSizer:add(ArLayout,ArText, ?BorderOpt),
-  wxSizer:add(Buttons, SearchButton, ?BorderOpt),
-  wxSizer:add(Buttons,Cancel, ?BorderOpt),
+  _ = wxSizer:add(ModLayout, ModLabel, ?BorderOpt),
+  _ = wxSizer:add(ModLayout, ModText, ?BorderOpt),
+  _ = wxSizer:add(FunLayout, FunLabel, ?BorderOpt),
+  _ = wxSizer:add(FunLayout,FunText, ?BorderOpt),
+  _ = wxSizer:add(ArLayout, ArLabel, ?BorderOpt),
+  _ = wxSizer:add(ArLayout,ArText, ?BorderOpt),
+  _ = wxSizer:add(Buttons, SearchButton, ?BorderOpt),
+  _ = wxSizer:add(Buttons,Cancel, ?BorderOpt),
 
-  wxSizer:add(Top, ModLayout),
-  wxSizer:add(Top, FunLayout),
-  wxSizer:add(Top, ArLayout),
-  wxSizer:add(Layout, Top,[{flag, ?wxALIGN_CENTER}]),
-  wxSizer:add(Layout, Buttons,[{flag, ?wxALIGN_CENTER bor ?wxBOTTOM}]),
+  _ = wxSizer:add(Top, ModLayout),
+  _ = wxSizer:add(Top, FunLayout),
+  _ = wxSizer:add(Top, ArLayout),
+  _ = wxSizer:add(Layout, Top,[{flag, ?wxALIGN_CENTER}]),
+  _ = wxSizer:add(Layout, Buttons,[{flag, ?wxALIGN_CENTER bor ?wxBOTTOM}]),
   wxFrame:connect(Dialog, close_window),
   wxWindow:setSizer(Dialog, Layout),
   wxFrame:show(Dialog),
@@ -654,18 +626,19 @@ error_sms(State, Message) ->
   output_sms(State, ?DIALYZER_ERROR_TITLE, Message, error).
 
 output_sms(#gui_state{frame = Frame}, Title, Message, Type) ->
-  case Type of
-    error ->
-      MessageWin = wxMessageDialog:new(Frame,Message,[{caption, Title},{style, ?wxOK bor ?wxICON_ERROR}]);
-    info ->
-       MessageWin = wxMessageDialog:new(Frame,Message,[{caption, Title},{style, ?wxOK bor ?wxICON_INFORMATION}])
-  end,
+  Style = case Type of
+	    error -> ?wxOK bor ?wxICON_ERROR;
+	    info  -> ?wxOK bor ?wxICON_INFORMATION
+	  end,
+  Options = [{caption, Title}, {style, Style}],
+  MessageWin = wxMessageDialog:new(Frame, Message, Options),
   wxWindow:setSizeHints(MessageWin, {350,100}),
-  wxDialog:showModal(MessageWin).
+  wxDialog:showModal(MessageWin),
+  ok.
 
 free_editor(#gui_state{gui = Wx, frame = Frame}, Title, Contents0) ->
   Contents = lists:flatten(Contents0),
-  Tokens = string:tokens(Contents, "\n"),
+  Tokens = string:lexemes(Contents, "\n"),
   NofLines = length(Tokens),
   LongestLine = lists:max([length(X) || X <- Tokens]),
   Height0 = NofLines * 25 + 80,
@@ -685,8 +658,9 @@ free_editor(#gui_state{gui = Wx, frame = Frame}, Title, Contents0) ->
   wxButton:connect(Ok, command_button_clicked),
   Layout = wxBoxSizer:new(?wxVERTICAL),
   
-  wxSizer:add(Layout, Editor, ?BorderOpt),
-  wxSizer:add(Layout, Ok, [{flag, ?wxALIGN_CENTER bor ?wxBOTTOM bor ?wxALL}, ?Border]),
+  _ = wxSizer:add(Layout, Editor, ?BorderOpt),
+  Flag = ?wxALIGN_CENTER bor ?wxBOTTOM bor ?wxALL,
+  _ = wxSizer:add(Layout, Ok, [{flag, Flag}, ?Border]),
   wxWindow:setSizer(Win, Layout),
   wxWindow:show(Win),
   show_info_loop(Frame, Win).
@@ -696,7 +670,7 @@ show_info_loop(Frame, Win) ->
     #wx{id = ?Message_Ok, event = #wxCommand{type = command_button_clicked}} ->
       wxWindow:destroy(Win);
     #wx{id = ?Message, event = #wxClose{type = close_window}} ->
-       wxWindow:destroy(Win);
+      wxWindow:destroy(Win);
     #wx{event = #wxClose{type = close_window}} ->
       wxWindow:destroy(Frame)
   end.
@@ -719,8 +693,7 @@ handle_add_files(#gui_state{chosen_box = ChosenBox, file_box = FileBox,
   end.
 
 handle_add_dir(#gui_state{chosen_box = ChosenBox, dir_entry = DirBox,
-			  files_to_analyze = FileList,
-			  mode = Mode} = State) ->
+			  files_to_analyze = FileList, mode = Mode} = State) ->
   case wxDirPickerCtrl:getPath(DirBox) of
     "" ->
       State;
@@ -734,8 +707,8 @@ handle_add_dir(#gui_state{chosen_box = ChosenBox, dir_entry = DirBox,
       State#gui_state{files_to_analyze = add_files(filter_mods(NewDir1,Ext), FileList, ChosenBox, Ext)}
   end.
 	    
-handle_add_rec(#gui_state{chosen_box = ChosenBox, dir_entry = DirBox, files_to_analyze = FileList,
-			     mode = Mode} = State) ->
+handle_add_rec(#gui_state{chosen_box = ChosenBox, dir_entry = DirBox,
+			  files_to_analyze = FileList, mode = Mode} = State) ->
   case wxDirPickerCtrl:getPath(DirBox) of
     "" ->
       State;
@@ -743,11 +716,11 @@ handle_add_rec(#gui_state{chosen_box = ChosenBox, dir_entry = DirBox, files_to_a
       NewDir = ordsets:new(),
       NewDir1 = ordsets:add_element(Dir,NewDir),
       TargetDirs = ordsets:union(NewDir1, all_subdirs(NewDir1)),
-      case wxRadioBox:getSelection(Mode) of
-	0 -> Ext = ".beam";
-	1-> Ext = ".erl"
-      end,
-      State#gui_state{files_to_analyze = add_files(filter_mods(TargetDirs,Ext), FileList, ChosenBox, Ext)}
+      Ext = case wxRadioBox:getSelection(Mode) of
+	      0 -> ".beam";
+	      1 -> ".erl"
+	    end,
+      State#gui_state{files_to_analyze = add_files(filter_mods(TargetDirs, Ext), FileList, ChosenBox, Ext)}
   end.
 
 handle_file_delete(#gui_state{chosen_box = ChosenBox,
@@ -830,7 +803,8 @@ build_analysis_record(#gui_state{mode = Mode, menu = Menu, options = Options,
   #analysis{defines = Options#options.defines,
 	    include_dirs = Options#options.include_dirs,
 	    plt = InitPlt,
-	    start_from = StartFrom}.
+	    start_from = StartFrom,
+	    solvers = Options#options.solvers}.
 
 get_anal_files(#gui_state{files_to_analyze = Files}, StartFrom) ->
   FilteredMods =
@@ -905,13 +879,10 @@ config_gui_start(State) ->
   wxRadioBox:disable(State#gui_state.mode).
 
 save_file(#gui_state{frame = Frame, warnings_box = WBox, log = Log} = State, Type) ->
-  case Type of
-    warnings ->
-      Message = "Save Warnings",
-      Box = WBox;
-    log -> Message = "Save Log",
-	   Box = Log
-  end,
+  {Message, Box} = case Type of
+		     warnings -> {"Save Warnings", WBox};
+		     log -> {"Save Log", Log}
+		   end,
   case wxTextCtrl:getValue(Box) of
     "" -> error_sms(State,"There is nothing to save...\n");
     _ ->
@@ -921,13 +892,14 @@ save_file(#gui_state{frame = Frame, warnings_box = WBox, log = Log} = State, Typ
 				     {message, Message},
 				     {style,?wxFD_SAVE bor ?wxFD_OVERWRITE_PROMPT}]),
       case wxFileDialog:showModal(FileDialog) of
-	?wxID_OK -> Path = wxFileDialog:getPath(FileDialog),
-		    case wxTextCtrl:saveFile(Box,[{file,Path}]) of
-		      true -> ok;
-		      false -> error_sms(State,"Could not write to file:\n" ++ Path)
-		    end;
+	?wxID_OK ->
+	  Path = wxFileDialog:getPath(FileDialog),
+	  case wxTextCtrl:saveFile(Box,[{file,Path}]) of
+	    true -> ok;
+	    false -> error_sms(State, "Could not write to file:\n" ++ Path)
+	  end;
 	?wxID_CANCEL -> wxWindow:destroy(FileDialog);
-	_ -> error_sms(State,"Could not write to file:\n")
+	_ -> error_sms(State, "Could not write to file:\n")
       end
   end.
 					
@@ -954,23 +926,22 @@ include_dialog(#gui_state{gui = Wx, frame = Frame, options = Options}) ->
   wxButton:connect(DeleteAllButton, command_button_clicked),
   wxButton:connect(Ok, command_button_clicked),
   wxButton:connect(Cancel, command_button_clicked),
-  Dirs = [io_lib:format("~s", [X]) 
-	  || X <- Options#options.include_dirs],
+  Dirs = [io_lib:format("~ts", [X]) || X <- Options#options.include_dirs],
   wxListBox:set(Box, Dirs),
   Layout = wxBoxSizer:new(?wxVERTICAL),
   Buttons = wxBoxSizer:new(?wxHORIZONTAL),
   Buttons1 = wxBoxSizer:new(?wxHORIZONTAL),
 
-  wxSizer:add(Layout, DirLabel, [{flag, ?wxALIGN_CENTER_HORIZONTAL}]),
-  wxSizer:add(Layout, DirPicker, [{flag, ?wxALIGN_CENTER_HORIZONTAL}]),
-  wxSizer:add(Layout,AddButton, [{flag, ?wxALIGN_CENTER_HORIZONTAL bor ?wxALL}, ?Border]),
-  wxSizer:add(Layout,Box, [{flag, ?wxALIGN_CENTER_HORIZONTAL bor ?wxALL}, ?Border]),
-  wxSizer:add(Buttons, DeleteButton, ?BorderOpt),
-  wxSizer:add(Buttons, DeleteAllButton, ?BorderOpt),
-  wxSizer:add(Layout,Buttons, [{flag, ?wxALIGN_CENTER_HORIZONTAL}]),
-  wxSizer:add(Buttons1, Ok, ?BorderOpt),
-  wxSizer:add(Buttons1,Cancel, ?BorderOpt),
-  wxSizer:add(Layout,Buttons1,[{flag, ?wxALIGN_RIGHT bor ?wxBOTTOM}]),
+  _ = wxSizer:add(Layout, DirLabel, [{flag, ?wxALIGN_CENTER_HORIZONTAL}]),
+  _ = wxSizer:add(Layout, DirPicker, [{flag, ?wxALIGN_CENTER_HORIZONTAL}]),
+  _ = wxSizer:add(Layout,AddButton, [{flag, ?wxALIGN_CENTER_HORIZONTAL bor ?wxALL}, ?Border]),
+  _ = wxSizer:add(Layout,Box, [{flag, ?wxALIGN_CENTER_HORIZONTAL bor ?wxALL}, ?Border]),
+  _ = wxSizer:add(Buttons, DeleteButton, ?BorderOpt),
+  _ = wxSizer:add(Buttons, DeleteAllButton, ?BorderOpt),
+  _ = wxSizer:add(Layout,Buttons, [{flag, ?wxALIGN_CENTER_HORIZONTAL}]),
+  _ = wxSizer:add(Buttons1, Ok, ?BorderOpt),
+  _ = wxSizer:add(Buttons1,Cancel, ?BorderOpt),
+  _ = wxSizer:add(Layout,Buttons1,[{flag, ?wxALIGN_RIGHT bor ?wxBOTTOM}]),
 
   wxFrame:connect(Dialog, close_window),
   wxWindow:setSizer(Dialog, Layout),
@@ -1058,21 +1029,21 @@ macro_dialog(#gui_state{gui = Wx, frame = Frame, options = Options}) ->
   Buttons = wxBoxSizer:new(?wxHORIZONTAL),
   Buttons1 = wxBoxSizer:new(?wxHORIZONTAL),
 
-  wxSizer:add(MacroItem, MacroLabel, ?BorderOpt),
-  wxSizer:add(MacroItem, MacroText, ?BorderOpt),
-  wxSizer:add(TermItem, TermLabel, ?BorderOpt),
-  wxSizer:add(TermItem, TermText, ?BorderOpt),
-  wxSizer:add(Item, MacroItem),
-  wxSizer:add(Item, TermItem),
-  wxSizer:add(Layout, Item, [{flag, ?wxALIGN_CENTER_HORIZONTAL}]),
-  wxSizer:add(Layout, AddButton, [{flag, ?wxALIGN_CENTER_HORIZONTAL bor ?wxALL}, ?Border]),
-  wxSizer:add(Layout, Box, [{flag, ?wxALIGN_CENTER_HORIZONTAL bor ?wxALL}, ?Border]),
-  wxSizer:add(Buttons, DeleteButton, ?BorderOpt),
-  wxSizer:add(Buttons, DeleteAllButton, ?BorderOpt),
-  wxSizer:add(Layout, Buttons, [{flag, ?wxALIGN_CENTER_HORIZONTAL}]),
-  wxSizer:add(Buttons1, Ok, ?BorderOpt),
-  wxSizer:add(Buttons1, Cancel, ?BorderOpt),
-  wxSizer:add(Layout, Buttons1, [{flag, ?wxALIGN_RIGHT bor ?wxBOTTOM}]),
+  _ = wxSizer:add(MacroItem, MacroLabel, ?BorderOpt),
+  _ = wxSizer:add(MacroItem, MacroText, ?BorderOpt),
+  _ = wxSizer:add(TermItem, TermLabel, ?BorderOpt),
+  _ = wxSizer:add(TermItem, TermText, ?BorderOpt),
+  _ = wxSizer:add(Item, MacroItem),
+  _ = wxSizer:add(Item, TermItem),
+  _ = wxSizer:add(Layout, Item, [{flag, ?wxALIGN_CENTER_HORIZONTAL}]),
+  _ = wxSizer:add(Layout, AddButton, [{flag, ?wxALIGN_CENTER_HORIZONTAL bor ?wxALL}, ?Border]),
+  _ = wxSizer:add(Layout, Box, [{flag, ?wxALIGN_CENTER_HORIZONTAL bor ?wxALL}, ?Border]),
+  _ = wxSizer:add(Buttons, DeleteButton, ?BorderOpt),
+  _ = wxSizer:add(Buttons, DeleteAllButton, ?BorderOpt),
+  _ = wxSizer:add(Layout, Buttons, [{flag, ?wxALIGN_CENTER_HORIZONTAL}]),
+  _ = wxSizer:add(Buttons1, Ok, ?BorderOpt),
+  _ = wxSizer:add(Buttons1, Cancel, ?BorderOpt),
+  _ = wxSizer:add(Layout, Buttons1, [{flag, ?wxALIGN_RIGHT bor ?wxBOTTOM}]),
 
   wxFrame:connect(Dialog, close_window),
   wxWindow:setSizer(Dialog, Layout),
@@ -1122,7 +1093,7 @@ macro_loop(Options, Win, Box, MacroText, TermText, Frame) ->
 	    Fun = 
 	      fun(X) ->
 		  Val = wxControlWithItems:getString(Box,X),
-		  [MacroName|_] = re:split(Val, " ", [{return, list}]),
+		  [MacroName|_] = re:split(Val, " ", [{return, list}, unicode]),
 		  list_to_atom(MacroName)
 	      end,
 	    Delete = [Fun(X) || X <- List],
@@ -1147,13 +1118,13 @@ handle_help(State, Title, Txt) ->
   case file:open(FileName, [read]) of
     {error, Reason} ->
       error_sms(State, 
-		io_lib:format("Could not find doc/~s file!\n\n ~p", 
+		io_lib:format("Could not find doc/~ts file!\n\n ~tp",
 			      [Txt, Reason]));
     {ok, _Handle} ->
       case file:read_file(FileName) of
 	{error, Reason} ->
 	  error_sms(State, 
-		    io_lib:format("Could not read doc/~s file!\n\n ~p", 
+		    io_lib:format("Could not read doc/~ts file!\n\n ~tp",
 				  [Txt, Reason]));
 	{ok, Binary} ->
 	  Contents = binary_to_list(Binary),
@@ -1216,13 +1187,14 @@ show_explanation(#gui_state{gui = Wx} = State, Explanation) ->
       wxButton:connect(Ok, command_button_clicked),
       Layout = wxBoxSizer:new(?wxVERTICAL),
       Buttons = wxBoxSizer:new(?wxHORIZONTAL),
-      wxSizer:add(Buttons, ExplButton, ?BorderOpt),
-      wxSizer:add(Buttons, Ok, ?BorderOpt),
-      wxSizer:add(Layout, Editor,[{flag, ?wxALIGN_CENTER_HORIZONTAL bor ?wxALL}, ?Border]),
-      wxSizer:add(Layout, Buttons,[{flag, ?wxALIGN_CENTER_HORIZONTAL}]),
+      _ = wxSizer:add(Buttons, ExplButton, ?BorderOpt),
+      _ = wxSizer:add(Buttons, Ok, ?BorderOpt),
+      _ = wxSizer:add(Layout, Editor, [{flag, ?wxALIGN_CENTER_HORIZONTAL bor ?wxALL}, ?Border]),
+      _ = wxSizer:add(Layout, Buttons,[{flag, ?wxALIGN_CENTER_HORIZONTAL}]),
       wxWindow:setSizer(Win, Layout),
       wxWindow:show(Win),
-      show_explanation_loop(State#gui_state{explanation_box = Editor}, Win, Explanation)
+      NewState = State#gui_state{explanation_box = Editor},
+      show_explanation_loop(NewState, Win, Explanation)
   end.
   
 show_explanation_loop(#gui_state{frame = Frame, expl_pid = ExplPid} = State, Win, Explanation) ->
@@ -1251,7 +1223,7 @@ update_explanation(#gui_state{explanation_box = Box}, Explanation) ->
   wxTextCtrl:appendText(Box, ExplString).
 
 format_explanation({function_return, {M, F, A}, NewList}) ->
-  io_lib:format("The function ~p: ~p/~p returns ~p\n",
+  io_lib:format("The function ~w:~tw/~w returns ~ts\n",
 		[M, F, A, erl_types:t_to_string(NewList)]);
 format_explanation(Explanation) ->
   io_lib:format("~p\n", [Explanation]).

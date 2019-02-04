@@ -1,22 +1,16 @@
 %% -*- erlang-indent-level: 2 -*-
-%%-----------------------------------------------------------------------
-%% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2008-2012. All Rights Reserved.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%%     http://www.apache.org/licenses/LICENSE-2.0
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
-%%
-%% %CopyrightEnd%
-%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
 %%%----------------------------------------------------------------------
 %%% File    : dialyzer_races.erl
@@ -85,27 +79,34 @@
 -type race_tag()   :: 'whereis_register' | 'whereis_unregister'
                     | 'ets_lookup_insert' | 'mnesia_dirty_read_write'.
 
--record(beg_clause, {arg        :: var_to_map1(),
-                     pats       :: var_to_map1(),
-                     guard      :: cerl:cerl()}).
--record(end_clause, {arg        :: var_to_map1(),
-                     pats       :: var_to_map1(),
-                     guard      :: cerl:cerl()}).
+%% The following type is similar to the raw_warning() type but has a
+%% tag which is local to this module and is not propagated to outside
+-type dial_race_warning() :: {race_warn_tag(), warning_info(), {atom(), [term()]}}.
+-type race_warn_tag() :: ?WARN_WHEREIS_REGISTER | ?WARN_WHEREIS_UNREGISTER
+                      | ?WARN_ETS_LOOKUP_INSERT | ?WARN_MNESIA_DIRTY_READ_WRITE.
+
+-record(beg_clause, {arg        :: var_to_map1() | 'undefined',
+                     pats       :: var_to_map1() | 'undefined',
+                     guard      :: cerl:cerl() | 'undefined'}).
+-record(end_clause, {arg        :: var_to_map1() | 'undefined',
+                     pats       :: var_to_map1() | 'undefined',
+                     guard      :: cerl:cerl() | 'undefined'}).
 -record(end_case,   {clauses    :: [#end_clause{}]}).
--record(curr_fun,   {status     :: 'in' | 'out',
-                     mfa        :: dialyzer_callgraph:mfa_or_funlbl(),
-                     label      :: label(),
-                     def_vars   :: [core_vars()],
-                     arg_types  :: [erl_types:erl_type()],
-                     call_vars  :: [core_vars()],
-                     var_map    :: dict()}).
+-record(curr_fun,   {status     :: 'in' | 'out' | 'undefined',
+                     mfa        :: dialyzer_callgraph:mfa_or_funlbl()
+                                 | 'undefined',
+                     label      :: label() | 'undefined',
+                     def_vars   :: [core_vars()] | 'undefined',
+                     arg_types  :: [erl_types:erl_type()] | 'undefined',
+                     call_vars  :: [core_vars()] | 'undefined',
+                     var_map    :: dict:dict() | 'undefined'}).
 -record(dep_call,   {call_name  :: dep_calls(),
-                     args       :: args(),
+                     args       :: args() | 'undefined',
                      arg_types  :: [erl_types:erl_type()],
                      vars       :: [core_vars()],
-                     state      :: _, %% XXX: recursive
+                     state      :: dialyzer_dataflow:state(),
                      file_line  :: file_line(),
-                     var_map    :: dict()}).
+                     var_map    :: dict:dict() | 'undefined'}).
 -record(fun_call,   {caller     :: dialyzer_callgraph:mfa_or_funlbl(),
                      callee     :: dialyzer_callgraph:mfa_or_funlbl(),
                      arg_types  :: [erl_types:erl_type()],
@@ -114,7 +115,7 @@
                      arg        :: var_to_map1()}).
 -record(warn_call,  {call_name  :: warn_calls(),
                      args       :: args(),
-                     var_map    :: dict()}).
+                     var_map    :: dict:dict() | 'undefined'}).
 
 -type case_tags()  :: 'beg_case' | #beg_clause{} | #end_clause{} | #end_case{}.
 -type code()       :: [#dep_call{} | #fun_call{} | #warn_call{} |
@@ -132,8 +133,9 @@
                      fun_mfa    :: dialyzer_callgraph:mfa_or_funlbl(),
                      fun_label  :: label()}).
 
--record(races, {curr_fun                :: dialyzer_callgraph:mfa_or_funlbl(),
-                curr_fun_label          :: label(),
+-record(races, {curr_fun                :: dialyzer_callgraph:mfa_or_funlbl()
+                                         | 'undefined',
+                curr_fun_label          :: label() | 'undefined',
                 curr_fun_args = 'empty' :: core_args(),
                 new_table = 'no_t'      :: table(),
                 race_list = []          :: code(),
@@ -141,7 +143,7 @@
                 race_tags = []          :: [#race_fun{}],
                 %% true for fun types and warning mode
                 race_analysis = false   :: boolean(),
-                race_warnings = []      :: [dial_warning()]}).
+                race_warnings = []      :: [dial_race_warning()]}).
 
 %%% ===========================================================================
 %%%
@@ -306,10 +308,13 @@ race(State) ->
         DepList = fixup_race_list(RaceWarnTag, VarArgs, State1),
         {State2, RaceWarn} =
           get_race_warn(Fun, Args, ArgTypes, DepList, State),
+        {File, Line} = FileLine,
+        CurrMFA = dialyzer_dataflow:state__find_function(CurrFun, State),
+        WarningInfo = {File, Line, CurrMFA},
         race(
           state__add_race_warning(
             state__renew_race_tags(T, State2), RaceWarn, RaceWarnTag,
-            FileLine))
+            WarningInfo))
     end,
   state__renew_race_tags([], RetState).
 
@@ -984,8 +989,7 @@ fixup_race_forward_helper(CurrFun, CurrFunLabel, Fun, FunLabel,
            NewRaceVarMap, Args, NewFunArgs, NewFunTypes, NestingLevel};
         {CurrFun, Fun} ->
           NewCallsToAnalyze = lists:delete(Head, CallsToAnalyze),
-          NewRaceVarMap =
-            race_var_map(Args, NewFunArgs, RaceVarMap, bind),
+          NewRaceVarMap = race_var_map(Args, NewFunArgs, RaceVarMap, bind),
           RetC =
             case Fun of
               InitFun ->
@@ -1012,8 +1016,7 @@ fixup_race_forward_helper(CurrFun, CurrFunLabel, Fun, FunLabel,
                            label = FunLabel, var_map = NewRaceVarMap,
                            def_vars = Args, call_vars = NewFunArgs,
                            arg_types = NewFunTypes}|
-                 lists:reverse(StateRaceList)] ++
-                  RetC;
+                 lists:reverse(StateRaceList)] ++ RetC;
               _ ->
                 [#curr_fun{status = in, mfa = Fun,
                            label = FunLabel, var_map = NewRaceVarMap,
@@ -1048,13 +1051,9 @@ fixup_race_backward(CurrFun, Calls, CallsToAnalyze, Parents, Height) ->
             false -> [CurrFun|Parents]
           end;
         [Head|Tail] ->
-          MorePaths =
-            case Head of
-              {Parent, CurrFun} -> true;
-              {Parent, _TupleB} -> false
-            end,
-          case MorePaths of
-            true ->
+	  {Parent, TupleB} = Head,
+	  case TupleB =:= CurrFun of
+            true ->  % more paths are needed
               NewCallsToAnalyze = lists:delete(Head, CallsToAnalyze),
               NewParents =
                 fixup_race_backward(Parent, NewCallsToAnalyze,
@@ -1271,8 +1270,8 @@ filter_named_tables(NamesList) ->
     [] -> [];
     [Head|Tail] ->
       NewHead =
-        case string:rstr(Head, "()") of
-          0 -> [Head];
+        case string:find(Head, "()", trailing) of
+          nomatch -> [Head];
           _Other -> []
         end,
       NewHead ++ filter_named_tables(Tail)
@@ -1559,13 +1558,13 @@ any_args(StrList) ->
   case StrList of
     [] -> false;
     [Head|Tail] ->
-      case string:rstr(Head, "()") of
-        0 -> any_args(Tail);
+      case string:find(Head, "()", trailing) of
+        nomatch -> any_args(Tail);
         _Other -> true
       end
   end.
 
--spec bind_dict_vars(label(), label(), dict()) -> dict().
+-spec bind_dict_vars(label(), label(), dict:dict()) -> dict:dict().
 
 bind_dict_vars(Key, Label, RaceVarMap) ->
   case Key =:= Label of
@@ -1751,22 +1750,23 @@ compare_vars(Var1, Var2, RaceVarMap) when is_integer(Var1), is_integer(Var2) ->
 compare_vars(_Var1, _Var2, _RaceVarMap) ->
   false.
 
--spec compare_var_list(label_type(), [label_type()], dict()) -> boolean().
+-spec compare_var_list(label_type(), [label_type()], dict:dict()) -> boolean().
 
 compare_var_list(Var, VarList, RaceVarMap) ->
   lists:any(fun (V) -> compare_vars(Var, V, RaceVarMap) end, VarList).
 
 ets_list_args(MaybeList) ->
   case is_list(MaybeList) of
-    true -> [ets_tuple_args(T) || T <- MaybeList];
+    true ->
+      try [ets_tuple_args(T) || T <- MaybeList]
+      catch _:_ -> [?no_label]
+      end;
     false -> [ets_tuple_args(MaybeList)]
- end.
+  end.
 
 ets_list_argtypes(ListStr) ->
-  ListStr1 = string:strip(ListStr, left, $[),
-  ListStr2 = string:strip(ListStr1, right, $]),
-  ListStr3 = string:strip(ListStr2, right, $.),
-  string:strip(ListStr3, right, $,).
+  ListStr1 = string:trim(ListStr, leading, "$["),
+  string:trim(ListStr1, trailing, "$]$.$,").
 
 ets_tuple_args(MaybeTuple) ->
   case is_tuple(MaybeTuple) of
@@ -1808,7 +1808,7 @@ ets_tuple_argtypes2_helper(TupleStr, ElemStr, NestingLevel) ->
             {[H|ElemStr], NestingLevel, false}
         end,
       case Return of
-        true -> string:tokens(NewElemStr, " |");
+        true -> string:lexemes(NewElemStr, " |");
         false ->
           ets_tuple_argtypes2_helper(T, NewElemStr, NewNestingLevel)
       end
@@ -1845,7 +1845,8 @@ ets_tuple_argtypes1(Str, Tuple, TupleList, NestingLevel) ->
   end.
 
 format_arg(?bypassed) -> ?no_label;
-format_arg(Arg) ->
+format_arg(Arg0) ->
+  Arg = cerl:fold_literal(Arg0),
   case cerl:type(Arg) of
     var -> cerl_trees:get_label(Arg);
     tuple -> list_to_tuple([format_arg(A) || A <- cerl:tuple_es(Arg)]);
@@ -1875,7 +1876,7 @@ format_args_1([Arg|Args], [Type|Types], CleanState) ->
     case Arg =:= ?bypassed of
       true -> [?no_label, format_type(Type, CleanState)];
       false ->
-        case cerl:is_literal(Arg) of
+        case cerl:is_literal(cerl:fold_literal(Arg)) of
           true -> [?no_label, format_cerl(Arg)];
           false -> [format_arg(Arg), format_type(Type, CleanState)]
         end
@@ -1886,44 +1887,44 @@ format_args_2(StrArgList, Call) ->
   case Call of
     whereis ->
       lists_key_replace(2, StrArgList,
-	string:tokens(lists:nth(2, StrArgList), " |"));
+	string:lexemes(lists:nth(2, StrArgList), " |"));
     register ->
       lists_key_replace(2, StrArgList,
-	string:tokens(lists:nth(2, StrArgList), " |"));
+	string:lexemes(lists:nth(2, StrArgList), " |"));
     unregister ->
       lists_key_replace(2, StrArgList,
-	string:tokens(lists:nth(2, StrArgList), " |"));
+	string:lexemes(lists:nth(2, StrArgList), " |"));
     ets_new ->
       StrArgList1 = lists_key_replace(2, StrArgList,
-	string:tokens(lists:nth(2, StrArgList), " |")),
+	string:lexemes(lists:nth(2, StrArgList), " |")),
       lists_key_replace(4, StrArgList1,
-        string:tokens(ets_list_argtypes(lists:nth(4, StrArgList1)), " |"));
+        string:lexemes(ets_list_argtypes(lists:nth(4, StrArgList1)), " |"));
     ets_lookup ->
       StrArgList1 = lists_key_replace(2, StrArgList,
-        string:tokens(lists:nth(2, StrArgList), " |")),
+        string:lexemes(lists:nth(2, StrArgList), " |")),
       lists_key_replace(4, StrArgList1,
-        string:tokens(lists:nth(4, StrArgList1), " |"));
+        string:lexemes(lists:nth(4, StrArgList1), " |"));
     ets_insert ->
       StrArgList1 = lists_key_replace(2, StrArgList,
-        string:tokens(lists:nth(2, StrArgList), " |")),
+        string:lexemes(lists:nth(2, StrArgList), " |")),
       lists_key_replace(4, StrArgList1,
         ets_tuple_argtypes2(
         ets_tuple_argtypes1(lists:nth(4, StrArgList1), [], [], 0),
         []));
     mnesia_dirty_read1 ->
       lists_key_replace(2, StrArgList,
-        [mnesia_tuple_argtypes(T) || T <- string:tokens(
+        [mnesia_tuple_argtypes(T) || T <- string:lexemes(
         lists:nth(2, StrArgList), " |")]);
     mnesia_dirty_read2 ->
       lists_key_replace(2, StrArgList,
-        string:tokens(lists:nth(2, StrArgList), " |"));
+        string:lexemes(lists:nth(2, StrArgList), " |"));
     mnesia_dirty_write1 ->
       lists_key_replace(2, StrArgList,
-        [mnesia_record_tab(R) || R <- string:tokens(
+        [mnesia_record_tab(R) || R <- string:lexemes(
         lists:nth(2, StrArgList), " |")]);
     mnesia_dirty_write2 ->
       lists_key_replace(2, StrArgList,
-        string:tokens(lists:nth(2, StrArgList), " |"));
+        string:lexemes(lists:nth(2, StrArgList), " |"));
     function_call -> StrArgList
   end.
 
@@ -1940,20 +1941,19 @@ format_type(Type, State) ->
   erl_types:t_to_string(Type, R).
 
 mnesia_record_tab(RecordStr) ->
-  case string:str(RecordStr, "#") =:= 1 of
-    true ->
-      "'" ++
-        string:sub_string(RecordStr, 2, string:str(RecordStr, "{") - 1) ++
-        "'";
-    false -> RecordStr
+  case erl_scan:string(RecordStr) of
+    {ok, [{'#', _}, {atom, _, Name}|_], _} ->
+      io_lib:write_string(atom_to_list(Name), $');
+    _ -> RecordStr
   end.
 
 mnesia_tuple_argtypes(TupleStr) ->
-  TupleStr1 = string:strip(TupleStr, left, ${),
-  [TupleStr2|_T] = string:tokens(TupleStr1, " ,"),
-  lists:flatten(string:tokens(TupleStr2, " |")).
+  TupleStr1 = string:trim(TupleStr, leading, "${"),
+  [TupleStr2|_T] = string:lexemes(TupleStr1, " ,"),
+  lists:flatten(string:lexemes(TupleStr2, " |")).
 
--spec race_var_map(var_to_map1(), var_to_map2(), dict(), op()) -> dict().
+-spec race_var_map(var_to_map1(), var_to_map2(), dict:dict(), op()) ->
+        dict:dict().
 
 race_var_map(Vars1, Vars2, RaceVarMap, Op) ->
   case Vars1 =:= ?no_arg orelse Vars1 =:= ?bypassed
@@ -2144,7 +2144,8 @@ race_var_map_guard_helper1(Arg, Pats, RaceVarMap, Op) ->
       end
   end.
 
-race_var_map_guard_helper2(Arg, Pat, Bool, RaceVarMap, Op) ->
+race_var_map_guard_helper2(Arg, Pat0, Bool, RaceVarMap, Op) ->
+  Pat = cerl:fold_literal(Pat0),
   case cerl:type(Pat) of
     literal ->
       [Arg1, Arg2] = cerl:call_args(Arg),
@@ -2232,7 +2233,7 @@ var_type_analysis(FunDefArgs, FunCallTypes, WarnVarArgs, RaceWarnTag,
       case lists_key_member_lists(Vars, FunVarArgs) of
         0 -> [Vars, WVA2, WVA3, WVA4];
         N when is_integer(N) ->
-          NewWVA2 = string:tokens(lists:nth(N + 1, FunVarArgs), " |"),
+          NewWVA2 = string:lexemes(lists:nth(N + 1, FunVarArgs), " |"),
           [Vars, NewWVA2, WVA3, WVA4]
       end;
     ?WARN_WHEREIS_UNREGISTER ->
@@ -2241,7 +2242,7 @@ var_type_analysis(FunDefArgs, FunCallTypes, WarnVarArgs, RaceWarnTag,
       case lists_key_member_lists(Vars, FunVarArgs) of
         0 -> [Vars, WVA2];
         N when is_integer(N) ->
-          NewWVA2 = string:tokens(lists:nth(N + 1, FunVarArgs), " |"),
+          NewWVA2 = string:lexemes(lists:nth(N + 1, FunVarArgs), " |"),
           [Vars, NewWVA2]
       end;
     ?WARN_ETS_LOOKUP_INSERT ->
@@ -2251,7 +2252,7 @@ var_type_analysis(FunDefArgs, FunCallTypes, WarnVarArgs, RaceWarnTag,
         case lists_key_member_lists(Vars1, FunVarArgs) of
           0 -> [Vars1, WVA2];
           N1 when is_integer(N1) ->
-            NewWVA2 = string:tokens(lists:nth(N1 + 1, FunVarArgs), " |"),
+            NewWVA2 = string:lexemes(lists:nth(N1 + 1, FunVarArgs), " |"),
             [Vars1, NewWVA2]
         end,
       Vars2 =
@@ -2281,10 +2282,10 @@ var_type_analysis(FunDefArgs, FunCallTypes, WarnVarArgs, RaceWarnTag,
           NewWVA2 =
             case Arity of
               1 ->
-                [mnesia_record_tab(R) || R <- string:tokens(
+                [mnesia_record_tab(R) || R <- string:lexemes(
                   lists:nth(2, FunVarArgs), " |")];
               2 ->
-                string:tokens(lists:nth(N + 1, FunVarArgs), " |")
+                string:lexemes(lists:nth(N + 1, FunVarArgs), " |")
             end,
           [Vars, NewWVA2|T]
       end
@@ -2318,7 +2319,7 @@ get_race_warnings_helper(Warnings, State) ->
     [] ->
       {dialyzer_dataflow:state__get_races(State), State};
     [H|T] ->
-      {RaceWarnTag, FileLine, {race_condition, [M, F, A, AT, S, DepList]}} = H,
+      {RaceWarnTag, WarningInfo, {race_condition, [M, F, A, AT, S, DepList]}} = H,
       Reason =
         case RaceWarnTag of
           ?WARN_WHEREIS_REGISTER ->
@@ -2341,7 +2342,7 @@ get_race_warnings_helper(Warnings, State) ->
                        "caused by its combination with ")
         end,
       W =
-        {?WARN_RACE_CONDITION, FileLine,
+        {?WARN_RACE_CONDITION, WarningInfo,
          {race_condition,
           [M, F, dialyzer_dataflow:format_args(A, AT, S), Reason]}},
       get_race_warnings_helper(T,
@@ -2371,12 +2372,12 @@ get_reason(DependencyList, Reason) ->
       end
   end.
 
-state__add_race_warning(State, RaceWarn, RaceWarnTag, FileLine) ->
+state__add_race_warning(State, RaceWarn, RaceWarnTag, WarningInfo) ->
   case RaceWarn of
     no_race -> State;
     _Else ->
       Races = dialyzer_dataflow:state__get_races(State),
-      Warn = {RaceWarnTag, FileLine, RaceWarn},
+      Warn = {RaceWarnTag, WarningInfo, RaceWarn},
       dialyzer_dataflow:state__put_races(add_race_warning(Warn, Races), State)
   end.
 

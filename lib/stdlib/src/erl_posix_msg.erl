@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1997-2010. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2018. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -63,6 +64,7 @@ message_1(eduppkg) -> <<"duplicate package name">>;
 message_1(eexist) -> <<"file already exists">>;
 message_1(efault) -> <<"bad address in system call argument">>;
 message_1(efbig) -> <<"file too large">>;
+message_1(eftype) -> <<"EFTYPE">>;
 message_1(ehostdown) -> <<"host is down">>;
 message_1(ehostunreach) -> <<"host is unreachable">>;
 message_1(eidrm) -> <<"identifier removed">>;
@@ -114,6 +116,7 @@ message_1(enopkg) -> <<"package not installed">>;
 message_1(enoprotoopt) -> <<"bad proocol option">>;
 message_1(enospc) -> <<"no space left on device">>;
 message_1(enosr) -> <<"out of stream resources or not a stream device">>;
+message_1(enostr) -> <<"not a stream">>;
 message_1(enosym) -> <<"unresolved symbol name">>;
 message_1(enosys) -> <<"function not implemented">>;
 message_1(enotblk) -> <<"block device required">>;
@@ -127,6 +130,7 @@ message_1(enotty) -> <<"inappropriate device for ioctl">>;
 message_1(enotuniq) -> <<"name not unique on network">>;
 message_1(enxio) -> <<"no such device or address">>;
 message_1(eopnotsupp) -> <<"operation not supported on socket">>;
+message_1(eoverflow) -> <<"offset too large for file system">>;
 message_1(eperm) -> <<"not owner">>;
 message_1(epfnosupport) -> <<"protocol family not supported">>;
 message_1(epipe) -> <<"broken pipe">>;
@@ -166,4 +170,6 @@ message_1(ewouldblock) -> <<"operation would block">>;
 message_1(exdev) -> <<"cross-domain link">>;
 message_1(exfull) -> <<"message tables full">>;
 message_1(nxdomain) -> <<"non-existing domain">>;
+message_1(exbadport) -> <<"inet_drv bad port state">>;
+message_1(exbadseq) -> <<"inet_drv bad request sequence">>;
 message_1(_) -> <<"unknown POSIX error">>.

@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 1998-2012. All Rights Reserved.
+ * Copyright Ericsson AB 1998-2018. All Rights Reserved.
  *
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  * %CopyrightEnd%
  */
@@ -1209,7 +1210,7 @@ static void start_que_request(Worker *w)
 #endif
 }
 
-#ifndef WIN32    
+#ifndef WIN32
 /* Signal utilities */
 static RETSIGTYPE (*sys_sigset(int sig, RETSIGTYPE (*func)(int)))(int)
 {
@@ -1769,7 +1770,7 @@ static int worker_loop(void)
 		}
 #elif defined(HAVE_GETIPNODEBYNAME) /*#ifdef HAVE_GETADDRINFO */
 		DEBUGF(5,("Starting getipnodebyname(%s)",data));
-		he = getipnodebyname(data, AF_INET6, AI_DEFAULT, &error_num);
+		he = getipnodebyname(data, AF_INET6, 0, &error_num);
 		if (he) {
 		    free_he = 1;
 		    error_num = 0;
@@ -2522,7 +2523,7 @@ static char *format_address(int siz, AddrByte *addr)
     *buff='\0';
     if (siz <= 4) {
 	while(siz--) {
-	    sprintf(tmp,"%d",(int) *addr++);
+	    erts_snprintf(tmp, sizeof(tmp), "%d",(int) *addr++);
 	    strcat(buff,tmp);
 	    if(siz) {
 		strcat(buff,".");
@@ -2531,7 +2532,7 @@ static char *format_address(int siz, AddrByte *addr)
 	return buff;
     } 
     while(siz--) {
-	sprintf(tmp,"%02x",(int) *addr++);
+	erts_snprintf(tmp, sizeof(tmp), "%02x",(int) *addr++);
 	strcat(buff,tmp);
 	if(siz) {
 	    strcat(buff,":");
@@ -2548,9 +2549,9 @@ static void debugf(char *format, ...)
 
     va_start(ap,format);
 #ifdef WIN32
-	sprintf(buff,"%s[%d] (DEBUG):",program_name,(int) GetCurrentThreadId());
+    erts_snprintf(buff, sizeof(buff), "%s[%d] (DEBUG):",program_name,(int) GetCurrentThreadId());
 #else
-    sprintf(buff,"%s[%d] (DEBUG):",program_name,(int) getpid());
+    erts_snprintf(buff, sizeof(buff), "%s[%d] (DEBUG):",program_name,(int) getpid());
 #endif
     ptr = buff + strlen(buff);
     erts_vsnprintf(ptr,sizeof(buff)-strlen(buff)-2,format,ap);
@@ -2562,7 +2563,8 @@ static void debugf(char *format, ...)
     }
 #else
     /* suppress warning with 'if' */
-    if(write(2,buff,strlen(buff)));
+    if(write(2,buff,strlen(buff)))
+	;
 #endif
     va_end(ap);
 }
@@ -2574,7 +2576,7 @@ static void warning(char *format, ...)
     va_list ap;
 
     va_start(ap,format);
-    sprintf(buff,"%s[%d]: WARNING:",program_name, (int) getpid());
+    erts_snprintf(buff, sizeof(buff), "%s[%d]: WARNING:",program_name, (int) getpid());
     ptr = buff + strlen(buff);
     erts_vsnprintf(ptr,sizeof(buff)-strlen(buff)-2,format,ap);
     strcat(ptr,"\r\n");
@@ -2585,7 +2587,8 @@ static void warning(char *format, ...)
     }
 #else
     /* suppress warning with 'if' */
-    if(write(2,buff,strlen(buff)));
+    if(write(2,buff,strlen(buff)))
+	;
 #endif
     va_end(ap);
 }
@@ -2597,7 +2600,7 @@ static void fatal(char *format, ...)
     va_list ap;
 
     va_start(ap,format);
-    sprintf(buff,"%s[%d]: FATAL ERROR:",program_name, (int) getpid());
+    erts_snprintf(buff, sizeof(buff), "%s[%d]: FATAL ERROR:",program_name, (int) getpid());
     ptr = buff + strlen(buff);
     erts_vsnprintf(ptr,sizeof(buff)-strlen(buff)-2,format,ap);
     strcat(ptr,"\r\n");
@@ -2608,7 +2611,8 @@ static void fatal(char *format, ...)
     }
 #else
     /* suppress warning with 'if' */
-    if(write(2,buff,strlen(buff)));
+    if(write(2,buff,strlen(buff)))
+	;
 #endif
     va_end(ap);
 #ifndef WIN32
@@ -2642,7 +2646,7 @@ static void *my_realloc(void *old, size_t size)
 
 BOOL create_mesq(MesQ **q) 
 {
-    MesQ *tmp = malloc(sizeof(MesQ));
+    MesQ *tmp = ALLOC(sizeof(MesQ));
     tmp->data_present = CreateEvent(NULL, TRUE, FALSE,NULL);
     if (tmp->data_present == NULL) {
 	free(tmp);
@@ -2713,7 +2717,7 @@ BOOL close_mesq(MesQ *q)
 	LeaveCriticalSection(&(q->crit));
 	return FALSE;
     }
-    /* Noone else is supposed to use this object any more */
+    /* No one else is supposed to use this object any more */
     LeaveCriticalSection(&(q->crit));
     DeleteCriticalSection(&(q->crit));
     CloseHandle(q->data_present);

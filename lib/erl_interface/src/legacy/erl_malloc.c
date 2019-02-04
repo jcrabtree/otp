@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  * 
- * Copyright Ericsson AB 1996-2009. All Rights Reserved.
+ * Copyright Ericsson AB 1996-2016. All Rights Reserved.
  * 
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
- * 
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  * 
  * %CopyrightEnd%
  */
@@ -112,6 +113,18 @@ do {						\
     (ptr) = NULL;				\
 } while (0)
 
+static void erl_atom_free(Erl_Atom_data* p)
+{
+    erl_free(p->latin1);
+    if (p->utf8 != p->latin1) {
+	erl_free(p->utf8);
+    }
+    p->latin1 = NULL;
+    p->utf8 = NULL;
+    p->lenL = 0;
+    p->lenU = 0;
+}
+
 static void _erl_free_term (ETERM *ep, int external, int compound)
 {
 restart:
@@ -122,7 +135,7 @@ restart:
 	switch(ERL_TYPE(ep)) 
 	    {
 	    case ERL_ATOM:
-		FREE_AND_CLEAR(ERL_ATOM_PTR(ep));
+		erl_atom_free(&ep->uval.aval.d);
 		break;
 	    case ERL_VARIABLE:
 		FREE_AND_CLEAR(ERL_VAR_NAME(ep));
@@ -161,13 +174,13 @@ restart:
 		FREE_AND_CLEAR(ERL_BIN_PTR(ep));
 		break;
 	    case ERL_PID:
-		FREE_AND_CLEAR(ERL_PID_NODE(ep));
+		erl_atom_free(&ep->uval.pidval.node);
 		break;
 	    case ERL_PORT:
-		FREE_AND_CLEAR(ERL_PORT_NODE(ep));
+		erl_atom_free(&ep->uval.portval.node);
 		break;
 	    case ERL_REF:
-		FREE_AND_CLEAR(ERL_REF_NODE(ep));
+		erl_atom_free(&ep->uval.refval.node);
 		break;
 	    case ERL_EMPTY_LIST:
 	    case ERL_INTEGER:

@@ -1,13 +1,14 @@
-%% ``The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved via the world wide web at http://www.erlang.org/.
+%% ``Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% The Initial Developer of the Original Code is Ericsson Utvecklings AB.
 %% Portions created by Ericsson are Copyright 1999, Ericsson Utvecklings
@@ -57,9 +58,8 @@ init() ->
 
     Event = event_procs(),
     Kernel = kernel_procs(),
-    Mnemosyne = mnemosyne_procs(),
 
-    {ok, {Flags, Event ++ Kernel ++ Mnemosyne}}.
+    {ok, {Flags, Event ++ Kernel}}.
 
 event_procs() ->
     KillAfter = timer:seconds(30),
@@ -71,16 +71,6 @@ kernel_procs() ->
     K = mnesia_kernel_sup,
     KA = infinity,
     [{K, {K, start, []}, permanent, KA, supervisor, [K, supervisor]}].
-
-mnemosyne_procs() ->
-    case mnesia_monitor:get_env(embedded_mnemosyne) of
-	true ->
-	    Q = mnemosyne_sup,
-	    KA = infinity,
-	    [{Q, {Q, start, []}, permanent, KA, supervisor, [Q, supervisor]}];
-	false ->
-	    []
-    end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% event handler
@@ -107,11 +97,8 @@ add_event_handler() ->
 
 kill() ->
     Mnesia = [mnesia_fallback | mnesia:ms()],
-    Mnemosyne = mnemosyne_ms(),
     Kill = fun(Name) -> catch exit(whereis(Name), kill) end,
-    lists:foreach(Kill, Mnemosyne),
     lists:foreach(Kill, Mnesia),
-    lists:foreach(fun ensure_dead/1, Mnemosyne),
     lists:foreach(fun ensure_dead/1, Mnesia),
     timer:sleep(10),
     case lists:keymember(mnesia, 1, application:which_applications()) of
@@ -127,10 +114,4 @@ ensure_dead(Name) ->
 	    exit(Pid, kill),
 	    timer:sleep(10),
 	    ensure_dead(Name)
-    end.
-
-mnemosyne_ms() ->
-    case mnesia_monitor:get_env(embedded_mnemosyne) of
-	true -> mnemosyne:ms();
-	false -> []
     end.

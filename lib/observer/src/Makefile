@@ -1,18 +1,19 @@
 #
 # %CopyrightBegin%
 #
-# Copyright Ericsson AB 2002-2012. All Rights Reserved.
+# Copyright Ericsson AB 2002-2016. All Rights Reserved.
 #
-# The contents of this file are subject to the Erlang Public License,
-# Version 1.1, (the "License"); you may not use this file except in
-# compliance with the License. You should have received a copy of the
-# Erlang Public License along with this software. If not, it can be
-# retrieved online at http://www.erlang.org/.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-# Software distributed under the License is distributed on an "AS IS"
-# basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-# the License for the specific language governing rights and limitations
-# under the License.
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 #
 # %CopyrightEnd%
 #
@@ -36,16 +37,38 @@ RELSYSDIR = $(RELEASE_PATH)/lib/observer-$(VSN)
 
 MODULES= \
 	crashdump_viewer \
-	crashdump_viewer_html \
+	cdv_atom_cb \
+	cdv_bin_cb \
+	cdv_detail_wx \
+	cdv_dist_cb \
+	cdv_ets_cb \
+	cdv_fun_cb \
+	cdv_gen_cb \
+	cdv_html_wx \
+	cdv_info_wx \
+	cdv_int_tab_cb \
+	cdv_mem_cb \
+	cdv_mod_cb \
+	cdv_multi_wx \
+	cdv_persistent_cb \
+	cdv_port_cb \
+	cdv_proc_cb \
+	cdv_sched_cb \
+	cdv_table_wx \
+	cdv_term_cb \
+	cdv_timer_cb \
+	cdv_virtual_list_wx \
+	cdv_wx \
 	etop \
-	etop_gui \
 	etop_tr \
 	etop_txt \
 	observer \
 	observer_app_wx \
+	observer_alloc_wx \
+	observer_html_lib \
 	observer_lib \
-	observer_wx \
 	observer_perf_wx \
+	observer_port_wx \
 	observer_pro_wx \
 	observer_procinfo \
 	observer_sys_wx \
@@ -53,6 +76,7 @@ MODULES= \
 	observer_traceoptions_wx \
 	observer_tv_table \
 	observer_tv_wx \
+	observer_wx \
 	ttb \
 	ttb_et
 
@@ -69,22 +93,17 @@ EXAMPLE_FILES= multitrace.erl
 TARGET_FILES= $(MODULES:%=$(EBIN)/%.$(EMULATOR)) $(APP_TARGET) $(APPUP_TARGET)
 
 PRIVDIR= ../priv
-WEBTOOLFILES= $(PRIVDIR)/crashdump_viewer.tool $(PRIVDIR)/erlang_observer.png
+PNGFILES= $(PRIVDIR)/erlang_observer.png
 BINDIR= $(PRIVDIR)/bin
 ifeq ($(findstring win32,$(TARGET)),win32)
-WIN32_EXECUTABLES= $(BINDIR)/etop.bat $(BINDIR)/getop.bat $(BINDIR)/cdv.bat
+WIN32_EXECUTABLES= $(BINDIR)/etop.bat $(BINDIR)/cdv.bat
 else
 WIN32_EXECUTABLES=
 endif
 EXECUTABLES= \
 	$(BINDIR)/etop \
-	$(BINDIR)/getop \
 	$(BINDIR)/cdv \
 	$(WIN32_EXECUTABLES)
-CDVDIR= $(PRIVDIR)/crashdump_viewer
-GIF_FILES= \
-	$(CDVDIR)/collapsd.gif \
-	$(CDVDIR)/exploded.gif
 
 APP_FILE= observer.app
 
@@ -102,7 +121,8 @@ APPUP_TARGET= $(EBIN)/$(APPUP_FILE)
 ERL_COMPILE_FLAGS += \
 	-I../include \
 	-I ../../et/include \
-	-I ../../../libraries/et/include
+	-I ../../../libraries/et/include \
+	-Werror
 
 # ----------------------------------------------------
 # Targets
@@ -114,10 +134,10 @@ clean:
 	rm -f errs core *~
 
 $(APP_TARGET): $(APP_SRC) ../vsn.mk
-	sed -e 's;%VSN%;$(VSN);' $< > $@
+	$(vsn_verbose)sed -e 's;%VSN%;$(VSN);' $< > $@
 
 $(APPUP_TARGET): $(APPUP_SRC) ../vsn.mk
-	sed -e 's;%VSN%;$(VSN);' $< > $@
+	$(vsn_verbose)sed -e 's;%VSN%;$(VSN);' $< > $@
 
 $(TARGET_FILES): $(INTERNAL_HRL_FILES)
 
@@ -140,9 +160,7 @@ release_spec: opt
 	$(INSTALL_DATA) $(TARGET_FILES) "$(RELSYSDIR)/ebin"
 	$(INSTALL_DIR) "$(RELSYSDIR)/priv/bin"
 	$(INSTALL_SCRIPT) $(EXECUTABLES) "$(RELSYSDIR)/priv/bin"
-	$(INSTALL_DIR) "$(RELSYSDIR)/priv/crashdump_viewer"
-	$(INSTALL_DATA) $(WEBTOOLFILES) "$(RELSYSDIR)/priv"
-	$(INSTALL_DATA) $(GIF_FILES) "$(RELSYSDIR)/priv/crashdump_viewer"
+	$(INSTALL_DATA) $(PNGFILES) "$(RELSYSDIR)/priv"
 
 release_docs_spec:
 

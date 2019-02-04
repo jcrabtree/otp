@@ -1,30 +1,38 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2017. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
 -module(ets_tough_SUITE).
 -export([all/0, suite/0,groups/0,init_per_suite/1, end_per_suite/1, 
-	 init_per_group/2,end_per_group/2,ex1/1]).
--export([init/1,terminate/2,handle_call/3,handle_info/2]).
+	 init_per_group/2,end_per_group/2,
+         ex1/1]).
 -export([init_per_testcase/2, end_per_testcase/2]).
--compile([export_all]).
--include_lib("test_server/include/test_server.hrl").
 
-suite() -> [{ct_hooks,[ts_install_cth]}].
+%% gen_server behavior.
+-behavior(gen_server).
+-export([init/1,terminate/2,handle_call/3,handle_cast/2,
+         handle_info/2,code_change/3]).
+
+-include_lib("common_test/include/ct.hrl").
+
+suite() ->
+    [{ct_hooks,[ts_install_cth]},
+     {timetrap,{minutes,5}}].
 
 all() -> 
     [ex1].
@@ -51,34 +59,31 @@ end_per_group(_GroupName, Config) ->
 -define(GLOBAL_PARAMS,ets_tough_SUITE_global_params).
 
 init_per_testcase(_Func, Config) ->
-    Dog=test_server:timetrap(test_server:seconds(300)),
-    [{watchdog, Dog}|Config].
+    Config.
 
-end_per_testcase(_Func, Config) ->
-    Dog=?config(watchdog, Config),
-    test_server:timetrap_cancel(Dog),
+end_per_testcase(_Func, _Config) ->
     ets:delete(?GLOBAL_PARAMS).
 
 
 ex1(Config) when is_list(Config) ->
-    ?line ets:new(?GLOBAL_PARAMS,[named_table,public]),
-    ?line ets:insert(?GLOBAL_PARAMS,{a,set}),
-    ?line ets:insert(?GLOBAL_PARAMS,{b,set}),
-    ?line ex1_sub(Config),
-    ?line ets:insert(?GLOBAL_PARAMS,{a,ordered_set}),
-    ?line ets:insert(?GLOBAL_PARAMS,{b,set}),
-    ?line ex1_sub(Config),
-    ?line ets:insert(?GLOBAL_PARAMS,{a,ordered_set}),
-    ?line ets:insert(?GLOBAL_PARAMS,{b,ordered_set}),
-    ?line ex1_sub(Config).    
-    
-    
+    ets:new(?GLOBAL_PARAMS,[named_table,public]),
+    ets:insert(?GLOBAL_PARAMS,{a,set}),
+    ets:insert(?GLOBAL_PARAMS,{b,set}),
+    ex1_sub(Config),
+    ets:insert(?GLOBAL_PARAMS,{a,ordered_set}),
+    ets:insert(?GLOBAL_PARAMS,{b,set}),
+    ex1_sub(Config),
+    ets:insert(?GLOBAL_PARAMS,{a,ordered_set}),
+    ets:insert(?GLOBAL_PARAMS,{b,ordered_set}),
+    ex1_sub(Config).
+
+
 
 
 ex1_sub(Config) ->
     {A,B} = prep(Config),
     N = 
-	case ?config(ets_tough_SUITE_iters,Config) of
+	case proplists:get_value(ets_tough_SUITE_iters,Config) of
 	    undefined ->
 		5000;
 	    Other -> 
@@ -91,9 +96,9 @@ ex1_sub(Config) ->
     ok.
 
 prep(Config) ->
-    random:seed(),
+    rand:seed(exsplus),
     put(dump_ticket,none),
-    DumpDir = filename:join(?config(priv_dir,Config), "ets_tough"),
+    DumpDir = filename:join(proplists:get_value(priv_dir,Config), "ets_tough"),
     file:make_dir(DumpDir),
     put(dump_dir,DumpDir),
     process_flag(trap_exit,true),
@@ -187,9 +192,9 @@ operate(dump,A,_B) ->
 	    NewTicket = ddump_next(A,Units,Ticket),
 	    put(dump_ticket,NewTicket),
 	    _Result = case NewTicket of
-			 done -> done;
-			 _ ->    dump_more
-		     end,
+			  done -> done;
+			  _ ->    dump_more
+		      end,
 	    ?DEBUG(io:format("dump ~w (~w)\n",[Units,_Result]));
 	_ ->
 	    DumpDir = get(dump_dir),
@@ -210,7 +215,7 @@ operate(dump,A,_B) ->
 		    ok
 	    end
     end.
-    
+
 random_operation() ->
     Ops = {get,put,erase,dirty_get,dump},
     random_element(Ops).
@@ -220,47 +225,20 @@ random_class() ->
     random_element(Classes).
 
 random_key() ->
-    random:uniform(8).
+    rand:uniform(8).
 
 random_value() ->
-    case random:uniform(5) of
+    case rand:uniform(5) of
 	1 -> ok;
 	2 -> {data,random_key()};
 	3 -> {foo,bar,random_class()};
-	4 -> random:uniform(1000);
+	4 -> rand:uniform(1000);
 	5 -> {recursive,random_value()}
     end.
 
 random_element(T) ->
-    I = random:uniform(tuple_size(T)),
+    I = rand:uniform(tuple_size(T)),
     element(I,T).
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-show_table(N) ->
-    FileName = ["etsdump.",integer_to_list(N)],
-    case file:open(FileName,read) of
-	{ok,Fd} ->
-	    show_entries(Fd);
-	_ ->
-	    error
-    end.
-	    
-show_entries(Fd) ->
-    case phys_read_len(Fd) of
-	{ok,Len} ->
-	    case phys_read_entry(Fd,Len) of
-		{ok,ok} ->
-		    ok;
-		{ok,{Key,Val}} ->
-		    io:format("~w\n",[{Key,Val}]),
-		    show_entries(Fd);
-		_ ->
-		    error
-	    end;
-	_ ->
-	    error
-    end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -369,7 +347,7 @@ derase(ServerPid,Class,Key) ->
 
 dget_class(ServerPid,Class,Condition) ->
     gen_server:call(ServerPid,
-		       {handle_get_class,Class,Condition},infinity).
+		    {handle_get_class,Class,Condition},infinity).
 
 %%% derase_class(ServerPid,Class) -> ok
 %%%
@@ -377,20 +355,6 @@ dget_class(ServerPid,Class,Condition) ->
 
 derase_class(ServerPid,Class) ->
     gen_server:call(ServerPid,{handle_delete_class,Class}, infinity).
-
-%%% dmodify(ServerPid,Application) -> ok
-%%%
-%%% Applies a function on every instance in the database.
-%%% The user provided function must always return one of the
-%%% terms {ok,NewItem}, true, or false.
-%%% Aug 96, this is only used to reset all timestamp values
-%%% in the database.
-%%% The function is supplied as Application = {Mod, Fun, ExtraArgs},
-%%% where the instance will be prepended to ExtraArgs before each
-%%% call is made.
-
-dmodify(ServerPid,Application) ->
-    gen_server:call(ServerPid,{handle_dmodify,Application}, infinity).
 
 %%% ddump_first(ServerPid,DumpDir) -> {dump_more,Ticket} | already_dumping
 %%%
@@ -643,8 +607,14 @@ handle_call(stop,_From,Admin) ->
     ?ets_delete(Admin), % Make sure table is gone before reply is sent.
     {stop, normal, ok, []}.
 
+handle_cast(_Req, Admin) ->
+    {noreply, Admin}.
+
 handle_info({'EXIT',_Pid,_Reason},Admin) ->
     {stop,normal,Admin}.
+
+code_change(_OldVsn, StateData, _Extra) ->
+    {ok, StateData}.
 
 handle_delete(Class, Key, Admin) ->
     handle_call({handle_delete,Class,Key},from,Admin).
@@ -827,7 +797,7 @@ table_lookup_batch([],_Class,_Cond) ->
     [];
 table_lookup_batch([Table|Tables],Class,Cond) ->
     table_lookup_batch([],Tables,Table,ets:first(Table),Class,Cond,[]).
-    
+
 table_lookup_batch(_Passed,[],_,'$end_of_table',_Class,_Cond,Ack) ->
     Ack;
 table_lookup_batch(Passed,[NewTable|Tables],Table,'$end_of_table',
@@ -837,7 +807,7 @@ table_lookup_batch(Passed,[NewTable|Tables],Table,'$end_of_table',
 table_lookup_batch(Passed,Tables,Table,?ERASE_MARK(Key),Class,Cond,Ack) ->
     table_lookup_batch(Passed,Tables,Table,?ets_next(Table,?ERASE_MARK(Key)),
 		       Class,Cond,Ack);
-    
+
 table_lookup_batch(Passed,Tables,Table,Key,Class,Cond,Ack) ->
     NewAck =
 	case table_lookup(Passed,Key) of
@@ -1068,7 +1038,7 @@ phys_load_table(DumpDir,N,Tab) ->
 	Other ->
 	    {error,{open_error,Other}}
     end.
-	    
+
 phys_load_entries(Fd,Tab) ->
     case phys_read_len(Fd) of
 	{ok,Len} ->

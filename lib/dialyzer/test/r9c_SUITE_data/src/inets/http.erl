@@ -1,18 +1,18 @@
-%% ``The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved via the world wide web at http://www.erlang.org/.
+%% ``Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% The Initial Developer of the Original Code is Mobile Arts AB
 %% Portions created by Mobile Arts are Copyright 2002, Mobile Arts AB
 %% All Rights Reserved.''
-%%
 %%
 
 %%% This version of the HTTP/1.1 client implements:
@@ -24,7 +24,7 @@
 %%%      - RFC 3310 Authentication and Key Agreement (AKA) (not yet!)
 %%%      - HTTP/1.1 Specification Errata found at
 %%%        http://world.std.com/~lawrence/http_errata.html
-%%%    Additionaly follows the following recommendations:
+%%%    Additionally follows the following recommendations:
 %%%      - RFC 3143 Known HTTP Proxy/Caching Problems (not yet!)
 %%%      - draft-nottingham-hdrreg-http-00.txt (not yet!)
 %%%

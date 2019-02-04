@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2005-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2005-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -23,42 +24,61 @@
 -export([all/0, suite/0,groups/0,init_per_suite/1, end_per_suite/1, 
 	 init_per_group/2,end_per_group/2,
 	 init_per_testcase/2,end_per_testcase/2,
-	 fun_shadow/1,int_float/1,otp_5269/1,null_fields/1,wiger/1,
-	 bin_tail/1,save_restore/1,shadowed_size_var/1,
+	 size_shadow/1,int_float/1,otp_5269/1,null_fields/1,wiger/1,
+	 bin_tail/1,save_restore/1,
 	 partitioned_bs_match/1,function_clause/1,
 	 unit/1,shared_sub_bins/1,bin_and_float/1,
-	 dec_subidentifiers/1,skip_optional_tag/1,
+	 dec_subidentifiers/1,skip_optional_tag/1,decode_integer/1,
 	 wfbm/1,degenerated_match/1,bs_sum/1,coverage/1,
 	 multiple_uses/1,zero_label/1,followed_by_catch/1,
 	 matching_meets_construction/1,simon/1,matching_and_andalso/1,
 	 otp_7188/1,otp_7233/1,otp_7240/1,otp_7498/1,
 	 match_string/1,zero_width/1,bad_size/1,haystack/1,
-	 cover_beam_bool/1]).
+	 cover_beam_bool/1,matched_out_size/1,follow_fail_branch/1,
+	 no_partition/1,calling_a_binary/1,binary_in_map/1,
+	 match_string_opt/1,select_on_integer/1,
+	 map_and_binary/1,unsafe_branch_caching/1,
+	 bad_literals/1,good_literals/1,constant_propagation/1,
+	 parse_xml/1,get_payload/1,escape/1,num_slots_different/1,
+         beam_bsm/1,guard/1,is_ascii/1,non_opt_eq/1,erl_689/1,
+         bs_start_match2_defs/1]).
 
 -export([coverage_id/1,coverage_external_ignore/2]).
 
--include_lib("test_server/include/test_server.hrl").
+-include_lib("common_test/include/ct.hrl").
+-include_lib("syntax_tools/include/merl.hrl").
 
 
-suite() -> [{ct_hooks,[ts_install_cth]}].
+suite() ->
+    [{ct_hooks,[ts_install_cth]},
+     {timetrap,{minutes,1}}].
 
 all() -> 
-    test_lib:recompile(?MODULE),
-    [fun_shadow, int_float, otp_5269, null_fields, wiger,
-     bin_tail, save_restore, shadowed_size_var,
-     partitioned_bs_match, function_clause, unit,
-     shared_sub_bins, bin_and_float, dec_subidentifiers,
-     skip_optional_tag, wfbm, degenerated_match, bs_sum,
-     coverage, multiple_uses, zero_label, followed_by_catch,
-     matching_meets_construction, simon,
-     matching_and_andalso, otp_7188, otp_7233, otp_7240,
-     otp_7498, match_string, zero_width, bad_size, haystack,
-     cover_beam_bool].
+    [{group,p}].
 
 groups() -> 
-    [].
+    [{p,[parallel],
+      [size_shadow,int_float,otp_5269,null_fields,wiger,
+       bin_tail,save_restore,
+       partitioned_bs_match,function_clause,unit,
+       shared_sub_bins,bin_and_float,dec_subidentifiers,
+       skip_optional_tag,decode_integer,wfbm,degenerated_match,bs_sum,
+       coverage,multiple_uses,zero_label,followed_by_catch,
+       matching_meets_construction,simon,
+       matching_and_andalso,otp_7188,otp_7233,otp_7240,
+       otp_7498,match_string,zero_width,bad_size,haystack,
+       cover_beam_bool,matched_out_size,follow_fail_branch,
+       no_partition,calling_a_binary,binary_in_map,
+       match_string_opt,select_on_integer,
+       map_and_binary,unsafe_branch_caching,
+       bad_literals,good_literals,constant_propagation,parse_xml,
+       get_payload,escape,num_slots_different,
+       beam_bsm,guard,is_ascii,non_opt_eq,erl_689,
+       bs_start_match2_defs]}].
+
 
 init_per_suite(Config) ->
+    test_lib:recompile(?MODULE),
     Config.
 
 end_per_suite(_Config) ->
@@ -72,108 +92,133 @@ end_per_group(_GroupName, Config) ->
 
 
 init_per_testcase(Case, Config) when is_atom(Case), is_list(Config) ->
-    Dog = test_server:timetrap(?t:minutes(1)),
-    [{watchdog,Dog}|Config].
+    Config.
 
 end_per_testcase(Case, Config) when is_atom(Case), is_list(Config) ->
-    Dog = ?config(watchdog, Config),
-    ?t:timetrap_cancel(Dog),
     ok.
 
-fun_shadow(Config) when is_list(Config) ->
-    %% OTP-5270
-    ?line 7 = fun_shadow_1(),
-    ?line 7 = fun_shadow_2(8),
-    ?line 7 = fun_shadow_3(),
-    ?line no = fun_shadow_4(8),
+size_shadow(Config) when is_list(Config) ->
+    %% Originally OTP-5270.
+    7 = size_shadow_1(),
+    7 = size_shadow_2(8),
+    7 = size_shadow_3(),
+    no = size_shadow_4(8),
+    Any = {any,term,goes},
+    {2577,Any,-175,whatever} =
+	(size_shadow_5(Any, 12))(<<2577:12>>, -175, whatever),
+    {7777,Any,42,whatever} =
+	(size_shadow_6(Any, 13))(42, <<7777:13>>, whatever),
+    {<<45>>,<<>>} = size_shadow_7({int,1}, <<1:16,45>>),
+    {'EXIT',{function_clause,_}} =
+	(catch size_shadow_7({int,42}, <<1:16,45>>)),
     ok.
 
-fun_shadow_1() ->
+size_shadow_1() ->
     L = 8,
     F = fun(<<L:L,B:L>>) -> B end,
     F(<<16:8, 7:16>>).
 
-fun_shadow_2(L) ->
+size_shadow_2(L) ->
     F = fun(<<L:L,B:L>>) -> B end,
     F(<<16:8, 7:16>>).
 
-fun_shadow_3() ->
+size_shadow_3() ->
     L = 8,
     F = fun(<<L:L,B:L,L:L>>) -> B end,
     F(<<16:8, 7:16,16:16>>).
 
-fun_shadow_4(L) ->
+size_shadow_4(L) ->
     F = fun(<<L:L,B:L,L:L>>) -> B;
 	   (_) -> no end,
     F(<<16:8, 7:16,15:16>>).
 
+size_shadow_5(X, Y) ->
+    fun (<< A:Y >>, Y, B) -> fum(A, X, Y, B) end.
+
+size_shadow_6(X, Y) ->
+    fun (Y, << A:Y >>, B) -> fum(A, X, Y, B) end.
+
+fum(A, B, C, D) ->
+    {A,B,C,D}.
+
+size_shadow_7({int,N}, <<N:16,B:N/binary,T/binary>>) ->
+    {B,T}.
+
+
 int_float(Config) when is_list(Config) ->
     %% OTP-5323
-    ?line <<103133.0:64/float>> = <<103133:64/float>>,
-    ?line <<103133:64/float>> = <<103133:64/float>>,
-    ok.
+    <<103133.0:64/float>> = <<103133:64/float>>,
+    <<103133:64/float>> = <<103133:64/float>>,
+
+    %% Coverage of error cases in sys_pre_expand:coerce_to_float/2.
+    case id(default) of
+	<<(1 bsl 1024):64/float>> ->
+	    ct:fail(should_not_match);
+	default ->
+	    ok
+    end.
 
 %% Stolen from erl_eval_SUITE and modified.
 %% OTP-5269. Bugs in the bit syntax.
 otp_5269(Config) when is_list(Config) ->
-    ?line check(fun() -> L = 8,
-                         F = fun(<<A:L,B:A>>) -> B end,
-                         F(<<16:8, 7:16>>)
+    check(fun() -> L = 8,
+		   F = fun(<<A:L,B:A>>) -> B end,
+		   F(<<16:8, 7:16>>)
                 end,
                 7),
-    ?line check(fun() -> L = 8, <<A:L,B:A>> = <<16:8, 7:16>>, B end,
-                7),
-    ?line check(fun() -> U = 8, (fun(<<U:U>>) -> U end)(<<32:8>>) end,
-                32),
-    ?line check(fun() -> U = 8, [U || <<U:U>> <- [<<32:8>>]] end,
-                [32]),
-    ?line check(fun() -> [X || <<A:8,
-				B:A>> <- [<<16:8,19:16>>],
-                               <<X:8>> <- [<<B:8>>]] end,
-                [19]),
-    ?line check(fun() -> A = 4, B = 28, bit_size(<<13:(A+(X=B))>>), X end,
-                28),
-    ?line check(fun() ->
-			<<Size,B:Size/binary,Rest/binary>> = <<2,"AB","CD">>,
-			{Size,B,Rest}
-		end,
-		{2,<<"AB">>,<<"CD">>}),
-    ?line check(fun() -> X = 32, 
-                         [X || <<X:X>> <- [<<1:32>>,<<2:32>>,<<3:8>>]] end,
-    %% "binsize variable"          ^
-                [1,2]),
-    ?line check(fun() ->
-		(fun (<<A:1/binary, B:8/integer, _C:B/binary>>) ->
-			    case A of
-				B -> wrong;
-				_ -> ok
-			    end
-		 end)(<<1,2,3,4>>) end,
-		ok),
+    check(fun() -> L = 8, <<A:L,B:A>> = <<16:8, 7:16>>, B end,
+	  7),
+    check(fun() -> U = 8, (fun(<<U:U>>) -> U end)(<<32:8>>) end,
+	  32),
+    check(fun() -> U = 8, [U || <<U:U>> <- [<<32:8>>]] end,
+	  [32]),
+    check(fun() -> [X || <<A:8,
+			   B:A>> <- [<<16:8,19:16>>],
+			 <<X:8>> <- [<<B:8>>]] end,
+	  [19]),
+    check(fun() -> A = 4, B = 28, bit_size(<<13:(A+(X=B))>>), X end,
+	  28),
+    check(fun() ->
+		  <<Size,B:Size/binary,Rest/binary>> = <<2,"AB","CD">>,
+		  {Size,B,Rest}
+	  end,
+	  {2,<<"AB">>,<<"CD">>}),
+    check(fun() -> X = 32,
+		   [X || <<X:X>> <- [<<1:32>>,<<2:32>>,<<3:8>>]] end,
+    %% "binsize variable"    ^
+	  [1,2]),
+    check(fun() ->
+		  (fun (<<A:1/binary, B:8/integer, _C:B/binary>>) ->
+			   case A of
+			       B -> wrong;
+			       _ -> ok
+			   end
+		   end)(<<1,2,3,4>>) end,
+	  ok),
     ok.
 
 null_fields(Config) when is_list(Config) ->
-    ?line check(fun() ->
-			W = id(0),
-			F = fun(<<_:W>>) -> tail;
-			       (<<>>) -> empty
-			    end,
-			F(<<>>)
-		end, tail),
-    ?line check(fun() ->
-			F = fun(<<_/binary>>) -> tail;
-			       (<<>>) -> empty
-			    end,
-			F(<<>>)
-		end, tail),
+    check(fun() ->
+		  W = id(0),
+		  F = fun(<<_:W>>) -> tail;
+			 (<<>>) -> empty
+		      end,
+		  F(<<>>)
+	  end, tail),
+    check(fun() ->
+		  F = fun(<<_/binary>>) -> tail;
+			 (<<>>) -> empty
+		      end,
+		  F(<<>>)
+	  end, tail),
     ok.
 
 wiger(Config) when is_list(Config) ->
-    ?line ok1 = wcheck(<<3>>),
-    ?line ok2 = wcheck(<<1,2,3>>),
-    ?line ok3 = wcheck(<<4>>),
-    ?line {error,<<1,2,3,4>>} = wcheck(<<1,2,3,4>>),
-    ?line {error,<<>>} = wcheck(<<>>),
+    ok1 = wcheck(<<3>>),
+    ok2 = wcheck(<<1,2,3>>),
+    ok3 = wcheck(<<4>>),
+    {error,<<1,2,3,4>>} = wcheck(<<1,2,3,4>>),
+    {error,<<>>} = wcheck(<<>>),
     ok.
 
 wcheck(<<A>>) when A==3->
@@ -187,24 +232,24 @@ wcheck(Other) ->
 
 bin_tail(Config) when is_list(Config) ->
     S = <<"abcde">>,
-    ?line $a = bin_tail_c(S, 0),
-    ?line $c = bin_tail_c(S, 2),
-    ?line $e = bin_tail_c(S, 4),
-    ?line {'EXIT',_} = (catch bin_tail_c(S, 5)),
-    ?line {'EXIT',_} = (catch bin_tail_c_var(S, 5)),
+    $a = bin_tail_c(S, 0),
+    $c = bin_tail_c(S, 2),
+    $e = bin_tail_c(S, 4),
+    {'EXIT',_} = (catch bin_tail_c(S, 5)),
+    {'EXIT',_} = (catch bin_tail_c_var(S, 5)),
 
-    ?line $a = bin_tail_d(S, 0),
-    ?line $b = bin_tail_d(S, 8),
-    ?line $d = bin_tail_d(S, 3*8),
-    ?line {'EXIT',_} = (catch bin_tail_d_dead(S, 1)),
-    ?line {'EXIT',_} = (catch bin_tail_d_dead(S, 9)),
-    ?line {'EXIT',_} = (catch bin_tail_d_dead(S, 5*8)),
-    ?line {'EXIT',_} = (catch bin_tail_d_var(S, 1)),
+    $a = bin_tail_d(S, 0),
+    $b = bin_tail_d(S, 8),
+    $d = bin_tail_d(S, 3*8),
+    {'EXIT',_} = (catch bin_tail_d_dead(S, 1)),
+    {'EXIT',_} = (catch bin_tail_d_dead(S, 9)),
+    {'EXIT',_} = (catch bin_tail_d_dead(S, 5*8)),
+    {'EXIT',_} = (catch bin_tail_d_var(S, 1)),
 
-    ?line ok = bin_tail_e(<<2:2,0:1,1:5>>),
-    ?line ok = bin_tail_e(<<2:2,1:1,1:5,42:64>>),
-    ?line error = bin_tail_e(<<3:2,1:1,1:5,42:64>>),
-    ?line error = bin_tail_e(<<>>),
+    ok = bin_tail_e(<<2:2,0:1,1:5>>),
+    ok = bin_tail_e(<<2:2,1:1,1:5,42:64>>),
+    error = bin_tail_e(<<3:2,1:1,1:5,42:64>>),
+    error = bin_tail_e(<<>>),
     ok.
 
 bin_tail_c(Bin, Offset) ->
@@ -263,34 +308,39 @@ bin_tail_e_var(Bin) ->
     end.
 	    
 save_restore(Config) when is_list(Config) ->
-    ?line 0 = save_restore_1(<<0:2,42:6>>),
-    ?line {1,3456} = save_restore_1(<<1:2,3456:14>>),
-    ?line {2,7981234} = save_restore_1(<<2:2,7981234:30>>),
-    ?line {3,763967493838} = save_restore_1(<<0:2,763967493838:62>>),
+    0 = save_restore_1(<<0:2,42:6>>),
+    {1,3456} = save_restore_1(<<1:2,3456:14>>),
+    {2,7981234} = save_restore_1(<<2:2,7981234:30>>),
+    {3,763967493838} = save_restore_1(<<0:2,763967493838:62>>),
 
     A = <<" x">>,
     B = <<".x">>,
     C = <<"-x">>,
 
-    ?line {" ",<<"x">>} = lll(A),
-    ?line {" ",<<"x">>} = mmm(A),
-    ?line {" ",<<"x">>} = nnn(A),
-    ?line {" ",<<"x">>} = ooo(A),
+    {" ",<<"x">>} = lll(A),
+    {" ",<<"x">>} = mmm(A),
+    {" ",<<"x">>} = nnn(A),
+    {" ",<<"x">>} = ooo(A),
 
-    ?line {".",<<"x">>} = lll(B),
-    ?line {".",<<"x">>} = mmm(B),
-    ?line {".",<<"x">>} = nnn(B),
-    ?line {".",<<"x">>} = ooo(B),
+    {".",<<"x">>} = lll(B),
+    {".",<<"x">>} = mmm(B),
+    {".",<<"x">>} = nnn(B),
+    {".",<<"x">>} = ooo(B),
 
-    ?line {"-",<<"x">>} = lll(C),
-    ?line {"-",<<"x">>} = mmm(C),
-    ?line {"-",<<"x">>} = nnn(C),
-    ?line {"-",<<"x">>} = ooo(C),
+    {"-",<<"x">>} = lll(C),
+    {"-",<<"x">>} = mmm(C),
+    {"-",<<"x">>} = nnn(C),
+    {"-",<<"x">>} = ooo(C),
+
+    a = multiple_matches(<<777:16>>, <<777:16>>),
+    b = multiple_matches(<<777:16>>, <<999:16>>),
+    c = multiple_matches(<<777:16>>, <<57:8>>),
+    d = multiple_matches(<<17:8>>, <<1111:16>>),
 
     Bin = <<-1:64>>,
     case bad_float_unpack_match(Bin) of
 	-1 -> ok;
-	_Other -> ?line ?t:fail(bad_return_value_probably_NaN)
+	_Other -> ct:fail(bad_return_value_probably_NaN)
     end.
 
 save_restore_1(Bin) ->
@@ -314,33 +364,28 @@ nnn(<<Char,         Tail/binary>>) -> {[Char],Tail}. %% Buggy Tail!
 ooo(<<" - ",        Tail/binary>>) -> Tail;
 ooo(<<Char,         Tail/binary>>) -> {[Char],Tail}.
 
+multiple_matches(<<Y:16>>, <<Y:16>>) -> a;
+multiple_matches(<<_:16>>, <<_:16>>) -> b;
+multiple_matches(<<_:16>>, <<_:8>>) -> c;
+multiple_matches(<<_:8>>, <<_:16>>) -> d.
+
 bad_float_unpack_match(<<F:64/float>>) -> F;
 bad_float_unpack_match(<<I:64/integer-signed>>) -> I.
 
 
-shadowed_size_var(Config) when is_list(Config) ->
-    ?line PrivDir = ?config(priv_dir, Config),
-    ?line Dir = filename:dirname(code:which(?MODULE)),
-    ?line Core = filename:join(Dir, "bs_shadowed_size_var"),
-    ?line Opts = [from_core,{outdir,PrivDir}|test_lib:opt_opts(?MODULE)],
-    ?line io:format("~p", [Opts]),
-    ?line {ok,Mod} = c:c(Core, Opts),
-    ?line [42|<<"abcde">>] = Mod:filter_essentials([<<42:32>>|<<5:32,"abcde">>]),
-    ok.
-
 partitioned_bs_match(Config) when is_list(Config) ->
-    ?line <<1,2,3>> = partitioned_bs_match(blurf, <<42,1,2,3>>),
-    ?line error = partitioned_bs_match(10, <<7,8,15,13>>),
-    ?line error = partitioned_bs_match(100, {a,tuple,is,'not',a,binary}),
-    ?line ok = partitioned_bs_match(0, <<>>),
-    ?line fc(partitioned_bs_match, [-1,blurf],
+    <<1,2,3>> = partitioned_bs_match(blurf, <<42,1,2,3>>),
+    error = partitioned_bs_match(10, <<7,8,15,13>>),
+    error = partitioned_bs_match(100, {a,tuple,is,'not',a,binary}),
+    ok = partitioned_bs_match(0, <<>>),
+    fc(partitioned_bs_match, [-1,blurf],
 	     catch partitioned_bs_match(-1, blurf)),
-    ?line fc(partitioned_bs_match, [-1,<<1,2,3>>],
+    fc(partitioned_bs_match, [-1,<<1,2,3>>],
 	     catch partitioned_bs_match(-1, <<1,2,3>>)),
-    ?line {17,<<1,2,3>>} = partitioned_bs_match_2(1, <<17,1,2,3>>),
-    ?line {7,<<1,2,3>>} = partitioned_bs_match_2(7, <<17,1,2,3>>),
+    {17,<<1,2,3>>} = partitioned_bs_match_2(1, <<17,1,2,3>>),
+    {7,<<1,2,3>>} = partitioned_bs_match_2(7, <<17,1,2,3>>),
 
-    ?line fc(partitioned_bs_match_2, [4,<<0:17>>],
+    fc(partitioned_bs_match_2, [4,<<0:17>>],
 	     catch partitioned_bs_match_2(4, <<0:17>>)),
 
     anything = partitioned_bs_match_3(anything, <<42>>),
@@ -364,11 +409,20 @@ partitioned_bs_match_3(Var, <<_>>) -> Var;
 partitioned_bs_match_3(1, 2) -> ok.
 
 function_clause(Config) when is_list(Config)  ->
-    ?line ok = function_clause_1(<<0,7,0,7,42>>),
-    ?line fc(function_clause_1, [<<0,1,2,3>>],
-	     catch function_clause_1(<<0,1,2,3>>)),
-    ?line fc(function_clause_1, [<<0,1,2,3>>],
-	     catch function_clause_1(<<0,7,0,1,2,3>>)),
+    ok = function_clause_1(<<0,7,0,7,42>>),
+    fc(function_clause_1, [<<0,1,2,3>>],
+       catch function_clause_1(<<0,1,2,3>>)),
+    fc(function_clause_1, [<<0,1,2,3>>],
+       catch function_clause_1(<<0,7,0,1,2,3>>)),
+
+    ok = function_clause_2(<<0,7,0,7,42>>),
+    ok = function_clause_2(<<255>>),
+    ok = function_clause_2(<<13:4>>),
+    fc(function_clause_2, [<<0,1,2,3>>],
+       catch function_clause_2(<<0,1,2,3>>)),
+    fc(function_clause_2, [<<0,1,2,3>>],
+       catch function_clause_2(<<0,7,0,1,2,3>>)),
+
     ok.
 
 function_clause_1(<<0:8,7:8,T/binary>>) ->
@@ -376,26 +430,33 @@ function_clause_1(<<0:8,7:8,T/binary>>) ->
 function_clause_1(<<_:8>>) ->
     ok.
 
+function_clause_2(<<0:8,7:8,T/binary>>) ->
+    function_clause_2(T);
+function_clause_2(<<_:8>>) ->
+    ok;
+function_clause_2(<<_:4>>) ->
+    ok.
+
 unit(Config) when is_list(Config) ->
-    ?line 42 = peek1(<<42>>),
-    ?line 43 = peek1(<<43,1,2>>),
-    ?line 43 = peek1(<<43,1,2,(-1):1>>),
-    ?line 43 = peek1(<<43,1,2,(-1):2>>),
-    ?line 43 = peek1(<<43,1,2,(-1):7>>),
+    42 = peek1(<<42>>),
+    43 = peek1(<<43,1,2>>),
+    43 = peek1(<<43,1,2,(-1):1>>),
+    43 = peek1(<<43,1,2,(-1):2>>),
+    43 = peek1(<<43,1,2,(-1):7>>),
 
-    ?line 99 = peek8(<<99>>),
-    ?line 100 = peek8(<<100,101>>),
-    ?line fc(peek8, [<<100,101,0:1>>], catch peek8(<<100,101,0:1>>)),
+    99 = peek8(<<99>>),
+    100 = peek8(<<100,101>>),
+    fc(peek8, [<<100,101,0:1>>], catch peek8(<<100,101,0:1>>)),
 
-    ?line 37484 = peek16(<<37484:16>>),
-    ?line 37489 = peek16(<<37489:16,5566:16>>),
-    ?line fc(peek16, [<<8>>], catch peek16(<<8>>)),
-    ?line fc(peek16, [<<42:15>>], catch peek16(<<42:15>>)),
-    ?line fc(peek16, [<<1,2,3,4,5>>], catch peek16(<<1,2,3,4,5>>)),
+    37484 = peek16(<<37484:16>>),
+    37489 = peek16(<<37489:16,5566:16>>),
+    fc(peek16, [<<8>>], catch peek16(<<8>>)),
+    fc(peek16, [<<42:15>>], catch peek16(<<42:15>>)),
+    fc(peek16, [<<1,2,3,4,5>>], catch peek16(<<1,2,3,4,5>>)),
 
-    ?line 127 = peek7(<<127:7>>),
-    ?line 100 = peek7(<<100:7,19:7>>),
-    ?line fc(peek7, [<<1,2>>], catch peek7(<<1,2>>)),
+    127 = peek7(<<127:7>>),
+    100 = peek7(<<100:7,19:7>>),
+    fc(peek7, [<<1,2>>], catch peek7(<<1,2>>)),
     ok.
 
 peek1(<<B:8,_/bitstring>>) -> B.
@@ -407,7 +468,7 @@ peek8(<<B:8,_/binary>>) -> B.
 peek16(<<B:16,_/binary-unit:16>>) -> B.
 
 shared_sub_bins(Config) when is_list(Config) ->
-    ?line {15,[<<>>,<<5>>,<<4,5>>,<<3,4,5>>,<<2,3,4,5>>]} = sum(<<1,2,3,4,5>>, [], 0),
+    {15,[<<>>,<<5>>,<<4,5>>,<<3,4,5>>,<<2,3,4,5>>]} = sum(<<1,2,3,4,5>>, [], 0),
     ok.
 
 sum(<<B,T/binary>>, Acc, Sum) ->
@@ -416,7 +477,7 @@ sum(<<>>, Last, Sum) -> {Sum,Last}.
 
 
 bin_and_float(Config) when is_list(Config) ->
-    ?line 14.0 = bin_and_float(<<1.0/float,2.0/float,3.0/float>>, 0.0),
+    14.0 = bin_and_float(<<1.0/float,2.0/float,3.0/float>>, 0.0),
     ok.
 
 bin_and_float(<<X/float,Y/float,Z/float,T/binary>>, Sum) when is_float(X),
@@ -426,10 +487,10 @@ bin_and_float(<<X/float,Y/float,Z/float,T/binary>>, Sum) when is_float(X),
 bin_and_float(<<>>, Sum) -> Sum.
 
 dec_subidentifiers(Config) when is_list(Config) ->
-    ?line {[],<<1,2,3>>} =
+    {[],<<1,2,3>>} =
 	do_dec_subidentifiers(<<1:1,42:7,1:1,99:7,1,2,3>>, 0, [], 2),
-    ?line {[5389],<<1,2,3>>} = do_dec_subidentifiers(<<1:1,42:7,0:1,13:7,1,2,3>>, 0, [], 2),
-    ?line {[3,2,1],not_a_binary} = dec_subidentifiers(not_a_binary, any, [1,2,3], 0),
+    {[5389],<<1,2,3>>} = do_dec_subidentifiers(<<1:1,42:7,0:1,13:7,1,2,3>>, 0, [], 2),
+    {[3,2,1],not_a_binary} = dec_subidentifiers(not_a_binary, any, [1,2,3], 0),
     ok.
 
 do_dec_subidentifiers(Buffer, Av, Al, Len) -> 
@@ -480,23 +541,40 @@ skip_optional_tag(<<Tag,RestTag/binary>>, <<Tag,Rest/binary>>) ->
     skip_optional_tag(RestTag, Rest);
 skip_optional_tag(_, _) -> missing.
 
+decode_integer(_Config) ->
+    {10795,<<43>>,whatever} = decode_integer(1, <<42,43>>, whatever),
+    {-28909,<<19>>,whatever} = decode_integer(1, <<143,19>>, whatever),
+    ok.
+
+decode_integer(Len, <<B1:1,B2:7,Bs/binary>>, RemovedBytes) when B1 == 0 ->
+    Bin = <<_Skip:Len/unit:8, Buffer2/binary>> = <<B1:1,B2:7,Bs/binary>>,
+    Size = byte_size(Bin),
+    <<Int:Size/unit:8>> = Bin,
+    {Int,Buffer2,RemovedBytes};
+decode_integer(Len, <<B1:1,B2:7,Bs/binary>>, RemovedBytes)  ->
+    Bin = <<_Skip:Len/unit:8,Buffer2/binary>> = <<B1:1,B2:7,Bs/binary>>,
+    Size = byte_size(Bin),
+    <<N:Size/unit:8>> = <<B2,Bs/binary>>,
+    Int = N - (1 bsl (8 * size(Bin) -1)),
+    {Int,Buffer2,RemovedBytes}.
+
 -define(DATELEN, 16).
 
 wfbm(Config) when is_list(Config) ->
     %% check_for_dot_or_space and get_tail is from wfbm4 by Steve Vinoski,
     %% with modifications.
-    ?line {nomatch,0} = check_for_dot_or_space(<<" ">>),
-    ?line {nomatch,0} = check_for_dot_or_space(<<" abc">>),
-    ?line {ok,<<"abcde">>} = check_for_dot_or_space(<<"abcde 34555">>),
-    ?line {nomatch,0} = check_for_dot_or_space(<<".gurka">>),
-    ?line {nomatch,1} = check_for_dot_or_space(<<"g.urka">>),
+    {nomatch,0} = check_for_dot_or_space(<<" ">>),
+    {nomatch,0} = check_for_dot_or_space(<<" abc">>),
+    {ok,<<"abcde">>} = check_for_dot_or_space(<<"abcde 34555">>),
+    {nomatch,0} = check_for_dot_or_space(<<".gurka">>),
+    {nomatch,1} = check_for_dot_or_space(<<"g.urka">>),
 
-    ?line nomatch = get_tail(<<>>),
-    ?line {ok,<<"2007/10/23/blurf">>} = get_tail(<<"200x/2007/10/23/blurf ">>),
-    ?line {skip,?DATELEN+5} = get_tail(<<"200x/2007/10/23/blurf.">>),
-    ?line nomatch = get_tail(<<"200y.2007.10.23.blurf ">>),
-    ?line {'EXIT',_} = (catch get_tail({no,binary,at,all})),
-    ?line {'EXIT',_} = (catch get_tail(no_binary)),
+    nomatch = get_tail(<<>>),
+    {ok,<<"2007/10/23/blurf">>} = get_tail(<<"200x/2007/10/23/blurf ">>),
+    {skip,?DATELEN+5} = get_tail(<<"200x/2007/10/23/blurf.">>),
+    nomatch = get_tail(<<"200y.2007.10.23.blurf ">>),
+    {'EXIT',_} = (catch get_tail({no,binary,at,all})),
+    {'EXIT',_} = (catch get_tail(no_binary)),
     ok.
 
 check_for_dot_or_space(Bin) ->
@@ -529,13 +607,13 @@ get_tail(Bin) ->
     end.
 
 degenerated_match(Config) when is_list(Config) ->
-    ?line error = degenerated_match_1(<<>>),
-    ?line 1 = degenerated_match_1(<<1:1>>),
-    ?line 2 = degenerated_match_1(<<42,43>>),
+    error = degenerated_match_1(<<>>),
+    1 = degenerated_match_1(<<1:1>>),
+    2 = degenerated_match_1(<<42,43>>),
 
-    ?line error = degenerated_match_2(<<>>),
-    ?line no_split = degenerated_match_2(<<1,2>>),
-    ?line {<<1,2,3,4>>,<<5>>} = degenerated_match_2(<<1,2,3,4,5>>),
+    error = degenerated_match_2(<<>>),
+    no_split = degenerated_match_2(<<1,2>>),
+    {<<1,2,3,4>>,<<5>>} = degenerated_match_2(<<1,2,3,4,5>>),
     
     ok.
 
@@ -552,25 +630,25 @@ degenerated_match_2(Bin) ->
     end.
 
 bs_sum(Config) when is_list(Config) ->
-    ?line 0 = bs_sum_1([]),
-    ?line 0 = bs_sum_1(<<>>),
-    ?line 42 = bs_sum_1([42]),
-    ?line 1 = bs_sum_1(<<1>>),
-    ?line 10 = bs_sum_1([1,2,3,4]),
-    ?line 15 = bs_sum_1(<<1,2,3,4,5>>),
-    ?line 21 = bs_sum_1([1,2,3|<<4,5,6>>]),
-    ?line 15 = bs_sum_1([1,2,3|{4,5}]),
-    ?line 6 = bs_sum_1([1,2,3|zero]),
-    ?line 6 = bs_sum_1([1,2,3|0]),
-    ?line 7 = bs_sum_1([1,2,3|one]),
+    0 = bs_sum_1([]),
+    0 = bs_sum_1(<<>>),
+    42 = bs_sum_1([42]),
+    1 = bs_sum_1(<<1>>),
+    10 = bs_sum_1([1,2,3,4]),
+    15 = bs_sum_1(<<1,2,3,4,5>>),
+    21 = bs_sum_1([1,2,3|<<4,5,6>>]),
+    15 = bs_sum_1([1,2,3|{4,5}]),
+    6 = bs_sum_1([1,2,3|zero]),
+    6 = bs_sum_1([1,2,3|0]),
+    7 = bs_sum_1([1,2,3|one]),
 
-    ?line fc(catch bs_sum_1({too,big,tuple})),
-    ?line fc(catch bs_sum_1([1,2,3|{too,big,tuple}])),
+    fc(catch bs_sum_1({too,big,tuple})),
+    fc(catch bs_sum_1([1,2,3|{too,big,tuple}])),
 
-    ?line [] = sneaky_alias(<<>>),
-    ?line [559,387655] = sneaky_alias(id(<<559:32,387655:32>>)),
-    ?line fc(sneaky_alias, [<<1>>], catch sneaky_alias(id(<<1>>))),
-    ?line fc(sneaky_alias, [[1,2,3,4]], catch sneaky_alias(lists:seq(1, 4))),
+    [] = sneaky_alias(<<>>),
+    [559,387655] = sneaky_alias(id(<<559:32,387655:32>>)),
+    fc(sneaky_alias, [<<1>>], catch sneaky_alias(id(<<1>>))),
+    fc(sneaky_alias, [[1,2,3,4]], catch sneaky_alias(lists:seq(1, 4))),
     ok.
 
 bs_sum_1(<<H,T/binary>>) -> H+bs_sum_1(T);
@@ -586,32 +664,36 @@ sneaky_alias(<<>>=L) -> binary_to_list(L);
 sneaky_alias(<<From:32,L/binary>>) -> [From|sneaky_alias(L)].
 
 coverage(Config) when is_list(Config) ->
-    ?line 0 = coverage_fold(fun(B, A) -> A+B end, 0, <<>>),
-    ?line 6 = coverage_fold(fun(B, A) -> A+B end, 0, <<1,2,3>>),
-    ?line fc(catch coverage_fold(fun(B, A) ->
+    0 = coverage_fold(fun(B, A) -> A+B end, 0, <<>>),
+    6 = coverage_fold(fun(B, A) -> A+B end, 0, <<1,2,3>>),
+    fc(catch coverage_fold(fun(B, A) ->
 					 A+B
 				 end, 0, [a,b,c])),
 
-    ?line {<<42.0:64/float>>,float} = coverage_build(<<>>, <<42>>, float),
-    ?line {<<>>,not_a_tuple} = coverage_build(<<>>, <<>>, not_a_tuple),
-    ?line {<<16#76,"abc",16#A9,"abc">>,{x,42,43}} =
+    {<<42.0:64/float>>,float} = coverage_build(<<>>, <<42>>, float),
+    {<<>>,not_a_tuple} = coverage_build(<<>>, <<>>, not_a_tuple),
+    {<<16#76,"abc",16#A9,"abc">>,{x,42,43}} =
 	coverage_build(<<>>, <<16#7,16#A>>, {x,y,z}),
 
-    ?line [<<2>>,<<1>>] = coverage_bc(<<1,2>>, []),
+    [<<2>>,<<1>>] = coverage_bc(<<1,2>>, []),
 
-    ?line {x,<<"abc">>,z} = coverage_setelement(<<2,"abc">>, {x,y,z}),
+    {x,<<"abc">>,z} = coverage_setelement(<<2,"abc">>, {x,y,z}),
 
-    ?line [42] = coverage_apply(<<42>>, [coverage_id]),
-    ?line 42 = coverage_external(<<42>>),
+    [42] = coverage_apply(<<42>>, [coverage_id]),
+    42 = coverage_external(<<42>>),
 
-    ?line do_coverage_bin_to_term_list([]),
-    ?line do_coverage_bin_to_term_list([lists:seq(0, 10),{a,b,c},<<23:42>>]),
-    ?line fc(coverage_bin_to_term_list, [<<0,0,0,7>>],
+    do_coverage_bin_to_term_list([]),
+    do_coverage_bin_to_term_list([lists:seq(0, 10),{a,b,c},<<23:42>>]),
+    fc(coverage_bin_to_term_list, [<<0,0,0,7>>],
 	     catch do_coverage_bin_to_term_list_1(<<7:32>>)),
 
-    ?line <<>> = coverage_per_key(<<4:32>>),
-    ?line <<$a,$b,$c>> = coverage_per_key(<<7:32,"abc">>),
+    <<>> = coverage_per_key(<<4:32>>),
+    <<$a,$b,$c>> = coverage_per_key(<<7:32,"abc">>),
 
+    binary = coverage_bitstring(<<>>),
+    binary = coverage_bitstring(<<7>>),
+    bitstring = coverage_bitstring(<<7:4>>),
+    other = coverage_bitstring([a]),
     ok.
 
 coverage_fold(Fun, Acc, <<H,T/binary>>) ->
@@ -702,10 +784,19 @@ coverage_per_key(<<BinSize:32,Bin/binary>> = B) ->
     true = (byte_size(B) =:= BinSize),
     Bin.
 
+coverage_bitstring(Bin) when is_binary(Bin) -> binary;
+coverage_bitstring(<<_/bitstring>>) -> bitstring;
+coverage_bitstring(_) -> other.
+
 multiple_uses(Config) when is_list(Config) ->
-    ?line {344,62879,345,<<245,159,1,89>>} = multiple_uses_1(<<1,88,245,159,1,89>>),
-    ?line true = multiple_uses_2(<<0,0,197,18>>),
-    ?line <<42,43>> = multiple_uses_3(<<0,0,42,43>>, fun id/1),
+    {344,62879,345,<<245,159,1,89>>} = multiple_uses_1(<<1,88,245,159,1,89>>),
+    true = multiple_uses_2(<<0,0,197,18>>),
+    <<42,43>> = multiple_uses_3(<<0,0,42,43>>, fun id/1),
+
+    ok = first_after(<<>>, 42),
+    <<1>> = first_after(<<1,2,3>>, 0),
+    <<2>> = first_after(<<1,2,3>>, 1),
+
     ok.
 
 multiple_uses_1(<<X:16,Tail/binary>>) ->
@@ -727,9 +818,27 @@ multiple_uses_match(<<Y:16,Z:16>>) ->
 multiple_uses_cmp(<<Y:16>>, <<Y:16>>) -> true;
 multiple_uses_cmp(<<_:16>>, <<_:16>>) -> false.
 
+first_after(Data, Offset) ->
+    case byte_size(Data) > Offset of
+	false ->
+	    {_First, _Rest} = {ok, ok},
+	    ok;
+	true ->
+	    <<_:Offset/binary, Rest/binary>> = Data,
+	    %% 'Rest' saved in y(0) before the call.
+            {First, _} = match_first(Data, Rest),
+            %% When beam_bsm sees the code, the following line
+            %% which uses y(0) has been optimized away.
+	    {First, Rest} = {First, Rest},
+	    First
+    end.
+
+match_first(_, <<First:1/binary, Rest/binary>>) ->
+    {First, Rest}.
+
 zero_label(Config) when is_list(Config) ->
-    ?line <<"nosemouth">> = read_pols(<<"FACE","nose","mouth">>),
-    ?line <<"CE">> = read_pols(<<"noFACE">>),
+    <<"nosemouth">> = read_pols(<<"FACE","nose","mouth">>),
+    <<"CE">> = read_pols(<<"noFACE">>),
     ok.
 
 read_pols(Data) ->
@@ -757,14 +866,14 @@ matching_meets_construction(Config) when is_list(Config) ->
     Bin = id(<<"abc">>),
     Len = id(2),
     Tail0 = id(<<1,2,3,4,5>>),
-    ?line <<_:Len/binary,Tail/binary>> = Tail0,
-    ?line Res = <<Tail/binary,Bin/binary>>,
-    ?line <<3,4,5,"abc">> = Res,
-    ?line {'EXIT',{badarg,_}} = (catch matching_meets_construction_1(<<"Abc">>)),
-    ?line {'EXIT',{badarg,_}} = (catch matching_meets_construction_2(<<"Abc">>)),
-    ?line <<"Bbc">> = matching_meets_construction_3(<<"Abc">>),
+    <<_:Len/binary,Tail/binary>> = Tail0,
+    Res = <<Tail/binary,Bin/binary>>,
+    <<3,4,5,"abc">> = Res,
+    {'EXIT',{badarg,_}} = (catch matching_meets_construction_1(<<"Abc">>)),
+    {'EXIT',{badarg,_}} = (catch matching_meets_construction_2(<<"Abc">>)),
+    <<"Bbc">> = matching_meets_construction_3(<<"Abc">>),
 
-    ?line <<1,2>> = encode_octet_string(<<1,2,3>>, 2),
+    <<1,2>> = encode_octet_string(<<1,2,3>>, 2),
     ok.
 
 matching_meets_construction_1(<<"A",H/binary>>) -> <<"B",H>>.
@@ -777,14 +886,14 @@ encode_octet_string(<<OctetString/binary>>, Len) ->
     <<OctetString:Len/binary-unit:8>>.
 
 simon(Config) when is_list(Config) ->
-    ?line one = simon(blurf, <<>>),
-    ?line two = simon(0, <<42>>),
-    ?line fc(simon, [17,<<1>>], catch simon(17, <<1>>)),
-    ?line fc(simon, [0,<<1,2,3>>], catch simon(0, <<1,2,3>>)),
+    one = simon(blurf, <<>>),
+    two = simon(0, <<42>>),
+    fc(simon, [17,<<1>>], catch simon(17, <<1>>)),
+    fc(simon, [0,<<1,2,3>>], catch simon(0, <<1,2,3>>)),
 
-    ?line one = simon2(blurf, <<9>>),
-    ?line two = simon2(0, <<9,1>>),
-    ?line fc(simon2, [0,<<9,10,11>>], catch simon2(0, <<9,10,11>>)),
+    one = simon2(blurf, <<9>>),
+    two = simon2(0, <<9,1>>),
+    fc(simon2, [0,<<9,10,11>>], catch simon2(0, <<9,10,11>>)),
     ok.
 
 simon(_, <<>>) -> one;
@@ -796,15 +905,45 @@ simon2(0, <<_:16>>) -> two.
 
 %% OTP-7113: Crash in v3_codegen.
 matching_and_andalso(Config) when is_list(Config) ->
-    ?line ok = matching_and_andalso_1(<<1,2,3>>, 3),
-    ?line {'EXIT',{function_clause,_}} = (catch matching_and_andalso_1(<<1,2,3>>, -8)),
-    ?line {'EXIT',{function_clause,_}} = (catch matching_and_andalso_1(<<1,2,3>>, blurf)),
-    ?line {'EXIT',{function_clause,_}} = (catch matching_and_andalso_1(<<1,2,3>>, 19)),
+    ok = matching_and_andalso_1(<<1,2,3>>, 3),
+    {'EXIT',{function_clause,_}} = (catch matching_and_andalso_1(<<1,2,3>>, -8)),
+    {'EXIT',{function_clause,_}} = (catch matching_and_andalso_1(<<1,2,3>>, blurf)),
+    {'EXIT',{function_clause,_}} = (catch matching_and_andalso_1(<<1,2,3>>, 19)),
+
+    {"abc",<<"xyz">>} = matching_and_andalso_23("abc", <<"-xyz">>),
+    {"abc",<<"">>} = matching_and_andalso_23("abc", <<($a-1)>>),
+    {"abc",<<"">>} = matching_and_andalso_23("abc", <<($z+1)>>),
+    {"abc",<<"">>} = matching_and_andalso_23("abc", <<($A-1)>>),
+    {"abc",<<"">>} = matching_and_andalso_23("abc", <<($Z+1)>>),
+    error = matching_and_andalso_23([], <<>>),
+    error = matching_and_andalso_23([], <<$A>>),
+    error = matching_and_andalso_23([], <<$Z>>),
+    error = matching_and_andalso_23([], <<$a>>),
+    error = matching_and_andalso_23([], <<$z>>),
     ok.
 
 matching_and_andalso_1(<<Bitmap/binary>>, K)
   when is_integer(K) andalso size(Bitmap) >= K andalso 0 < K ->
     ok.
+
+matching_and_andalso_23(Datetime, Bin) ->
+    Res = matching_and_andalso_2(Datetime, Bin),
+    Res = matching_and_andalso_3(Datetime, Bin),
+    Res.
+
+matching_and_andalso_2(Datetime, <<H,T/binary>>)
+  when not ((H >= $a) andalso (H =< $z)) andalso
+       not ((H >= $A) andalso (H =< $Z)) ->
+    {Datetime,T};
+matching_and_andalso_2(_, _) -> error.
+
+%% Contrived example to ensure we cover the handling of 'call' instructions
+%% in v3_codegen:bsm_rename_ctx/4.
+matching_and_andalso_3(Datetime, <<H,T/binary>>)
+  when not ((abs(H) >= $a) andalso (abs(H) =< $z)) andalso
+       not ((abs(H) >= $A) andalso (abs(H) =< $Z)) ->
+    {Datetime,T};
+matching_and_andalso_3(_, _) -> error.
 
 %% Thanks to Tomas Stejskal.
 otp_7188(Config) when is_list(Config) ->
@@ -815,7 +954,7 @@ otp_7188(Config) when is_list(Config) ->
 	   0,0,0,0,0,0,50,48,48,48,50,48,48,48,32,45,32,66,101,115,
 	   116,32,79,102,32,32,32,32,32,32,32,32,32,32,32,32,32,32,
 	   32,32,12>>,
-    ?line {ok,{"ID3v1",
+    {ok,{"ID3v1",
 	       [{title,<<68,117,154,105,232,107,121>>},
 		{artist,<<"Daniel Landa">>},
 		{album,<<"Best Of">>}]}} = parse_v1_or_v11_tag(MP3).
@@ -859,11 +998,11 @@ skip_blanks_and_zero(L) ->
 -record(rec_otp_7233, {key, val}).
 
 otp_7233(Config) when is_list(Config) ->
-    ?line otp_7233_1(#rec_otp_7233{key = <<"XXabcde">>,val=[{"xxxxxxxx",42}]}),
-    ?line [<<"XXabcde">>,{"xxxxxxxx",42}] = get(io_format),
+    otp_7233_1(#rec_otp_7233{key = <<"XXabcde">>,val=[{"xxxxxxxx",42}]}),
+    [<<"XXabcde">>,{"xxxxxxxx",42}] = get(io_format),
     erase(io_format),
-    ?line otp_7233_1(#rec_otp_7233{key = <<"XXabcde">>,val=[]}),
-    ?line undefined = get(io_format),
+    otp_7233_1(#rec_otp_7233{key = <<"XXabcde">>,val=[]}),
+    undefined = get(io_format),
     ok.
 
 otp_7233_1(Rec) ->
@@ -871,32 +1010,34 @@ otp_7233_1(Rec) ->
     case K of
 	<<"XX">> ->
 	    Value = Rec#rec_otp_7233.val,
-	    case lists:keysearch("xxxxxxxx", 1, Value) of
-		{value,T} -> put(io_format, [Rec#rec_otp_7233.key,T]);
-		false -> ok
+	    case lists:keyfind("xxxxxxxx", 1, Value) of
+		false ->
+		    ok;
+		T ->
+		    put(io_format, [Rec#rec_otp_7233.key,T])
 	    end;
 	_ -> ok
     end.
 
 
 otp_7240(Config) when is_list(Config) ->
-    ?line a = otp_7240_a(0, <<>>),
-    ?line b = otp_7240_a(1, 2),
+    a = otp_7240_a(0, <<>>),
+    b = otp_7240_a(1, 2),
 
-    ?line a = otp_7240_b(anything, <<>>),
-    ?line b = otp_7240_b(1, {x,y}),
+    a = otp_7240_b(anything, <<>>),
+    b = otp_7240_b(1, {x,y}),
 
-    ?line a = otp_7240_c(anything, <<>>),
-    ?line b = otp_7240_c(1, <<2>>),
+    a = otp_7240_c(anything, <<>>),
+    b = otp_7240_c(1, <<2>>),
 
-    ?line a = otp_7240_d(anything, <<>>),
-    ?line b = otp_7240_d(again, <<2>>),
+    a = otp_7240_d(anything, <<>>),
+    b = otp_7240_d(again, <<2>>),
 
-    ?line a = otp_7240_e(anything, <<>>),
-    ?line b = otp_7240_e(1, 41),
+    a = otp_7240_e(anything, <<>>),
+    b = otp_7240_e(1, 41),
 
-    ?line a = otp_7240_f(anything, <<>>),
-    ?line b = otp_7240_f(1, {}),
+    a = otp_7240_f(anything, <<>>),
+    b = otp_7240_f(1, {}),
     
     ok.
 
@@ -919,15 +1060,15 @@ otp_7240_f(_, <<>>) -> a;
 otp_7240_f(1, B) when is_tuple(B) -> b.
 
 otp_7498(Config) when is_list(Config) ->
-    ?line <<1,2,3>> = otp_7498_foo(<<1,2,3>>, 0),
-    ?line <<2,3>> = otp_7498_foo(<<1,2,3>>, 1),
-    ?line <<1,2,3>> = otp_7498_foo(<<1,2,3>>, 2),
+    <<1,2,3>> = otp_7498_foo(<<1,2,3>>, 0),
+    <<2,3>> = otp_7498_foo(<<1,2,3>>, 1),
+    <<1,2,3>> = otp_7498_foo(<<1,2,3>>, 2),
 
-    ?line <<1,2,3>> = otp_7498_bar(<<1,2,3>>, 0),
-    ?line <<2,3>> = otp_7498_bar(<<1,2,3>>, 1),
-    ?line <<1,2,3>> = otp_7498_bar(<<1,2,3>>, 2),
-    ?line <<>> = otp_7498_bar(<<>>, 2),
-    ?line <<1,2,3>> = otp_7498_bar(<<1,2,3>>, 3),
+    <<1,2,3>> = otp_7498_bar(<<1,2,3>>, 0),
+    <<2,3>> = otp_7498_bar(<<1,2,3>>, 1),
+    <<1,2,3>> = otp_7498_bar(<<1,2,3>>, 2),
+    <<>> = otp_7498_bar(<<>>, 2),
+    <<1,2,3>> = otp_7498_bar(<<1,2,3>>, 3),
 
     ok.
 
@@ -956,19 +1097,19 @@ match_string(Config) when is_list(Config) ->
     %% check the coverage for the v3_kernel module.
     case erlang:system_info(endian) of
 	little ->
-	    ?line do_match_string_native(<<$a,0,$b,0>>);
+	    do_match_string_native(<<$a,0,$b,0>>);
 	big ->
-	    ?line do_match_string_native(<<0,$a,0,$b>>)
+	    do_match_string_native(<<0,$a,0,$b>>)
     end,
 
-    ?line do_match_string_big(<<0,$a,0,$b>>),
-    ?line do_match_string_little(<<$a,0,$b,0>>),
+    do_match_string_big(<<0,$a,0,$b>>),
+    do_match_string_little(<<$a,0,$b,0>>),
 
-    ?line do_match_string_big_signed(<<255,255>>),
-    ?line do_match_string_little_signed(<<255,255>>),
+    do_match_string_big_signed(<<255,255>>),
+    do_match_string_little_signed(<<255,255>>),
 
-    ?line plain = no_match_string_opt(<<"abc">>),
-    ?line strange = no_match_string_opt(<<$a:9,$b:9,$c:9>>),
+    plain = no_match_string_opt(<<"abc">>),
+    strange = no_match_string_opt(<<$a:9,$b:9,$c:9>>),
 
     ok.
 
@@ -989,13 +1130,13 @@ no_match_string_opt(<<$a:9,$b:9,$c:9>>) -> strange.
 %% OTP-7591: A zero-width segment in matching would crash the compiler.
 
 zero_width(Config) when is_list(Config) ->
-    ?line <<Len:16/little, Str:Len/binary, 0:0>> = <<2, 0, $h, $i, 0:0>>,
-    ?line 2 = Len,
-    ?line Str = <<"hi">>,
+    <<Len:16/little, Str:Len/binary, 0:0>> = <<2, 0, $h, $i, 0:0>>,
+    2 = Len,
+    Str = <<"hi">>,
 
     %% Match sure that values that cannot fit in a segment will not match.
     case id(<<0:8>>) of
-	<<256:8>> -> ?line ?t:fail();
+	<<256:8>> -> ct:fail(should_not_match);
 	_ -> ok
     end,
     ok.
@@ -1004,14 +1145,14 @@ zero_width(Config) when is_list(Config) ->
 %% OTP_7650: A invalid size for binary segments could crash the compiler.
 bad_size(Config) when is_list(Config) ->
     Tuple = {a,b,c},
-    ?line {'EXIT',{{badmatch,<<>>},_}} = (catch <<32:Tuple>> = id(<<>>)),
+    {'EXIT',{{badmatch,<<>>},_}} = (catch <<32:Tuple>> = id(<<>>)),
     Binary = <<1,2,3>>,
-    ?line {'EXIT',{{badmatch,<<>>},_}} = (catch <<32:Binary>> = id(<<>>)),
+    {'EXIT',{{badmatch,<<>>},_}} = (catch <<32:Binary>> = id(<<>>)),
     ok.
 
 haystack(Config) when is_list(Config) ->
-    ?line <<0:10/unit:8>> = haystack_1(<<0:10/unit:8>>),
-    ?line [<<0:10/unit:8>>,
+    <<0:10/unit:8>> = haystack_1(<<0:10/unit:8>>),
+    [<<0:10/unit:8>>,
 	   <<0:20/unit:8>>] = haystack_2(<<1:8192>>),
     ok.
 
@@ -1046,10 +1187,10 @@ fc(_, Args, {'EXIT',{{case_clause,ActualArgs},_}})
 %% Cover the clause handling bs_context to binary in
 %% beam_block:initialized_regs/2.
 cover_beam_bool(Config) when is_list(Config) ->
-    ?line ok = do_cover_beam_bool(<<>>, 3),
-    ?line <<19>> = do_cover_beam_bool(<<19>>, 2),
-    ?line <<42>> = do_cover_beam_bool(<<42>>, 1),
-    ?line <<17>> = do_cover_beam_bool(<<13,17>>, 0),
+    ok = do_cover_beam_bool(<<>>, 3),
+    <<19>> = do_cover_beam_bool(<<19>>, 2),
+    <<42>> = do_cover_beam_bool(<<42>>, 1),
+    <<17>> = do_cover_beam_bool(<<13,17>>, 0),
     ok.
 
 do_cover_beam_bool(Bin, X) when X > 0 ->
@@ -1061,6 +1202,567 @@ do_cover_beam_bool(Bin, X) when X > 0 ->
     end;
 do_cover_beam_bool(<<_,Bin/binary>>, X) ->
     do_cover_beam_bool(Bin, X+1).
+
+matched_out_size(Config) when is_list(Config) ->
+    {253,16#DEADBEEF} = mos_int(<<8,253,16#DEADBEEF:32>>),
+    {6,16#BEEFDEAD} = mos_int(<<3,6:3,16#BEEFDEAD:32>>),
+    {53,16#CAFEDEADBEEFCAFE} = mos_int(<<16,53:16,16#CAFEDEADBEEFCAFE:64>>),
+    {23,16#CAFEDEADBEEFCAFE} = mos_int(<<5,23:5,16#CAFEDEADBEEFCAFE:64>>),
+
+    {<<1,2,3>>,4} = mos_bin(<<3,1,2,3,4,3>>),
+    {<<1,2,3,7>>,19,42} = mos_bin(<<4,1,2,3,7,19,4,42>>),
+    <<1,2,3,7>> = mos_bin(<<4,1,2,3,7,"abcdefghij">>),
+
+    ok.
+
+mos_int(<<L,I:L,X:32>>) ->
+    {I,X};
+mos_int(<<L,I:L,X:64>>) ->
+    {I,X}.
+
+mos_bin(<<L,Bin:L/binary,X:8,L>>) ->
+    L = byte_size(Bin),
+    {Bin,X};
+mos_bin(<<L,Bin:L/binary,X:8,L,Y:8>>) ->
+    L = byte_size(Bin),
+    {Bin,X,Y};
+mos_bin(<<L,Bin:L/binary,"abcdefghij">>) ->
+    L = byte_size(Bin),
+    Bin.
+
+follow_fail_branch(_) ->
+    42 = ffb_1(<<0,1>>, <<0>>),
+    8 = ffb_1(<<0,1>>, [a]),
+    42 = ffb_2(<<0,1>>, <<0>>, 17),
+    8 = ffb_2(<<0,1>>, [a], 0),
+    ok.
+
+ffb_1(<<_,T/bitstring>>, List) ->
+    case List of
+	<<_>> ->
+	    42;
+	[_|_] ->
+	    %% The fail branch of the bs_start_match2 instruction
+	    %% pointing to here would be ignored, making the compiler
+	    %% incorrectly assume that the delayed sub-binary
+	    %% optimization was safe.
+	    bit_size(T)
+    end.
+
+ffb_2(<<_,T/bitstring>>, List, A) ->
+    case List of
+	<<_>> when A =:= 17 -> 42;
+	[_|_] -> bit_size(T)
+    end.
+
+no_partition(_) ->
+    one = no_partition_1(<<"string">>, a1),
+    {two,<<"string">>} = no_partition_1(<<"string">>, a2),
+    {two,<<>>} = no_partition_1(<<>>, a2),
+    {two,a} = no_partition_1(a, a2),
+    three = no_partition_1(undefined, a3),
+    {four,a,[]} = no_partition_1([a], a4),
+    {five,a,b} = no_partition_1({a,b}, a5),
+
+    one = no_partition_2(<<"string">>, a1),
+    two = no_partition_2(<<"string">>, a2),
+    two = no_partition_2(<<>>, a2),
+    two = no_partition_2(a, a2),
+    three = no_partition_2(undefined, a3),
+    four = no_partition_2(42, a4),
+    five = no_partition_2([], a5),
+    six = no_partition_2(42.0, a6),
+    ok.
+
+no_partition_1(<<"string">>, a1) ->
+    one;
+no_partition_1(V, a2) ->
+    {two,V};
+no_partition_1(undefined, a3) ->
+    three;
+no_partition_1([H|T], a4) ->
+    {four,H,T};
+no_partition_1({A,B}, a5) ->
+    {five,A,B}.
+
+no_partition_2(<<"string">>, a1) ->
+    one;
+no_partition_2(_, a2) ->
+    two;
+no_partition_2(undefined, a3) ->
+    three;
+no_partition_2(42, a4) ->
+    four;
+no_partition_2([], a5) ->
+    five;
+no_partition_2(42.0, a6) ->
+    six.
+
+calling_a_binary(Config) when is_list(Config) ->
+    [] = call_binary(<<>>, []),
+    {'EXIT',{badarg,_}} = (catch call_binary(<<1>>, [])),
+    {'EXIT',{badarg,_}} = (catch call_binary(<<1,2,3>>, [])),
+    ok.
+
+call_binary(<<>>, Acc) ->
+    Acc;
+call_binary(<<H,T/bits>>, Acc) ->
+    T(<<Acc/binary,H>>).
+
+binary_in_map(Config) when is_list(Config) ->
+    ok = match_binary_in_map(#{key => <<42:8>>}),
+    {'EXIT',{{badmatch,#{key := 1}},_}} =
+	(catch match_binary_in_map(#{key => 1})),
+    {'EXIT',{{badmatch,#{key := <<1023:16>>}},_}} =
+	(catch match_binary_in_map(#{key => <<1023:16>>})),
+    {'EXIT',{{badmatch,#{key := <<1:8>>}},_}} =
+	(catch match_binary_in_map(#{key => <<1:8>>})),
+    {'EXIT',{{badmatch,not_a_map},_}} =
+	(catch match_binary_in_map(not_a_map)),
+    ok.
+
+match_binary_in_map(Map) ->
+    case 8 of
+	N ->
+	    #{key := <<42:N>>} = Map,
+	    ok
+    end.
+
+match_string_opt(Config) when is_list(Config) ->
+    {x,<<1,2,3>>,{<<1>>,{v,<<1,2,3>>}}} =
+	do_match_string_opt({<<1>>,{v,<<1,2,3>>}}),
+    ok.
+
+do_match_string_opt({<<1>>,{v,V}}=T) ->
+    {x,V,T}.
+
+select_on_integer(Config) when is_list(Config) ->
+    42 = do_select_on_integer(<<42>>),
+    <<"abc">> = do_select_on_integer(<<128,"abc">>),
+
+    {'EXIT',_} = (catch do_select_on_integer(<<0:1>>)),
+    {'EXIT',_} = (catch do_select_on_integer(<<1:1>>)),
+    {'EXIT',_} = (catch do_select_on_integer(<<0:1,0:15>>)),
+    ok.
+
+%% The ASN.1 compiler frequently generates code like this.
+do_select_on_integer(<<0:1,I:7>>) ->
+    I;
+do_select_on_integer(<<1:1,_:7,Bin/binary>>) ->
+    Bin.
+
+%% If 'bin_opt_info' was given the warning would lack filename
+%% and line number.
+
+map_and_binary(_Config) ->
+    {<<"10">>,<<"37">>,<<"am">>} = do_map_and_binary(<<"10:37am">>),
+    Map1 = #{time => "noon"},
+    {ok,Map1} = do_map_and_binary(Map1),
+    Map2 = #{hour => 8, min => 42},
+    {8,42,Map2} = do_map_and_binary(Map2),
+    ok.
+
+do_map_and_binary(<<Hour:2/bytes, $:, Min:2/bytes, Rest/binary>>) ->
+    {Hour, Min, Rest};
+do_map_and_binary(#{time := _} = T) ->
+    {ok, T};
+do_map_and_binary(#{hour := Hour, min := Min} = T) ->
+    {Hour, Min, T}.
+
+%% Unsafe caching of branch outcomes in beam_bsm would cause the
+%% delayed creation of sub-binaries optimization to be applied even
+%% when it was unsafe.
+
+unsafe_branch_caching(_Config) ->
+    <<>> = do_unsafe_branch_caching(<<42,1>>),
+    <<>> = do_unsafe_branch_caching(<<42,2>>),
+    <<>> = do_unsafe_branch_caching(<<42,3>>),
+    <<17,18>> = do_unsafe_branch_caching(<<42,3,17,18>>),
+    <<>> = do_unsafe_branch_caching(<<1,3,42,2>>),
+
+    ok.
+
+do_unsafe_branch_caching(<<Code/integer, Bin/binary>>) ->
+    <<C1/integer, B1/binary>> = Bin,
+    case C1 of
+	X when X =:= 1 orelse X =:= 2 ->
+	    Bin2 = <<>>;
+	_ ->
+	    Bin2 = B1
+    end,
+    case Code of
+	1 -> do_unsafe_branch_caching(Bin2);
+	_ -> Bin2
+    end.
+
+bad_literals(_Config) ->
+    Mod = list_to_atom(?MODULE_STRING ++ "_" ++
+			   atom_to_list(?FUNCTION_NAME)),
+    S = [signed_lit_match(V, Sz) || V <- lists:seq(-8, 8),
+				    Sz <- [0,1,2,3]] ++
+	[unsigned_lit_match(V, Sz) || V <- lists:seq(-2, 8),
+				      Sz <- [0,1,2]] ++
+	[unicode_match(V) ||
+	    V <- [-100,-1,0,1,2|lists:seq(16#10FFFC, 16#110004)]],
+    Code = ?Q(["-module('@Mod@').\n"
+	       "-export([f/0]).\n"
+	       "f() ->\n"
+	       "_@S,\n"
+	       "ok.\n"]),
+    merl:print(Code),
+    Opts = test_lib:opt_opts(?MODULE),
+    {ok,_} = merl:compile_and_load(Code, Opts),
+    Mod:f(),
+
+    {'EXIT',<<42>>} = (catch bad_literals_1()),
+
+    Sz = id(8),
+    {'EXIT',{{badmatch,_},_}} = (catch <<-1:Sz>> = <<-1>>),
+    ok.
+
+bad_literals_1() ->
+    BadSz = bad,
+    case case <<42>> of
+	     <<42:BadSz>> -> ok;
+	     Val -> exit(Val)
+	 end of
+	ok -> ok;
+	error -> error
+    end.
+
+signed_lit_match(V, Sz) ->
+    case <<V:Sz>> of
+	<<V:Sz/signed>> ->
+	    ?Q("<<_@V@:_@Sz@/signed>> = <<_@V@:_@Sz@>>");
+	_ ->
+	    ?Q(["case <<_@V@:_@Sz@>> of\n",
+		" <<_@V@:_@Sz@/signed>> ->\n",
+		"  ct:fail(should_not_match);\n",
+		" _ ->\n",
+		"  ok\n",
+		"end\n"])
+    end.
+
+unsigned_lit_match(V, Sz) ->
+    case <<V:Sz>> of
+	<<V:Sz/unsigned>> ->
+	    ?Q("<<_@V@:_@Sz@>> = <<_@V@:_@Sz@>>");
+	_ ->
+	    ?Q(["case <<_@V@:_@Sz@>> of\n",
+		" <<_@V@:_@Sz@/unsigned>> ->\n",
+		"  ct:fail(should_not_match);\n",
+		" _ ->\n",
+		"  ok\n",
+		"end\n"])
+    end.
+
+unicode_match(V) ->
+    try <<V/utf8>> of
+	<<V/utf8>> ->
+	    ?Q(["<<_@V@/utf8>> = <<_@V@/utf8>>,\n",
+		"<<_@V@/utf16>> = <<_@V@/utf16>>,\n",
+		"<<_@V@/utf32>> = <<_@V@/utf32>>\n"])
+    catch
+	error:badarg ->
+	    ?Q(["case <<_@V@:32>> of\n",
+		" <<_@V@/utf32>> ->\n",
+		"  ct:fail(should_not_match);\n",
+		" _ ->\n",
+		"  ok\n",
+		"end\n"])
+    end.
+
+%% Test a few legal but rare cases.
+
+good_literals(_Config) ->
+    Sz = id(64),
+
+    %% Variable size.
+    <<42:Sz>> = id(<<42:Sz>>),
+    <<42.0:Sz/float>> = id(<<42:Sz/float>>),
+
+    %% unit > 1
+    <<16#cafebeef:4/unit:8>> = id(<<16#cafebeef:32>>),
+    ok.
+
+constant_propagation(_Config) ->
+    <<5>> = constant_propagation_a(a, <<5>>),
+    {'EXIT',{{case_clause,b},_}} = (catch constant_propagation_a(b, <<5>>)),
+    258 = constant_propagation_b(<<1,2>>),
+    F = constant_propagation_c(),
+    259 = F(<<1,3>>),
+    ok.
+
+constant_propagation_a(X, Y) ->
+    case X of
+	a -> Y2 = 8
+    end,
+    <<5:Y2>> = Y.
+
+constant_propagation_b(B) ->
+    Sz = 16,
+    <<X:Sz/integer>> = B,
+    X.
+
+constant_propagation_c() ->
+    Size = 16,
+    fun(Bin) ->
+	    <<X:Size/integer>> = Bin,
+	    X
+    end.
+
+parse_xml(_Config) ->
+    <<"<?xmlX">> = do_parse_xml(<<"<?xmlX">>),
+    <<" ">> = do_parse_xml(<<"<?xml ">>),
+    ok.
+
+do_parse_xml(<<"<?xml"/utf8,Rest/binary>> = Bytes) ->
+    %% Delayed sub-binary creation is not safe. A buggy (development)
+    %% version of check_liveness_everywhere() in beam_utils would turn
+    %% on the optimization.
+    Rest1 = case is_next_char_whitespace(Rest) of
+		false ->
+		    Bytes;
+		true ->
+		    id(Rest)
+	    end,
+    id(Rest1).
+
+is_next_char_whitespace(<<C/utf8,_/binary>>) ->
+    C =:= $\s.
+
+-record(ext_header,
+        {this_hdr = 17,
+         ext_hdr_opts}).
+
+get_payload(_Config) ->
+    <<3445:48>> = do_get_payload(#ext_header{ext_hdr_opts = <<3445:48>>}),
+    {'EXIT',_} = (catch do_get_payload(#ext_header{})),
+    ok.
+
+do_get_payload(ExtHdr) ->
+    _ = ExtHdr#ext_header.this_hdr,
+    ExtHdrOptions = ExtHdr#ext_header.ext_hdr_opts,
+    <<_:13,_:35>> = ExtHdr#ext_header.ext_hdr_opts,
+    ExtHdrOptions.
+
+escape(_Config) ->
+    0 = escape(<<>>, 0),
+    1 = escape(<<128>>, 0),
+    2 = escape(<<128,255>>, 0),
+    42 = escape(<<42>>, 0),
+    50 = escape(<<42,8>>, 0),
+    ok.
+
+escape(<<Byte, Rest/bits>>, Pos) when Byte >= 127 ->
+    escape(Rest, Pos + 1);
+escape(<<Byte, Rest/bits>>, Pos) ->
+    escape(Rest, Pos + Byte);
+escape(<<_Rest/bits>>, Pos) ->
+    Pos.
+
+%% ERL-490
+num_slots_different(_Config) ->
+    Ts = [{<<"de">>, <<"default">>, <<"Remove">>, <<"a">>},
+          {<<"de">>, <<"default">>, <<"Remove from list">>, <<"a">>},
+          {<<"de">>, <<"default">>, <<"Remove from the list">>, <<"a">>},
+          {<<"de">>, <<"default">>, <<"Results">>, <<"Ergebnisse">>},
+          {<<"de">>, <<"default">>, <<"Reservatio">>, <<"a">>},
+          {<<"de">>, <<"navigation">>, <<"Results">>, <<"Ergebnisse">>},
+          {<<"de">>, <<"navigation">>, <<"Resources">>, <<"Ressourcen">>}],
+    _ = [{ok,Res} = lgettext(A, B, C) || {A,B,C,Res} <- Ts],
+
+    {'EXIT',_} = (catch lgettext(<<"d">>, <<"default">>, <<"Remove">>)),
+    {'EXIT',_} = (catch lgettext("", <<"default">>, <<"Remove">>)),
+    {'EXIT',_} = (catch lgettext(<<"de">>, <<"def">>, <<"Remove">>)),
+    {'EXIT',_} = (catch lgettext(<<"de">>, <<"default">>, <<"Res">>)),
+    ok.
+
+
+lgettext(<<"de">>, <<"default">>, <<"Remove">>) ->
+    {ok, <<"a">>};
+lgettext(<<"de">>, <<"default">>, <<"Remove from list">>) ->
+    {ok, <<"a">>};
+lgettext(<<"de">>, <<"default">>, <<"Remove from the list">>) ->
+    {ok, <<"a">>};
+lgettext(<<"de">>, <<"default">>, <<"Results">>) ->
+    {ok, <<"Ergebnisse">>};
+lgettext(<<"de">>, <<"default">>, <<"Reservatio">>) ->
+    {ok, <<"a">>};
+lgettext(<<"de">>, <<"navigation">>, <<"Results">>) ->
+    {ok, <<"Ergebnisse">>};
+lgettext(<<"de">>, <<"navigation">>, <<"Resources">>) ->
+    {ok, <<"Ressourcen">>}.
+
+%% Test more code in beam_bsm.
+beam_bsm(_Config) ->
+    true = check_bitstring_list(<<1:1,0:1,1:1,1:1>>, [1,0,1,1]),
+    false = check_bitstring_list(<<1:1,0:1,1:1,1:1>>, [0]),
+
+    true = bsm_validate_scheme(<<>>),
+    true = bsm_validate_scheme(<<5,10>>),
+    false = bsm_validate_scheme(<<5,10,11,12>>),
+    true = bsm_validate_scheme([]),
+    true = bsm_validate_scheme([5,10]),
+    false = bsm_validate_scheme([5,6,7]),
+
+    <<1,2,3>> = bsm_must_save_and_not_save(<<1,2,3>>, []),
+    D = fun(N) -> 2*N end,
+    [2,4|<<3>>] = bsm_must_save_and_not_save(<<1,2,3>>, [D,D]),
+
+    ok.
+
+check_bitstring_list(<<H:1,T1/bitstring>>, [H|T2]) ->
+    check_bitstring_list(T1, T2);
+check_bitstring_list(<<>>, []) ->
+    true;
+check_bitstring_list(_, _) ->
+    false.
+
+bsm_validate_scheme([]) -> true;
+bsm_validate_scheme([H|T]) ->
+    case bsm_is_scheme(H) of
+        true -> bsm_validate_scheme(T);
+        false -> false
+    end;
+bsm_validate_scheme(<<>>) -> true;
+bsm_validate_scheme(<<H, Rest/binary>>) ->
+    case bsm_is_scheme(H) of
+        true -> bsm_validate_scheme(Rest);
+        false -> false
+    end.
+
+bsm_is_scheme(Int) ->
+    Int rem 5 =:= 0.
+
+%% NOT OPTIMIZED: different control paths use different positions in the binary
+bsm_must_save_and_not_save(Bin, []) ->
+    Bin;
+bsm_must_save_and_not_save(<<H,T/binary>>, [F|Fs]) ->
+    [F(H)|bsm_must_save_and_not_save(T, Fs)];
+bsm_must_save_and_not_save(<<>>, []) ->
+    [].
+
+guard(_Config) ->
+    _Tuple = id({a,b}),
+    ok = guard_1(<<1,2,3>>, {1,2,3}),
+    ok = guard_2(<<42>>, #{}),
+    ok.
+
+%% Cover handling of #k_put{} in v3_codegen:bsm_rename_ctx/4.
+guard_1(<<A,B,C>>, Tuple) when Tuple =:= {A,B,C} ->
+    ok.
+
+%% Cover handling of #k_call{} in v3_codegen:bsm_rename_ctx/4.
+guard_2(<<_>>, Healing) when Healing#{[] => Healing} =:= #{[] => #{}} ->
+    ok.
+
+is_ascii(_Config) ->
+    true = do_is_ascii(<<>>),
+    true = do_is_ascii(<<"string">>),
+    false = do_is_ascii(<<1024/utf8>>),
+    {'EXIT',{function_clause,_}} = (catch do_is_ascii(<<$A,0:3>>)),
+    {'EXIT',{function_clause,_}} = (catch do_is_ascii(<<16#80,0:3>>)),
+    ok.
+
+do_is_ascii(<<>>) ->
+    true;
+do_is_ascii(<<C,_/binary>>) when C >= 16#80 ->
+    %% This clause must fail to match if the size of the argument in
+    %% bits is not divisible by 8. Beware of unsafe optimizations.
+    false;
+do_is_ascii(<<_, T/binary>>) ->
+    do_is_ascii(T).
+
+non_opt_eq(_Config) ->
+    true = non_opt_eq([], <<>>),
+    true = non_opt_eq([$a], <<$a>>),
+    false = non_opt_eq([$a], <<$b>>),
+    ok.
+
+%% An example from the Efficiency Guide. It used to be not optimized,
+%% but now it can be optimized.
+
+non_opt_eq([H|T1], <<H,T2/binary>>) ->
+    non_opt_eq(T1, T2);
+non_opt_eq([_|_], <<_,_/binary>>) ->
+    false;
+non_opt_eq([], <<>>) ->
+    true.
+
+%% ERL-689
+
+erl_689(_Config) ->
+    {{0, 0, 0}, <<>>} = do_erl_689_1(<<0>>, ?MODULE),
+    {{2018, 8, 7}, <<>>} = do_erl_689_1(<<4,2018:16/little,8,7>>, ?MODULE),
+    {{0, 0, 0}, <<>>} = do_erl_689_2(?MODULE, <<0>>),
+    {{2018, 8, 7}, <<>>} = do_erl_689_2(?MODULE, <<4,2018:16/little,8,7>>),
+    ok.
+
+do_erl_689_1(Arg1, Arg2) ->
+    Res = do_erl_689_1a(Arg1, Arg2),
+    Res = do_erl_689_1b(Arg1, Arg2).
+
+do_erl_689_2(Arg1, Arg2) ->
+    Res = do_erl_689_2a(Arg1, Arg2),
+    Res = do_erl_689_2b(Arg1, Arg2).
+
+do_erl_689_1a(<<Length, Data/binary>>, _) ->
+    case {Data, Length} of
+        {_, 0} ->
+            %% bs_context_to_binary would incorrectly set Data to the original
+            %% binary (before matching in the function head).
+            {{0, 0, 0}, Data};
+        {<<Y:16/little, M, D, Rest/binary>>, 4} ->
+            {{Y, M, D}, Rest}
+    end.
+
+do_erl_689_1b(<<Length, Data/binary>>, _) ->
+    case {Data, Length} of
+        {_, 0} ->
+            %% bs_context_to_binary would incorrectly set Data to the original
+            %% binary (before matching in the function head).
+            id(0),
+            {{0, 0, 0}, Data};
+        {<<Y:16/little, M, D, Rest/binary>>, 4} ->
+            id(1),
+            {{Y, M, D}, Rest}
+    end.
+
+do_erl_689_2a(_, <<Length, Data/binary>>) ->
+    case {Length, Data} of
+        {0, _} ->
+            %% bs_context_to_binary would incorrectly set Data to the original
+            %% binary (before matching in the function head).
+            {{0, 0, 0}, Data};
+        {4, <<Y:16/little, M, D, Rest/binary>>} ->
+            {{Y, M, D}, Rest}
+    end.
+
+do_erl_689_2b(_, <<Length, Data/binary>>) ->
+    case {Length, Data} of
+        {0, _} ->
+            %% bs_context_to_binary would incorrectly set Data to the original
+            %% binary (before matching in the function head).
+            id(0),
+            {{0, 0, 0}, Data};
+        {4, <<Y:16/little, M, D, Rest/binary>>} ->
+            id(1),
+            {{Y, M, D}, Rest}
+    end.
+
+%% ERL-753
+
+bs_start_match2_defs(_Config) ->
+    {<<"http://127.0.0.1:1234/vsaas/hello">>} = api_url(<<"hello">>, dummy),
+    {"https://127.0.0.1:4321/vsaas/hello"} = api_url({https, "hello"}, dummy).
+
+api_url(URL, Auth) ->
+    Header = [],
+    case URL of
+        <<_/binary>> -> {<<"http://127.0.0.1:1234/vsaas/",URL/binary>>};
+        {https, [_|_] = URL1} -> {"https://127.0.0.1:4321/vsaas/"++URL1}
+    end.
 
 check(F, R) ->
     R = F().

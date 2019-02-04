@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2000-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2000-2015. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -83,19 +84,19 @@ format_error({error, Module, Error}) ->
 format_error({parse_error, Line, Error}) ->
     format_parse_error(Error, format_line(Line));
 format_error({variable_reassigned, Expr}) ->
-    io_lib:format("Variable assigned more than once: ~s~n", [Expr]);
+    io_lib:format("Variable assigned more than once: ~ts~n", [Expr]);
 format_error({unknown_variable, Name}) ->
-    io_lib:format("Variable ~p used before set~n", [Name]);
+    io_lib:format("Variable ~tp used before set~n", [Name]);
 format_error({type_error, Expr}) ->
     io_lib:format("Operator applied to argument(s) of different or "
-		  "invalid type(s): ~s~n", [Expr]);
+		  "invalid type(s): ~ts~n", [Expr]);
 format_error({type_mismatch, Expr1, Expr2}) ->
-    io_lib:format("Constants of different types: ~s, ~s~n",
+    io_lib:format("Constants of different types: ~ts, ~ts~n",
 		  [Expr1, Expr2]);
 format_error({unknown_constant, Constant}) ->
-    io_lib:format("Unknown constant ~s~n", [Constant]);
+    io_lib:format("Unknown constant ~ts~n", [Constant]);
 format_error(E) ->
-    io_lib:format("~p~n", [E]).
+    io_lib:format("~tp~n", [E]).
 
 %%
 %%  Local functions
@@ -885,7 +886,7 @@ evaluate([pop | P], T, [_ | S]) ->
 evaluate([], T, [R]) ->
     {T, R}.
 
-%% (PossibleGraph, 1 | -1, dict()) -> dict()
+%% (PossibleGraph, 1 | -1, dict:dict()) -> dict:dict()
 %% Use the same table for everything... Here: Reference counters for digraphs.
 update_graph_counter(Value, Inc, T) ->
     case catch digraph:info(Value) of
@@ -908,23 +909,23 @@ fetch_value(V, D) ->
     Value.
 
 format_parse_error(["invalid_regexp", String, Error], Line) ->
-    io_lib:format("Invalid regular expression \"~s\"~s: ~s~n",
+    io_lib:format("Invalid regular expression \"~ts\"~s: ~ts~n",
 		  [String, Line, lists:flatten(Error)]);
 format_parse_error(["invalid_regexp_variable", Var], Line) ->
-    io_lib:format("Invalid wildcard variable ~p~s "
+    io_lib:format("Invalid wildcard variable ~tp~s "
 		  "(only '_' is allowed)~n", [Var, Line]);
 format_parse_error(["missing_type", Expr], Line) ->
-    io_lib:format("Missing type of regular expression ~s~s~n",
+    io_lib:format("Missing type of regular expression ~ts~s~n",
 		  [Expr, Line]);
 format_parse_error(["type_mismatch", Expr], Line) ->
-    io_lib:format("Type does not match structure of constant~s: ~s~n",
+    io_lib:format("Type does not match structure of constant~s: ~ts~n",
 		  [Line, Expr]);
 format_parse_error(["invalid_operator", Op], Line) ->
-    io_lib:format("Invalid operator ~p~s~n", [Op, Line]);
+    io_lib:format("Invalid operator ~tp~s~n", [Op, Line]);
 format_parse_error(Error, Line) ->
-    io_lib:format("Parse error~s: ~s~n", [Line, lists:flatten(Error)]).
+    io_lib:format("Parse error~s: ~ts~n", [Line, lists:flatten(Error)]).
 
-format_line(-1) ->
+format_line(?XREF_END_LINE) ->
     " at end of string";
 format_line(0) ->
     "";

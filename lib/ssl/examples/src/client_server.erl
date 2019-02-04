@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2003-2009. All Rights Reserved.
+%% Copyright Ericsson AB 2003-2018. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -21,17 +22,11 @@
 
 -module(client_server).
 
--export([start/0, start/1, init_connect/1]).
+-export([start/0, init_connect/1]).
 
 start() ->
-    start([ssl, subject]).
-
-start(CertOpts) ->
     %% Start ssl application
-    application:start(ssl),
-
-    %% Always seed 
-    ssl:seed("ellynatefttidppohjeh"),
+    {ok, StartedApps} = application:ensure_all_started(ssl),
 
     %% Let the current process be the server that listens and accepts
     %% Listen
@@ -40,31 +35,32 @@ start(CertOpts) ->
     io:fwrite("Listen: port = ~w.~n", [LPort]),
 
     %% Spawn the client process that connects to the server
-    spawn(?MODULE, init_connect, [{LPort, CertOpts}]),
+    spawn(?MODULE, init_connect, [LPort]),
 
     %% Accept
     {ok, ASock} = ssl:transport_accept(LSock),
-    ok = ssl:ssl_accept(ASock),
+    {ok, SslSocket} = ssl:handshake(ASock),
     io:fwrite("Accept: accepted.~n"),
-    {ok, Cert} = ssl:peercert(ASock, CertOpts),
-    io:fwrite("Accept: peer cert:~n~p~n", [Cert]),
+    {ok, Cert} = ssl:peercert(SslSocket),
+    io:fwrite("Accept: peer cert:~n~p~n", [public_key:pkix_decode_cert(Cert, otp)]),
     io:fwrite("Accept: sending \"hello\".~n"),
-    ssl:send(ASock, "hello"),
-    {error, closed} = ssl:recv(ASock, 0),
+    ssl:send(SslSocket, "hello"),
+    {error, closed} = ssl:recv(SslSocket, 0),
     io:fwrite("Accept: detected closed.~n"),
-    ssl:close(ASock),
+    ssl:close(SslSocket),
     io:fwrite("Listen: closing and terminating.~n"),
     ssl:close(LSock),
-    application:stop(ssl).
+
+    lists:foreach(fun application:stop/1, lists:reverse(StartedApps)).
 
 
 %% Client connect
-init_connect({LPort, CertOpts}) ->
+init_connect(LPort) ->
     {ok, Host} = inet:gethostname(), 
     {ok, CSock} = ssl:connect(Host, LPort, mk_opts(connect)),
     io:fwrite("Connect: connected.~n"),
-    {ok, Cert} = ssl:peercert(CSock, CertOpts),
-    io:fwrite("Connect: peer cert:~n~p~n", [Cert]),
+    {ok, Cert} = ssl:peercert(CSock),
+    io:fwrite("Connect: peer cert:~n~p~n", [public_key:pkix_decode_cert(Cert, otp)]),
     {ok, Data} = ssl:recv(CSock, 0),
     io:fwrite("Connect: got data: ~p~n", [Data]),
     io:fwrite("Connect: closing and terminating.~n"),
@@ -79,7 +75,7 @@ mk_opts(Role) ->
     [{active, false}, 
      {verify, 2},
      {depth, 2},
+     {server_name_indication, disable},
      {cacertfile, filename:join([Dir, Role, "cacerts.pem"])}, 
      {certfile, filename:join([Dir, Role, "cert.pem"])}, 
      {keyfile, filename:join([Dir, Role, "key.pem"])}].
-

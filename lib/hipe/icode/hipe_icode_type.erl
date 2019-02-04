@@ -1,21 +1,16 @@
 %% -*- erlang-indent-level: 2 -*-
 %%
-%% %CopyrightBegin%
-%% 
-%% Copyright Ericsson AB 2003-2012. All Rights Reserved.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%%     http://www.apache.org/licenses/LICENSE-2.0
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
-%%
-%% %CopyrightEnd%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %%%--------------------------------------------------------------------
 %%% File    : hipe_icode_type.erl
@@ -79,31 +74,32 @@
 -import(erl_types, [number_min/1, number_max/1,
 		    t_any/0, t_atom/1, t_atom/0, t_atom_vals/1,
 		    t_binary/0, t_bitstr/0, t_bitstr_base/1, t_bitstr_unit/1, 
-		    t_boolean/0, t_cons/0, t_constant/0,
+		    t_boolean/0, t_cons/0,
 		    t_float/0, t_from_term/1, t_from_range/2,
 		    t_fun/0, t_fun/1, t_fun/2, t_fun_args/1, t_fun_arity/1, 
 		    t_inf/2, t_inf_lists/2, t_integer/0,
 		    t_integer/1, t_is_atom/1, t_is_any/1,
-		    t_is_binary/1, t_is_bitstr/1, t_is_bitwidth/1, t_is_boolean/1,
-		    t_is_fixnum/1, t_is_cons/1, t_is_constant/1,
+		    t_is_binary/1, t_is_bitstr/1, t_is_bitwidth/1,
+		    t_is_boolean/1, t_is_fixnum/1, t_is_cons/1, t_is_map/1,
 		    t_is_maybe_improper_list/1, t_is_equal/2, t_is_float/1,
 		    t_is_fun/1, t_is_integer/1, t_is_non_neg_integer/1, 
 		    t_is_number/1, t_is_matchstate/1,
-		    t_is_nil/1, t_is_none/1, t_is_port/1, t_is_pid/1,
+		    t_is_none/1, t_is_port/1, t_is_pid/1,
 		    t_is_reference/1, t_is_subtype/2, t_is_tuple/1,
 		    t_limit/2, t_matchstate_present/1, t_matchstate/0, 
-		    t_matchstate_slots/1, t_maybe_improper_list/0,
+		    t_matchstate_slots/1, t_maybe_improper_list/0, t_map/0,
 		    t_nil/0, t_none/0, t_number/0, t_number/1, t_number_vals/1,
 		    t_pid/0, t_port/0, t_reference/0, t_subtract/2, t_sup/2,
 		    t_to_tlist/1, t_tuple/0, t_tuple/1, t_tuple_sizes/1]).
 
--record(state, {info_map  = gb_trees:empty() :: gb_tree(),
+-record(state, {info_map  = gb_trees:empty() :: gb_trees:tree(),
 		cfg                          :: cfg(),
-		liveness  = gb_trees:empty() :: gb_tree(),
+		liveness                     :: hipe_icode_ssa:liveness(),
 		arg_types                    :: [erl_types:erl_type()],
 		ret_type  = [t_none()]       :: [erl_types:erl_type()],
 		lookupfun                    :: call_fun(),
 		resultaction                 :: final_fun()}).
+-type state() :: #state{}.
 
 %%-----------------------------------------------------------------------
 %% The main exported function
@@ -192,7 +188,7 @@ analyse(Cfg, Data) ->
   catch throw:no_input -> ok % No need to do anything since we have no input
   end.
 
--spec safe_analyse(cfg(), data()) -> #state{}.
+-spec safe_analyse(cfg(), data()) -> state().
 
 safe_analyse(Cfg, {MFA,_,_,_}=Data) ->
   State = new_state(Cfg, Data),
@@ -213,7 +209,7 @@ analyse_blocks(Work, State, MFA) ->
       {NewState, NewLabels}  =
 	try analyse_block(Label, Info, State)
 	catch throw:none_type ->
-	    %% io:format("received none type at label: ~p~n",[Label]),
+	    %% io:format("received none type at label: ~p~n", [Label]),
 	    {State,[]}
 	end,
       NewWork2 = add_work(NewWork, NewLabels),
@@ -265,7 +261,7 @@ analyse_insn(I, Info, LookupFun) ->
       do_move(I, Info);
     #icode_call{} ->
       NewInfo = do_call(I, Info, LookupFun),
-      %%io:format("Analysing Call: ~w~n~w~n", [I,NewInfo]),
+      %% io:format("Analysing Call: ~w~n~w~n", [I, NewInfo]),
       update_call_arguments(I, NewInfo);
     #icode_phi{} ->
       Type = t_limit(join_list(hipe_icode:args(I), Info), ?TYPE_DEPTH),
@@ -362,6 +358,7 @@ call_always_fails(#icode_call{} = I, Info) ->
     %% These can actually be calls too.
     {erlang, halt, 0} -> false;
     {erlang, halt, 1} -> false;
+    {erlang, halt, 2} -> false;
     {erlang, exit, 1} -> false;
     {erlang, error, 1} -> false;
     {erlang, error, 2} -> false;
@@ -459,24 +456,24 @@ integer_range_inequality_propagation(Op, A1, A2, TrueLab, FalseLab, Info) ->
   NonIntArg1 = t_subtract(Arg1, t_integer()),
   NonIntArg2 = t_subtract(Arg2, t_integer()),
   ?ineq_debug("nonintargs", [NonIntArg1,NonIntArg2]),
-  case t_is_none(IntArg1) or t_is_none(IntArg2) of
+  case t_is_none(IntArg1) orelse t_is_none(IntArg2) of
     true ->
       ?ineq_debug("one is none", [IntArg1,IntArg2]),
       [{TrueLab, Info}, {FalseLab, Info}];
     false ->
-      case Op of
-	'>=' ->
- 	  {FalseArg1, FalseArg2, TrueArg1, TrueArg2} =
- 	    integer_range_less_then_propagator(IntArg1, IntArg2);
- 	'>' ->
- 	  {TrueArg2, TrueArg1, FalseArg2, FalseArg1} =
- 	    integer_range_less_then_propagator(IntArg2, IntArg1);
- 	'<' ->
- 	  {TrueArg1, TrueArg2, FalseArg1, FalseArg2} =
- 	    integer_range_less_then_propagator(IntArg1, IntArg2);
- 	'=<' ->
- 	  {FalseArg2, FalseArg1, TrueArg2, TrueArg1} =
- 	    integer_range_less_then_propagator(IntArg2, IntArg1)
+      {TrueArg1, TrueArg2, FalseArg1, FalseArg2} =
+	case Op of
+	  '>=' ->
+	    {FA1, FA2, TA1, TA2} = int_range_lt_propagator(IntArg1, IntArg2),
+	    {TA1, TA2, FA1, FA2};
+	  '>' ->
+	    {TA2, TA1, FA2, FA1} = int_range_lt_propagator(IntArg2, IntArg1),
+	    {TA1, TA2, FA1, FA2};
+	  '<' ->
+	    int_range_lt_propagator(IntArg1, IntArg2);
+	  '=<' ->
+	    {FA2, FA1, TA2, TA1} = int_range_lt_propagator(IntArg2, IntArg1),
+	    {TA1, TA2, FA1, FA2}
 	end,
       ?ineq_debug("int res", [TrueArg1, TrueArg2, FalseArg1, FalseArg2]),
       False = {FalseLab, enter(A1, t_sup(FalseArg1, NonIntArg1),
@@ -486,7 +483,7 @@ integer_range_inequality_propagation(Op, A1, A2, TrueLab, FalseLab, Info) ->
       [True, False]
   end.
 
-integer_range_less_then_propagator(IntArg1, IntArg2) ->
+int_range_lt_propagator(IntArg1, IntArg2) ->
   Min1 = number_min(IntArg1),
   Max1 = number_max(IntArg1),
   Min2 = number_min(IntArg2),
@@ -587,7 +584,6 @@ do_type(I, Info, Var) ->
   TrueLab = hipe_icode:type_true_label(I),
   FalseLab = hipe_icode:type_false_label(I),
   None = t_none(),
-  
   case lookup(Var, Info) of
     None ->
       [{TrueLab, Info}, {FalseLab, Info}];
@@ -789,16 +785,16 @@ test_record(Atom, Size, Var, VarInfo, TrueLab, FalseLab, Info) ->
   end.
 
 test_type(Test, Type) ->
-  %%io:format("Test is: ~w\n", [Test]),
-  %%io:format("Type is: ~s\n", [format_type(Type)]),
+  %% io:format("Test is: ~w\n", [Test]),
+  %% io:format("Type is: ~s\n", [format_type(Type)]),
   Ans = 
     case t_is_any(Type) of
       true -> maybe;
       false ->
 	TrueTest = true_branch_info(Test),
 	Inf = t_inf(TrueTest, Type),
-	%%io:format("TrueTest is: ~s\n", [format_type(TrueTest)]),
-	%%io:format("Inf is: ~s\n", [format_type(Inf)]),
+	%% io:format("TrueTest is: ~s\n", [format_type(TrueTest)]),
+	%% io:format("Inf is: ~s\n", [format_type(Inf)]),
 	case t_is_equal(Type, Inf) of
 	  true ->
 	    not t_is_none(Type);
@@ -896,11 +892,12 @@ test_type0(boolean, T) ->
   t_is_boolean(T);
 test_type0(list, T) ->
   t_is_maybe_improper_list(T);
-test_type0(cons, T) ->
-  t_is_cons(T);
-test_type0(nil, T) ->
-  t_is_nil(T).
-
+%% test_type0(cons, T) ->
+%%   t_is_cons(T);
+%% test_type0(nil, T) ->
+%%   t_is_nil(T).
+test_type0(map, T) ->
+  t_is_map(T).
 
 true_branch_info(integer) ->
   t_integer();
@@ -932,22 +929,24 @@ true_branch_info(reference) ->
   t_reference();
 true_branch_info(function) ->
   t_fun();
-true_branch_info(cons) ->
-  t_cons();
-true_branch_info(nil) ->
-  t_nil();
+%% true_branch_info(cons) ->
+%%   t_cons();
+%% true_branch_info(nil) ->
+%%   t_nil();
 true_branch_info(boolean) ->
   t_boolean();
+true_branch_info(map) ->
+  t_map();
 true_branch_info(T) ->
-  exit({?MODULE,unknown_typetest,T}).
+  exit({?MODULE, unknown_typetest, T}).
 
 
 %% _________________________________________________________________
 %%
 %% Remove the redundant type tests. If a test is removed, the trace
-%% that isn't taken is explicitly removed from the CFG to simpilify
+%% that isn't taken is explicitly removed from the CFG to simplify
 %% the handling of Phi nodes. If a Phi node is left and at least one
-%% branch into it has disappeared, the SSA propagation pass can't
+%% branch into it has disappeared, the SSA propagation pass cannot
 %% handle it.
 %%
 %% If the CFG has changed at the end of this pass, the analysis is
@@ -1411,9 +1410,10 @@ transform_element2(I) ->
   NewIndex =
     case test_type(integer, IndexType) of
       true ->
-	case t_number_vals(IndexType) of
-	  unknown -> unknown;
-	  [_|_] = Vals -> {number, Vals}
+	case {number_min(IndexType), number_max(IndexType)} of
+	  {Lb0, Ub0} when is_integer(Lb0), is_integer(Ub0) ->
+	    {number, Lb0, Ub0};
+	  {_, _} -> unknown
 	end;
       _ -> unknown
     end,
@@ -1428,19 +1428,19 @@ transform_element2(I) ->
       _ -> unknown
     end,
   case {NewIndex, MinSize} of
-    {{number, [_|_] = Ns}, {tuple, A}} when is_integer(A) ->
-      case lists:all(fun(X) -> 0 < X andalso X =< A end, Ns) of
+    {{number, Lb, Ub}, {tuple, A}} when is_integer(A) ->
+      case 0 < Lb andalso Ub =< A of
 	true ->
-	  case Ns of
-	    [Idx] ->
+	  case {Lb, Ub} of
+	    {Idx, Idx} ->
 	      [_, Tuple] = hipe_icode:args(I),
 	      update_call_or_enter(I, #unsafe_element{index = Idx}, [Tuple]);
-	    [_|_] ->
+	    {_, _} ->
 	      NewFun = {element, [MinSize, valid]},
 	      update_call_or_enter(I, NewFun)
 	  end;
 	false ->
-	  case lists:all(fun(X) -> hipe_tagscheme:is_fixnum(X) end, Ns) of
+	  case lists:all(fun(X) -> hipe_tagscheme:is_fixnum(X) end, [Lb, Ub]) of
 	    true ->
 	      NewFun = {element, [MinSize, fixnums]},
 	      update_call_or_enter(I, NewFun);
@@ -1455,7 +1455,7 @@ transform_element2(I) ->
 	  NewFun = {element, [MinSize, fixnums]},
 	  update_call_or_enter(I, NewFun);
 	false ->
-	  NewFun = {element, [MinSize, NewIndex]},	  
+	  NewFun = {element, [MinSize, NewIndex]},
 	  update_call_or_enter(I, NewFun)
       end
   end.
@@ -1698,7 +1698,6 @@ lookup_list0([H|T], Info, Acc) ->
   lookup_list0(T, Info, [lookup(H, Info)|Acc]);
 lookup_list0([], _, Acc) ->
   lists:reverse(Acc).
-
 
 %% safe_lookup treats anything that is neither in the map nor a
 %% constant as t_any(). Use this during transformations.

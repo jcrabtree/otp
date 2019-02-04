@@ -1,23 +1,24 @@
-<?xml version="1.0" encoding="iso-8859-1" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <!DOCTYPE erlref SYSTEM "erlref.dtd">
 
 <erlref>
   <header>
     <copyright>
-      <year>1999</year><year>2011</year>
+      <year>1999</year><year>2016</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
-      The contents of this file are subject to the Erlang Public License,
-      Version 1.1, (the "License"); you may not use this file except in
-      compliance with the License. You should have received a copy of the
-      Erlang Public License along with this software. If not, it can be
-      retrieved online at http://www.erlang.org/.
-    
-      Software distributed under the License is distributed on an "AS IS"
-      basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-      the License for the specific language governing rights and limitations
-      under the License.
+      Licensed under the Apache License, Version 2.0 (the "License");
+      you may not use this file except in compliance with the License.
+      You may obtain a copy of the License at
+ 
+          http://www.apache.org/licenses/LICENSE-2.0
+
+      Unless required by applicable law or agreed to in writing, software
+      distributed under the License is distributed on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+      See the License for the specific language governing permissions and
+      limitations under the License.
     
     </legalnotice>
 
@@ -31,7 +32,7 @@
     <rev></rev>
     <file>snmp_community_mib.xml</file>
   </header>
-  <module>snmp_community_mib</module>
+  <module since="">snmp_community_mib</module>
   <modulesummary>Instrumentation Functions for SNMP-COMMUNITY-MIB</modulesummary>
   <description>
     <p>The module <c>snmp_community_mib</c> implements the instrumentation
@@ -44,7 +45,7 @@
 
   <funcs>
     <func>
-      <name>configure(ConfDir) -> void()</name>
+      <name since="">configure(ConfDir) -> void()</name>
       <fsummary>Configure the SNMP-COMMUNITY-MIB</fsummary>
       <type>
         <v>ConfDir = string()</v>
@@ -76,7 +77,7 @@
     </func>
 
     <func>
-      <name>reconfigure(ConfDir) -> void()</name>
+      <name since="">reconfigure(ConfDir) -> void()</name>
       <fsummary>Configure the SNMP-COMMUNITY-MIB</fsummary>
       <type>
         <v>ConfDir = string()</v>
@@ -107,8 +108,8 @@
     </func>
 
     <func>
-      <name>add_community(Idx, CommName, SecName, CtxName, TransportTag) -> Ret</name>
-      <name>add_community(Idx, CommName, SecName, EngineId, CtxName, TransportTag) -> Ret</name>
+      <name since="">add_community(Idx, CommName, SecName, CtxName, TransportTag) -> Ret</name>
+      <name since="OTP R14B03">add_community(Idx, CommName, SecName, EngineId, CtxName, TransportTag) -> Ret</name>
       <fsummary>Added one community</fsummary>
       <type>
         <v>Idx = string()</v>
@@ -131,7 +132,7 @@
     </func>
 
     <func>
-      <name>delete_community(Key) -> Ret</name>
+      <name since="">delete_community(Key) -> Ret</name>
       <fsummary>Delete one community</fsummary>
       <type>
         <v>Key = term()</v>

@@ -1,48 +1,44 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2008-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2008-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
 %%
 -module(test_modified_x420).
+-export([test/1]).
 
-%-compile(export_all).
--export([test_io/1]).
-
--include_lib("test_server/include/test_server.hrl").
-
-test_io(Config) ->
-    io:format("~p~n~n", [catch test(Config)]).
+-include_lib("common_test/include/ct.hrl").
 
 test(Config) ->
-    ?line DataDir = ?config(data_dir,Config),
-%    ?line OutDir = ?config(priv_dir,Config),
+    DataDir = proplists:get_value(data_dir,Config),
 
-    ?line Der = read_pem(filename:join([DataDir,modified_x420,"p7_signed_data.pem"])),
-    ?line {ok, {_,_,SignedData}} = 'PKCS7':decode('ContentInfo', Der),
-    ?line {ok,_} = 'PKCS7':decode('SignedData', SignedData).
+    Der = read_pem(filename:join([DataDir,modified_x420,"p7_signed_data.pem"])),
+    {ok,{_,_,SignedData}} = 'PKCS7':decode( 'ContentInfo', Der),
+    {ok,_} = 'PKCS7':decode('SignedData', SignedData),
+    ok.
 
 read_pem(File) ->    
-    ?line {ok, Bin} = file:read_file(File),
-    ?line ssl_base64:join_decode(lists:flatten(extract_base64(Bin))).
-
+    {ok,Bin} = file:read_file(File),
+    Der = base64:mime_decode(lists:flatten(extract_base64(Bin))),
+    binary_to_list(Der).
 
 
 extract_base64(Binary) ->
-    extract_base64_lines(string:tokens(binary_to_list(Binary), "\n")).
+    extract_base64_lines(string:lexemes(binary_to_list(Binary), "\n")).
 
 extract_base64_lines(["-----BEGIN"++_ | Lines]) ->
     take_base64_lines(Lines, _Acc = []);

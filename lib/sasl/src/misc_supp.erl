@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1996-2009. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2017. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -26,12 +27,12 @@
 %%% 2) Very generic functions such as, multi_map, is_string...
 %%%
 %%% This module is a part of the BOS.  (format_pdict is called from
-%%% init, memsup, disksup, overload (but not the fileserver since it
+%%% init, memsup, disksup (but not the fileserver since it
 %%% formats its pdict its own way).)
 %%%---------------------------------------------------------------------
 
 -export([format_pdict/3, format_tuples/2, assq/2, passq/2, is_string/1, 
-	 multi_map/2]).
+	 multi_map/2, modifier/1]).
 
 %%-----------------------------------------------------------------
 %% Uses format_tuples to format the data in process dictionary.
@@ -104,3 +105,19 @@ multi_map(Func, ListOfLists) ->
     [apply(Func, lists:map(fun(List) -> hd(List) end, ListOfLists)) |
      multi_map(Func,
 	       lists:map(fun(List) -> tl(List) end, ListOfLists))].
+
+%%%-----------------------------------------------------------------
+%%% Check encoding of the given device and return "t" if this format
+%%% modifier should be used.
+modifier(Device) ->
+    Encoding =
+        case io:getopts(Device) of
+            List when is_list(List) ->
+                proplists:get_value(encoding,List,latin1);
+            _ ->
+                latin1
+        end,
+    encoding_to_modifier(Encoding).
+
+encoding_to_modifier(latin1) -> "";
+encoding_to_modifier(_) -> "t".

@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1997-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -36,6 +37,7 @@
 -export([get_wrap_size/1]).
 -export([is_head/1]).
 -export([position/3, truncate_at/3, fwrite/4, fclose/2]).
+-export([set_quiet/1, is_quiet/0]).
 
 -compile({inline,[{scan_f2,7}]}).
 
@@ -78,6 +80,7 @@ log(FdC, FileName, X) ->
 logl(X) ->
     logl(X, [], 0).
 
+-dialyzer({no_improper_lists, logl/3}).
 logl([X | T], Bs, Size) ->
     Sz = byte_size(X),
     BSz = <<Sz:?SIZESZ/unit:8>>,
@@ -295,12 +298,18 @@ read_chunk_ro(FdC, FileName, Pos, MaxBytes) ->
     pread(FdC, FileName, Pos + ?HEADSZ, MaxBytes).
 
 %% -> ok | throw(Error)
-close(#cache{fd = Fd, c = []}, _FileName, read_only) ->
-    file:close(Fd);
+close(#cache{fd = Fd, c = []}, FileName, read_only) ->
+    case file:close(Fd) of
+        ok -> ok;
+        Error -> file_error(FileName, Error)
+    end;
 close(#cache{fd = Fd, c = C}, FileName, read_write) ->
     {Reply, _NewFdC} = write_cache(Fd, FileName, C),
     mark(Fd, FileName, ?CLOSED),
-    file:close(Fd),
+    case file:close(Fd) of
+        ok -> ok;
+        Error -> file_error(FileName, Error)
+    end,
     if Reply =:= ok -> ok; true -> throw(Reply) end.
 
 %% Open an internal file. Head is ignored if Mode is read_only.
@@ -320,7 +329,10 @@ int_open(FName, Repair, read_write, Head) ->
 		{ok, FileHead} ->
 		    case is_head(FileHead) of
 			yes ->
-			    file:close(Fd),
+                            case file:close(Fd) of
+                                ok -> ok;
+                                Error2 -> file_error(FName, Error2)
+                            end,
 			    case open_update(FName) of
 				{ok, Fd2} ->
 				    mark(Fd2, FName, ?OPENED),
@@ -333,14 +345,14 @@ int_open(FName, Repair, read_write, Head) ->
 			yes_not_closed when Repair ->
 			    repair(Fd, FName);
 			yes_not_closed when not Repair ->
-			    file:close(Fd),
+			    _ = file:close(Fd),
 			    throw({error, {need_repair, FName}});
 			no ->
-			    file:close(Fd),
+			    _ = file:close(Fd),
 			    throw({error, {not_a_log_file, FName}})
 		    end;
 		eof ->
-		    file:close(Fd),
+		    _= file:close(Fd),
 		    throw({error, {not_a_log_file, FName}});
 		Error ->
 		    file_error_close(Fd, FName, Error)
@@ -363,11 +375,11 @@ int_open(FName, _Repair, read_only, _Head) ->
                             FdC = #cache{fd = Fd},
 			    {ok, {existed, FdC, {0, 0}, P}};
 			no ->
-			    file:close(Fd),
+			    _= file:close(Fd),
 			    throw({error, {not_a_log_file, FName}})
 		    end;
 		eof ->
-		    file:close(Fd),
+		    _ = file:close(Fd),
 		    throw({error, {not_a_log_file, FName}});
 		Error ->
 		    file_error_close(Fd, FName, Error)
@@ -398,7 +410,7 @@ int_log_head(Fd, Head) ->
 	none ->
 	    {#cache{fd = Fd}, 0, 0};
 	Error -> 
-	    file:close(Fd),
+	    _= file:close(Fd),
 	    throw(Error)
     end.
     
@@ -450,13 +462,13 @@ ext_log_head(Fd, Head) ->
 	none ->
 	    {#cache{fd = Fd}, {0, 0}};
 	Error -> 
-            file:close(Fd),
+            _= file:close(Fd),
 	    throw(Error)
     end.
     
 %% -> _Any | throw()
 mark(Fd, FileName, What) ->
-    position_close2(Fd, FileName, 4),
+    {ok, _} = position_close2(Fd, FileName, 4),
     fwrite_close2(Fd, FileName, What).
 
 %% -> {ok, Bin} | Error
@@ -489,7 +501,10 @@ lh(H, _F) -> % cannot happen
 
 repair(In, File) ->
     FSz = file_size(File),
-    error_logger:info_msg("disk_log: repairing ~p ...\n", [File]),
+    case is_quiet() of
+        true -> ok;
+        _ -> error_logger:info_msg("disk_log: repairing ~tp ...\n", [File])
+    end,
     Tmp = add_ext(File, "TMP"),
     {ok, {_Alloc, Out, {0, _}, _FileSize}} = new_int_file(Tmp, none),
     scan_f_read(<<>>, In, Out, File, FSz, Tmp, ?MAX_CHUNK_SIZE, 0, 0).
@@ -560,7 +575,7 @@ scan_f2(B, FSz, Ack, No, Bad, Size, Tail) ->
     end.
 
 done_scan(In, Out, OutName, FName, RecoveredTerms, BadChars) ->
-    file:close(In),
+    _ = file:close(In),
     case catch fclose(Out, OutName) of
         ok ->
             case file:rename(OutName, FName) of
@@ -574,21 +589,21 @@ done_scan(In, Out, OutName, FName, RecoveredTerms, BadChars) ->
                             file_error(FName, Error)
                     end;
                 Error ->
-                    file:delete(OutName),
+                    _ = file:delete(OutName),
                     file_error(FName, Error)
             end;
         Error ->
-            file:delete(OutName),
+            _ = file:delete(OutName),
             throw(Error)
     end.
 
 -spec repair_err(file:io_device(), #cache{}, file:filename(),
 		 file:filename(), {'error', file:posix()}) -> no_return().
 repair_err(In, Out, OutName, ErrFileName, Error) ->
-    file:close(In),
+    _= file:close(In),
     catch fclose(Out, OutName),
     %% OutName is often the culprit, try to remove it anyway...
-    file:delete(OutName), 
+    _ = file:delete(OutName),
     file_error(ErrFileName, Error).
 
 %% Used by wrap_log_reader.
@@ -615,7 +630,7 @@ is_head(Bin) when is_binary(Bin) ->
 %%          Writes MaxB bytes on each file.  
 %%          Creates a file called Name.idx in the Dir.  This
 %%          file contains the last written FileName as one byte, and
-%%          follwing that, the sizes of each file (size 0 number of items).
+%%          following that, the sizes of each file (size 0 number of items).
 %%          On startup, this file is read, and the next available
 %%          filename is used as first log file.
 %%          Reports can be browsed with Report Browser Tool (rb), or
@@ -758,16 +773,19 @@ mf_int_chunk(Handle, {FileNo, Pos}, Bin, N) ->
     NFileNo = inc(FileNo, Handle#handle.maxF),
     case catch int_open(FName, true, read_only, any) of
 	{error, _Reason} ->
-	   error_logger:info_msg("disk_log: chunk error. File ~p missing.\n\n",
-				 [FName]),
+	    case is_quiet() of
+		true -> ok;
+		_ -> error_logger:info_msg("disk_log: chunk error. File ~tp missing.\n\n",
+					   [FName])
+	    end,
 	    mf_int_chunk(Handle, {NFileNo, 0}, [], N);
 	{ok, {_Alloc, FdC, _HeadSize, _FileSize}} ->
 	    case chunk(FdC, FName, Pos, Bin, N) of
 		{NewFdC, eof} ->
-		    file:close(NewFdC#cache.fd),
+		    _ = file:close(NewFdC#cache.fd),
 		    mf_int_chunk(Handle, {NFileNo, 0}, [], N);
 		{NewFdC, Other} ->
-		    file:close(NewFdC#cache.fd),
+		    _ = file:close(NewFdC#cache.fd),
 		    {Handle, conv(Other, FileNo)}
 	    end
     end.
@@ -786,16 +804,19 @@ mf_int_chunk_read_only(Handle, {FileNo, Pos}, Bin, N) ->
     NFileNo = inc(FileNo, Handle#handle.maxF),
     case catch int_open(FName, true, read_only, any) of
 	{error, _Reason} ->
-	   error_logger:info_msg("disk_log: chunk error. File ~p missing.\n\n",
-				 [FName]),
-	   mf_int_chunk_read_only(Handle, {NFileNo, 0}, [], N);
+	    case is_quiet() of
+		true -> ok;
+		_ -> error_logger:info_msg("disk_log: chunk error. File ~tp missing.\n\n",
+					   [FName])
+	    end,
+	    mf_int_chunk_read_only(Handle, {NFileNo, 0}, [], N);
 	{ok, {_Alloc, FdC, _HeadSize, _FileSize}} ->
 	    case do_chunk_read_only(FdC, FName, Pos, Bin, N) of
 		{NewFdC, eof} ->
-		    file:close(NewFdC#cache.fd),
+		    _ = file:close(NewFdC#cache.fd),
 		    mf_int_chunk_read_only(Handle, {NFileNo,0}, [], N);
 		{NewFdC, Other} ->
-		    file:close(NewFdC#cache.fd),
+		    _ = file:close(NewFdC#cache.fd),
 		    {Handle, conv(Other, FileNo)}
 	    end
     end.
@@ -1017,7 +1038,7 @@ ext_file_open(FName, NewFile, OldFile, OldCnt, Head, Repair, Mode) ->
 
 read_index_file(truncate, FName, MaxF) ->
     remove_files(FName, 2, MaxF),
-    file:delete(?index_file_name(FName)),
+    _ = file:delete(?index_file_name(FName)),
     {1, 0, 0, 0};
 read_index_file(_, FName, _MaxF) ->
     read_index_file(FName).
@@ -1043,7 +1064,7 @@ read_index_file(FName) ->
 		    _ErrorOrEof ->
 			{1, 0, 0, 0}
 		end,
-	    file:close(Fd),
+	    _ = file:close(Fd),
 	    R;
 	_Error ->
 	    {1, 0, 0, 0}
@@ -1096,7 +1117,7 @@ write_index_file(read_write, FName, NewFile, OldFile, OldCnt) ->
                         %% Very old format, convert to the latest format!
 			case file:read_file(FileName) of
 			    {ok, <<_CurF, Tail/binary>>} ->
-				position_close2(Fd, FileName, bof),
+				{ok, _} = position_close2(Fd, FileName, bof),
 				Bin = <<0, 0:32, ?VERSION, NewFile:32>>,
 				NewTail = to_8_bytes(Tail, [], FileName, Fd),
 				fwrite_close2(Fd, FileName, [Bin | NewTail]),
@@ -1115,7 +1136,7 @@ write_index_file(read_write, FName, NewFile, OldFile, OldCnt) ->
 		    R = file:pread(Fd, NewPos, SzSz),
 		    OldPos = Offset + (OldFile - 1)*SzSz,
 		    pwrite_close2(Fd, FileName, OldPos, OldCntBin),
-		    file:close(Fd),
+		    _ = file:close(Fd),
 		    case R of
 			{ok, <<Lost:SzSz/unit:8>>} -> Lost;
 			{ok, _} -> 
@@ -1125,19 +1146,20 @@ write_index_file(read_write, FName, NewFile, OldFile, OldCnt) ->
 		    end;
 		true -> 	
 		    pwrite_close2(Fd, FileName, NewPos, OldCntBin),
-		    file:close(Fd),
+		    _ = file:close(Fd),
 		    0
 	    end;
 	E -> 
 	    file_error(FileName, E)
     end.
 
+-dialyzer({no_improper_lists, to_8_bytes/4}).
 to_8_bytes(<<N:32,T/binary>>, NT, FileName, Fd) ->
     to_8_bytes(T, [NT | <<N:64>>], FileName, Fd);
 to_8_bytes(B, NT, _FileName, _Fd) when byte_size(B) =:= 0 ->
     NT;
 to_8_bytes(_B, _NT, FileName, Fd) ->
-    file:close(Fd),
+    _ = file:close(Fd),
     throw({error, {invalid_index_file, FileName}}).
 
 %% -> ok | throw(FileError)
@@ -1147,7 +1169,7 @@ index_file_trunc(FName, N) ->
 	{ok, Fd} ->
 	    case file:read(Fd, 6) of
 		eof ->
-		    file:close(Fd),
+		    _ = file:close(Fd),
 		    ok;
 		{ok, <<0, 0:32, Version>>} when Version =:= ?VERSION ->
 		    truncate_index_file(Fd, FileName, 10, 8, N);
@@ -1166,10 +1188,10 @@ truncate_index_file(Fd, FileName, Offset, N, SzSz) ->
     Pos = Offset + N*SzSz,
     case Pos > file_size(FileName) of
 	true ->
-	    file:close(Fd);
+	    ok = file:close(Fd);
 	false ->
 	    truncate_at_close2(Fd, FileName, {bof, Pos}),
-	    file:close(Fd)
+	    ok = file:close(Fd)
     end,
     ok.
 	    
@@ -1266,6 +1288,7 @@ ext_split_bins(CurB, MaxB, FirstPos, Bins) ->
     MaxBs = MaxB - CurB, IsFirst = CurB =:= FirstPos,
     ext_split_bins(MaxBs, IsFirst, [], Bins, 0, 0).
 
+-dialyzer({no_improper_lists, ext_split_bins/6}).
 ext_split_bins(MaxBs, IsFirst, First, [X | Last], Bs, N) ->
     NBs = Bs + byte_size(X),
     if
@@ -1286,6 +1309,7 @@ int_split_bins(CurB, MaxB, FirstPos, Bins) ->
     MaxBs = MaxB - CurB, IsFirst = CurB =:= FirstPos,
     int_split_bins(MaxBs, IsFirst, [], Bins, 0, 0).
 
+-dialyzer({no_improper_lists, int_split_bins/6}).
 int_split_bins(MaxBs, IsFirst, First, [X | Last], Bs, N) ->
     Sz = byte_size(X),
     NBs = Bs + Sz + ?HEADERSZ,
@@ -1402,23 +1426,36 @@ open_truncate(FileName) ->
 
 %%% Functions that access files, and throw on error. 
 
--define(MAX, 16384). % bytes
 -define(TIMEOUT, 2000). % ms
 
 %% -> {Reply, cache()}; Reply = ok | Error
-fwrite(#cache{c = []} = FdC, _FN, B, Size) ->
+fwrite(FdC, _FN, _B, 0) ->
+    {ok, FdC};  % avoid starting a timer for empty writes
+fwrite(#cache{fd = Fd, c = C, sz = Sz} = FdC, FileName, B, Size) ->
+    Sz1 = Sz + Size,
+    C1 = cache_append(C, B),
+    if Sz1 > ?MAX_FWRITE_CACHE ->
+            write_cache(Fd, FileName, C1);
+       true ->
+            maybe_start_timer(C),
+            {ok, FdC#cache{sz = Sz1, c = C1}}
+    end.
+
+cache_append([], B) -> B;
+cache_append(C, B) -> [C | B].
+
+%% if the cache was empty, start timer (unless it's already running)
+maybe_start_timer([]) ->
     case get(write_cache_timer_is_running) of
-        true -> 
+        true ->
             ok;
-        _ -> 
+        _ ->
             put(write_cache_timer_is_running, true),
-            erlang:send_after(?TIMEOUT, self(), {self(), write_cache})
-    end,
-    {ok, FdC#cache{sz = Size, c = B}};
-fwrite(#cache{sz = Sz, c = C} = FdC, _FN, B, Size) when Sz < ?MAX ->
-    {ok, FdC#cache{sz = Sz+Size, c = [C | B]}};
-fwrite(#cache{fd = Fd, c = C}, FileName, B, _Size) ->
-    write_cache(Fd, FileName, [C | B]).
+            erlang:send_after(?TIMEOUT, self(), {self(), write_cache}),
+            ok
+    end;
+maybe_start_timer(_C) ->
+    ok.
 
 fwrite_header(Fd, B, Size) ->
     {ok, #cache{fd = Fd, sz = Size, c = B}}.
@@ -1495,7 +1532,7 @@ fwrite_close2(Fd, FileName, B) ->
 pwrite_close2(Fd, FileName, Position, B) ->
     case file:pwrite(Fd, Position, B) of
 	ok -> ok;
-	Error -> file_error(FileName, {error, Error})
+	{error,Error} -> file_error(FileName, {error, Error})
     end.
 
 position2(Fd, FileName, Pos) ->
@@ -1511,7 +1548,7 @@ position_close2(Fd, FileName, Pos) ->
     end.
 	    
 truncate_at_close2(Fd, FileName, Pos) ->
-    position_close2(Fd, FileName, Pos),
+    {ok, _} = position_close2(Fd, FileName, Pos),
     case file:truncate(Fd) of
 	ok    -> ok;
 	Error -> file_error_close(Fd, FileName, Error)
@@ -1519,8 +1556,14 @@ truncate_at_close2(Fd, FileName, Pos) ->
 
 fclose(#cache{fd = Fd, c = C}, FileName) ->
     %% The cache is empty if the file was opened in read_only mode.
-    write_cache_close(Fd, FileName, C),
+    _ = write_cache_close(Fd, FileName, C),
     file:close(Fd).
+
+set_quiet(Bool) ->
+    put(quiet, Bool).
+
+is_quiet() ->
+    get(quiet) =:= true.
 
 %% -> {Reply, #cache{}}; Reply = ok | Error
 write_cache(Fd, _FileName, []) ->
@@ -1549,5 +1592,5 @@ file_error(FileName, {error, Error}) ->
 -spec file_error_close(file:fd(), file:filename(), {'error', file:posix()}) -> no_return().
 
 file_error_close(Fd, FileName, {error, Error}) ->
-    file:close(Fd),
+    _ = file:close(Fd),
     throw({error, {file_error, FileName, Error}}).

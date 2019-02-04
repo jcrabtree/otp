@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -88,7 +89,8 @@
 %% Not documented, or not ready for publication.
 -export([lookup_keys/2]).
 
--export_type([tab_name/0]).
+-export_type([bindings_cont/0, cont/0, object_cont/0, select_cont/0,
+              tab_name/0]).
 
 -compile({inline, [{einval,2},{badarg,2},{undefined,1},
                    {badarg_exit,2},{lookup_reply,2}]}).
@@ -103,9 +105,6 @@
 %%% the file with the split indicator, size etc is held in ram by the
 %%% server at all times.
 %%%
-%%% The parts specific for formats up to and including 8(c) are
-%%% implemented in dets_v8.erl, parts specific for format 9 are
-%%% implemented in dets_v9.erl.
 
 %%  The method of hashing is the so called linear hashing algorithm
 %%  with segments. 
@@ -138,28 +137,33 @@
 %%% written, and a repair is forced next time the file is opened.
 
 -record(dets_cont, {
-         what,        % object | bindings | select | bchunk
-	 no_objs,     % requested number of objects: default | integer() > 0
-	 bin,         % small chunk not consumed, or 'eof' at end-of-file
-	 alloc,       % the part of the file not yet scanned, mostly a binary
-	 tab,
-         proc,        % the pid of the Dets process
-         match_program % true | compiled_match_spec() | undefined
+          what :: 'undefined' | 'bchunk' | 'bindings' | 'object' | 'select',
+          no_objs :: 'default' | pos_integer(), % requested number of objects
+          bin :: 'eof' | binary(), % small chunk not consumed,
+                                  % or 'eof' at end-of-file
+          alloc :: binary() % the part of the file not yet scanned
+                 | {From :: non_neg_integer(),
+                    To :: non_neg_integer,
+                    binary()},
+          tab :: tab_name(),
+          proc :: 'undefined' | pid(), % the pid of the Dets process
+          match_program :: 'true'
+                         | 'undefined'
+                         | {'match_spec', ets:comp_match_spec()}
 	 }).
 
 -record(open_args, {
-          file,
-          type,
-          keypos,
-          repair,
-          min_no_slots,
-	  max_no_slots,
-          ram_file,
-          delayed_write,
-          auto_save,
-          access,
-          version,
-          debug
+          file :: list(),
+          type :: type(),
+          keypos :: keypos(),
+          repair :: 'force' | boolean(),
+          min_no_slots :: no_slots(),
+	  max_no_slots :: no_slots(),
+          ram_file :: boolean(),
+          delayed_write :: cache_parms(),
+          auto_save :: auto_save(),
+          access :: access(),
+          debug :: boolean()
          }).
 
 -define(PATTERN_TO_OBJECT_MATCH_SPEC(Pat), [{Pat,[],['$_']}]).
@@ -175,20 +179,13 @@
 %%-define(PROFILE(C), C).
 -define(PROFILE(C), void).
 
--type access()    :: 'read' | 'read_write'.
--type auto_save() :: 'infinity' | non_neg_integer().
 -opaque bindings_cont() :: #dets_cont{}.
 -opaque cont()    :: #dets_cont{}.
--type keypos()    :: pos_integer().
 -type match_spec()  :: ets:match_spec().
 -type object()    :: tuple().
--type no_slots()  :: non_neg_integer() | 'default'.
 -opaque object_cont() :: #dets_cont{}.
 -type pattern()   :: atom() | tuple().
 -opaque select_cont() :: #dets_cont{}.
--type tab_name() :: term().
--type type()      :: 'bag' | 'duplicate_bag' | 'set'.
--type version()   :: 8 | 9 | 'default'.
 
 %%% Some further debug code was added in R12B-1 (stdlib-1.15.1):
 %%% - there is a new open_file() option 'debug';
@@ -271,19 +268,20 @@ delete_all_objects(Tab) ->
 delete_object(Tab, O) ->
     badarg(treq(Tab, {delete_object, [O]}), [Tab, O]).
 
+%% Backwards compatibility.
+fsck(Fname, _Version) ->
+    fsck(Fname).
+
 %% Given a filename, fsck it. Debug.
 fsck(Fname) ->
-    fsck(Fname, default).
-
-fsck(Fname, Version) ->
     catch begin
       {ok, Fd, FH} = read_file_header(Fname, read, false),
       ?DEBUGF("FileHeader: ~p~n", [FH]),	    
-      case (FH#fileheader.mod):check_file_header(FH, Fd) of
+      case dets_v9:check_file_header(FH, Fd) of
           {error, not_closed} ->
-              fsck(Fd, make_ref(), Fname, FH, default, default, Version);
-          {ok, _Head, _Extra} ->
-              fsck(Fd, make_ref(), Fname, FH, default, default, Version);
+              fsck(Fd, make_ref(), Fname, FH, default, default);
+          {ok, _Head} ->
+              fsck(Fd, make_ref(), Fname, FH, default, default);
           Error ->
               Error
       end
@@ -319,7 +317,7 @@ foldr(Fun, Acc, Tab) ->
 
 foldl(Fun, Acc, Tab) ->
     Ref = make_ref(),
-    do_traverse(Fun, Acc, Tab, Ref).
+    badarg(do_traverse(Fun, Acc, Tab, Ref), [Fun, Acc, Tab]).
 
 -spec from_ets(Name, EtsTab) -> 'ok' | {'error', Reason} when
       Name :: tab_name(),
@@ -370,7 +368,7 @@ info(Tab) ->
       Item :: 'access' | 'auto_save' | 'bchunk_format'
             | 'hash' | 'file_size' | 'filename' | 'keypos' | 'memory'
             | 'no_keys' | 'no_objects' | 'no_slots' | 'owner' | 'ram_file'
-            | 'safe_fixed' | 'size' | 'type' | 'version',
+            | 'safe_fixed' | 'safe_fixed_monotonic_time' | 'size' | 'type',
       Value :: term().
 
 info(Tab, owner) ->
@@ -439,9 +437,10 @@ insert(Tab, Objs) when is_list(Objs) ->
 insert(Tab, Obj) ->
     badarg(treq(Tab, {insert, [Obj]}), [Tab, Obj]).
 
--spec insert_new(Name, Objects) -> boolean() when
+-spec insert_new(Name, Objects) -> boolean() | {'error', Reason} when
       Name :: tab_name(),
-      Objects :: object() | [object()].
+      Objects :: object() | [object()],
+      Reason :: term().
 
 insert_new(Tab, Objs) when is_list(Objs) ->
     badarg(treq(Tab, {insert_new, Objs}), [Tab, Objs]);
@@ -468,7 +467,7 @@ is_compatible_bchunk_format(Tab, Term) ->
 is_dets_file(FileName) ->
     case catch read_file_header(FileName, read, false) of
 	{ok, Fd, FH} ->
-	    file:close(Fd),
+	    _ = file:close(Fd),
 	    FH#fileheader.cookie =:= ?MAGIC;
 	{error, {tooshort, _}} ->
 	    false;
@@ -515,7 +514,7 @@ match(Tab, Pat) ->
       Reason :: term().
 
 match(Tab, Pat, N) ->
-    badarg(init_chunk_match(Tab, Pat, bindings, N), [Tab, Pat, N]).
+    badarg(init_chunk_match(Tab, Pat, bindings, N, no_safe), [Tab, Pat, N]).
     
 -spec match(Continuation) ->
           {[Match], Continuation2} | '$end_of_table' | {'error', Reason} when
@@ -525,7 +524,7 @@ match(Tab, Pat, N) ->
       Reason :: term().
 
 match(State) when State#dets_cont.what =:= bindings ->
-    badarg(chunk_match(State), [State]);
+    badarg(chunk_match(State, no_safe), [State]);
 match(Term) ->
     erlang:error(badarg, [Term]).
 
@@ -538,26 +537,26 @@ match_delete(Tab, Pat) ->
     badarg(match_delete(Tab, Pat, delete), [Tab, Pat]).
 
 match_delete(Tab, Pat, What) ->
-    safe_fixtable(Tab, true),    
     case compile_match_spec(What, Pat) of
 	{Spec, MP} ->
-	    Proc = dets_server:get_pid(Tab),
-	    R = req(Proc, {match_delete_init, MP, Spec}),
-	    do_match_delete(Tab, Proc, R, What, 0);
+            case catch dets_server:get_pid(Tab) of
+                {'EXIT', _Reason} ->
+                    badarg;
+                Proc ->
+                    R = req(Proc, {match_delete_init, MP, Spec}),
+                    do_match_delete(Proc, R, What, 0)
+            end;
 	badarg ->
 	    badarg
     end.
 
-do_match_delete(Tab, _Proc, {done, N1}, select, N) ->
-    safe_fixtable(Tab, false),
+do_match_delete(_Proc, {done, N1}, select, N) ->
     N + N1;
-do_match_delete(Tab, _Proc, {done, _N1}, _What, _N) ->
-    safe_fixtable(Tab, false),
+do_match_delete(_Proc, {done, _N1}, _What, _N) ->
     ok;
-do_match_delete(Tab, Proc, {cont, State, N1}, What, N) ->
-    do_match_delete(Tab, Proc, req(Proc, {match_delete, State}), What, N+N1);
-do_match_delete(Tab, _Proc, Error, _What, _N) ->
-    safe_fixtable(Tab, false),
+do_match_delete(Proc, {cont, State, N1}, What, N) ->
+    do_match_delete(Proc, req(Proc, {match_delete, State}), What, N+N1);
+do_match_delete(_Proc, Error, _What, _N) ->
     Error.
 
 -spec match_object(Name, Pattern) -> Objects | {'error', Reason} when
@@ -579,7 +578,7 @@ match_object(Tab, Pat) ->
       Reason :: term().
 
 match_object(Tab, Pat, N) ->
-    badarg(init_chunk_match(Tab, Pat, object, N), [Tab, Pat, N]).
+    badarg(init_chunk_match(Tab, Pat, object, N, no_safe), [Tab, Pat, N]).
     
 -spec match_object(Continuation) ->
            {Objects, Continuation2} | '$end_of_table' | {'error', Reason} when
@@ -589,7 +588,7 @@ match_object(Tab, Pat, N) ->
       Reason :: term().
 
 match_object(State) when State#dets_cont.what =:= object ->
-    badarg(chunk_match(State), [State]);
+    badarg(chunk_match(State, no_safe), [State]);
 match_object(Term) ->
     erlang:error(badarg, [Term]).
 
@@ -617,12 +616,18 @@ next(Tab, Key) ->
 %% Assuming that a file already exists, open it with the
 %% parameters as already specified in the file itself.
 %% Return a ref leading to the file.
-open_file(File) ->
-    case dets_server:open_file(to_list(File)) of
-        badarg -> % Should not happen.
-            erlang:error(dets_process_died, [File]);
-        Reply -> 
-            einval(Reply, [File])
+open_file(File0) ->
+    File = to_list(File0),
+    case is_list(File) of
+        true ->
+            case dets_server:open_file(File) of
+                badarg -> % Should not happen.
+                    erlang:error(dets_process_died, [File]);
+                Reply ->
+                    einval(Reply, [File])
+            end;
+        false ->
+	    erlang:error(badarg, [File0])
     end.
 
 -spec open_file(Name, Args) -> {'ok', Name} | {'error', Reason} when
@@ -637,8 +642,7 @@ open_file(File) ->
                 | {'keypos', keypos()}
                 | {'ram_file', boolean()}
                 | {'repair', boolean() | 'force'}
-                | {'type', type()}
-                | {'version', version()},
+                | {'type', type()},
       Reason :: term().
 
 open_file(Tab, Args) when is_list(Args) ->
@@ -671,13 +675,13 @@ remove_user(Pid, From) ->
       Continuation2 :: select_cont(),
       MatchSpec :: match_spec().
 
-repair_continuation(#dets_cont{match_program = B}=Cont, MS) 
-    when is_binary(B) ->
+repair_continuation(#dets_cont{match_program = {match_spec, B}}=Cont, MS) ->
     case ets:is_compiled_ms(B) of
 	true ->
 	    Cont;
 	false ->
-            Cont#dets_cont{match_program = ets:match_spec_compile(MS)}
+            Cont#dets_cont{match_program = {match_spec,
+                                            ets:match_spec_compile(MS)}}
     end;
 repair_continuation(#dets_cont{}=Cont, _MS) ->
     Cont;
@@ -712,7 +716,7 @@ select(Tab, Pat) ->
       Reason :: term().
 
 select(Tab, Pat, N) ->
-    badarg(init_chunk_match(Tab, Pat, select, N), [Tab, Pat, N]).
+    badarg(init_chunk_match(Tab, Pat, select, N, no_safe), [Tab, Pat, N]).
     
 -spec select(Continuation) ->
           {Selection, Continuation2} | '$end_of_table' | {'error', Reason} when
@@ -722,7 +726,7 @@ select(Tab, Pat, N) ->
       Reason :: term().
 
 select(State) when State#dets_cont.what =:= select ->
-    badarg(chunk_match(State), [State]);
+    badarg(chunk_match(State, no_safe), [State]);
 select(Term) ->
     erlang:error(badarg, [Term]).
 
@@ -898,7 +902,7 @@ traverse(Tab, Fun) ->
 			throw({Ref, Other})
 		end
 	end,
-    do_traverse(TFun, [], Tab, Ref).
+    badarg(do_traverse(TFun, [], Tab, Ref), [Tab, Fun]).
 
 -spec update_counter(Name, Key, Increment) -> Result when
       Name :: tab_name(),
@@ -929,30 +933,31 @@ where(Tab, Object) ->
     badarg(treq(Tab, {where, Object}), [Tab, Object]).
 
 do_traverse(Fun, Acc, Tab, Ref) ->
-    safe_fixtable(Tab, true),    
-    Proc = dets_server:get_pid(Tab),
-    try
-        do_trav(Proc, Acc, Fun)
-    catch {Ref, Result} ->
-        Result
-    after 
-        safe_fixtable(Tab, false)
+    case catch dets_server:get_pid(Tab) of
+        {'EXIT', _Reason} ->
+            badarg;
+        Proc ->
+            try
+                do_trav(Proc, Acc, Fun)
+            catch {Ref, Result} ->
+                Result
+            end
     end.
 
 do_trav(Proc, Acc, Fun) ->
     {Spec, MP} = compile_match_spec(object, '_'),
     %% MP not used
-    case req(Proc, {match, MP, Spec, default}) of
+    case req(Proc, {match, MP, Spec, default, safe}) of
 	{cont, State} ->
 	    do_trav(State, Proc, Acc, Fun);
 	Error ->
 	    Error
     end.
     
-do_trav(#dets_cont{bin = eof}, _Proc, Acc, _Fun) ->
-    Acc;
 do_trav(State, Proc, Acc, Fun) ->
-    case req(Proc, {match_init, State}) of
+    case req(Proc, {match_init, State, safe}) of
+        '$end_of_table'->
+            Acc;
 	{cont, {Bins, NewState}} ->
 	    do_trav_bins(NewState, Proc, Acc, Fun, lists:reverse(Bins));
 	Error ->
@@ -972,44 +977,49 @@ do_trav_bins(State, Proc, Acc, Fun, [Bin | Bins]) ->
     end.
 
 safe_match(Tab, Pat, What) ->
-    safe_fixtable(Tab, true),
-    R = do_safe_match(init_chunk_match(Tab, Pat, What, default), []),
-    safe_fixtable(Tab, false),
-    R.
+    do_safe_match(init_chunk_match(Tab, Pat, What, default, safe), []).
     
 do_safe_match({error, Error}, _L) ->
     {error, Error};
 do_safe_match({L, C}, LL) ->
-    do_safe_match(chunk_match(C), L++LL);
+    do_safe_match(chunk_match(C, safe), L++LL);
 do_safe_match('$end_of_table', L) ->
     L;
 do_safe_match(badarg, _L) ->
     badarg.
 
 %% What = object | bindings | select
-init_chunk_match(Tab, Pat, What, N) when is_integer(N), N >= 0; 
-                                         N =:= default ->
+init_chunk_match(Tab, Pat, What, N, Safe) when is_integer(N), N >= 0;
+                                               N =:= default ->
     case compile_match_spec(What, Pat) of
 	{Spec, MP} ->
-            Proc = dets_server:get_pid(Tab),
-	    case req(Proc, {match, MP, Spec, N}) of
-		{done, L} ->
-		    {L, #dets_cont{tab = Tab, proc = Proc, what = What,
-                                   bin = eof}};
-		{cont, State} ->
-		    chunk_match(State#dets_cont{what = What, tab = Tab,
-                                                proc = Proc});
-		Error ->
-		    Error
+            case catch dets_server:get_pid(Tab) of
+                {'EXIT', _Reason} ->
+                    badarg;
+                Proc ->
+                    case req(Proc, {match, MP, Spec, N, Safe}) of
+                        {done, L} ->
+                            {L, #dets_cont{tab = Tab, proc = Proc,
+                                           what = What, bin = eof,
+                                           no_objs = default,
+                                           alloc = <<>>}};
+                        {cont, State} ->
+                            chunk_match(State#dets_cont{what = What,
+                                                        tab = Tab,
+                                                        proc = Proc},
+                                       Safe);
+                        Error ->
+                            Error
+                    end
 	    end;
 	badarg ->
 	    badarg
     end;
-init_chunk_match(_Tab, _Pat, _What, _) ->
+init_chunk_match(_Tab, _Pat, _What, _N, _Safe) ->
     badarg.
 
-chunk_match(#dets_cont{proc = Proc}=State) ->
-    case req(Proc, {match_init, State}) of
+chunk_match(#dets_cont{proc = Proc}=State, Safe) ->
+    case req(Proc, {match_init, State, Safe}) of
         '$end_of_table'=Reply ->
             Reply;
         {cont, {Bins, NewState}} ->
@@ -1024,7 +1034,7 @@ chunk_match(#dets_cont{proc = Proc}=State) ->
                             badarg
                     end;
                 [] ->
-                    chunk_match(NewState);
+                    chunk_match(NewState, Safe);
                 Terms ->
                     {Terms, NewState}
             end;
@@ -1034,17 +1044,17 @@ chunk_match(#dets_cont{proc = Proc}=State) ->
 
 do_foldl_bins(Bins, true) ->
     foldl_bins(Bins, []);
-do_foldl_bins(Bins, MP) ->
+do_foldl_bins(Bins, {match_spec, MP}) ->
     foldl_bins(Bins, MP, []).
 
 foldl_bins([], Terms) ->
-    %% Preserve time order (version 9). 
+    %% Preserve time order.
     Terms;
 foldl_bins([Bin | Bins], Terms) ->    
     foldl_bins(Bins, [binary_to_term(Bin) | Terms]).
 
 foldl_bins([], _MP, Terms) ->
-    %% Preserve time order (version 9).
+    %% Preserve time order.
     Terms;
 foldl_bins([Bin | Bins], MP, Terms) ->
     Term = binary_to_term(Bin),
@@ -1059,11 +1069,8 @@ foldl_bins([Bin | Bins], MP, Terms) ->
 compile_match_spec(select, ?PATTERN_TO_OBJECT_MATCH_SPEC('_') = Spec) ->
     {Spec, true};
 compile_match_spec(select, Spec) ->
-    case catch ets:match_spec_compile(Spec) of
-	X when is_binary(X) ->
-	    {Spec, X};
-	_ ->
-	    badarg
+    try {Spec, {match_spec, ets:match_spec_compile(Spec)}}
+    catch error:_ -> badarg
     end;
 compile_match_spec(object, Pat) ->
     compile_match_spec(select, ?PATTERN_TO_OBJECT_MATCH_SPEC(Pat));
@@ -1084,16 +1091,11 @@ defaults(Tab, Args) ->
                            delayed_write = ?DEFAULT_CACHE,
                            auto_save = timer:minutes(?DEFAULT_AUTOSAVE),
                            access = read_write,
-                           version = default,
                            debug = false},
     Fun = fun repl/2,
     Defaults = lists:foldl(Fun, Defaults0, Args),
-    case Defaults#open_args.version of
-        8 ->
-            Defaults#open_args{max_no_slots = default};
-        _ ->
-            is_comp_min_max(Defaults)
-    end.
+    true = is_list(Defaults#open_args.file),
+    is_comp_min_max(Defaults).
 
 to_list(T) when is_atom(T) -> atom_to_list(T);
 to_list(T) -> T.
@@ -1122,7 +1124,6 @@ repl({file, File}, Defs) ->
 repl({keypos, P}, Defs) when is_integer(P), P > 0 ->
     Defs#open_args{keypos =P};
 repl({max_no_slots, I}, Defs)  ->
-    %% Version 9 only.
     MaxSlots = is_max_no_slots(I),
     Defs#open_args{max_no_slots = MaxSlots};
 repl({min_no_slots, I}, Defs)  ->
@@ -1138,8 +1139,9 @@ repl({type, T}, Defs) ->
     mem(T, [set, bag, duplicate_bag]),
     Defs#open_args{type =T};
 repl({version, Version}, Defs) ->
-    V = is_version(Version),
-    Defs#open_args{version = V};
+    %% Backwards compatibility.
+    is_version(Version),
+    Defs;
 repl({debug, Bool}, Defs) ->
     %% Not documented.
     mem(Bool, [true, false]),
@@ -1155,16 +1157,15 @@ is_max_no_slots(default) -> default;
 is_max_no_slots(I) when is_integer(I), I > 0, I < 1 bsl 31 -> I.
 
 is_comp_min_max(Defs) ->
-    #open_args{max_no_slots = Max, min_no_slots = Min, version = V} = Defs,
-    case V of
-	_ when Min =:= default -> Defs;
-	_ when Max =:= default -> Defs;
-	_ -> true = Min =< Max, Defs
+    #open_args{max_no_slots = Max, min_no_slots = Min} = Defs,
+    if
+        Min =:= default -> Defs;
+	Max =:= default -> Defs;
+	true -> true = Min =< Max, Defs
     end.
 
-is_version(default) -> default;
-is_version(8) -> 8;
-is_version(9) -> 9.
+is_version(default) -> true;
+is_version(9) -> true.
 
 mem(X, L) ->
     case lists:member(X, L) of
@@ -1241,13 +1242,8 @@ req(Proc, R) ->
 	{'DOWN', Ref, process, Proc, _Info} ->
             badarg;
 	{Proc, Reply} ->
-	    erlang:demonitor(Ref),
-	    receive 
-		{'DOWN', Ref, process, Proc, _Reason} ->
-                    Reply
-	    after 0 ->
-                    Reply
-	    end
+	    erlang:demonitor(Ref, [flush]),
+	    Reply
     end.
 
 %% Inlined.
@@ -1284,10 +1280,24 @@ badarg_exit(Reply, _A) ->
 
 init(Parent, Server) ->
     process_flag(trap_exit, true),
-    open_file_loop(#head{parent = Parent, server = Server}).
-
-open_file_loop(Head) ->
-    open_file_loop(Head, 0).
+    %% The Dets server pretends the file is open before
+    %% internal_open() has been called, which means that unless the
+    %% internal_open message is applied first, other processes can
+    %% find the pid by calling dets_server:get_pid() and do things
+    %% before Head has been initialized properly.
+    receive
+        ?DETS_CALL(From, {internal_open, Ref, Args}=Op) ->
+            try do_internal_open(Parent, Server, From, Ref, Args) of
+                Head ->
+                    open_file_loop(Head, 0)
+            catch
+                exit:normal ->
+                    exit(normal);
+                _:Bad:Stacktrace ->
+                    bug_found(no_name, Op, Bad, Stacktrace, From),
+                    exit(Bad) % give up
+            end
+    end.
 
 open_file_loop(Head, N) when element(1, Head#head.update_mode) =:= error ->
     open_file_loop2(Head, N);
@@ -1301,7 +1311,7 @@ open_file_loop(Head, N) ->
         %% - wait 1 ms after each update.
         %% next is normally followed by lookup, but since lookup is also
         %% used when not traversing the table, it is not prioritized.
-        ?DETS_CALL(From, {match_init, _State} = Op) ->
+        ?DETS_CALL(From, {match_init, _State, _Safe} = Op) ->
             do_apply_op(Op, From, Head, N);
         ?DETS_CALL(From, {bchunk, _State} = Op) ->
             do_apply_op(Op, From, Head, N);
@@ -1349,7 +1359,7 @@ open_file_loop2(Head, N) ->
                                   ?MODULE, [], Head);
         Message ->
             error_logger:format("** dets: unexpected message"
-                                "(ignored): ~w~n", [Message]),
+                                "(ignored): ~tw~n", [Message]),
             open_file_loop(Head, N)
     end.
 
@@ -1366,28 +1376,8 @@ do_apply_op(Op, From, Head, N) ->
     catch 
         exit:normal -> 
             exit(normal);
-        _:Bad -> 
-            Name = Head#head.name,
-            case dets_utils:debug_mode() of
-                true ->
-                    %% If stream_op/5 found more requests, this is not
-                    %% the last operation.
-                    error_logger:format
-                      ("** dets: Bug was found when accessing table ~w,~n"
-                       "** dets: operation was ~p and reply was ~w.~n"
-                       "** dets: Stacktrace: ~w~n",
-                       [Name, Op, Bad, erlang:get_stacktrace()]);
-                false ->
-                    error_logger:format
-                      ("** dets: Bug was found when accessing table ~w~n",
-                       [Name])
-            end,
-            if
-                From =/= self() ->
-                    From ! {self(), {error, {dets_bug, Name, Op, Bad}}};
-                true -> % auto_save | may_grow | {delayed_write, _}
-                    ok
-            end,
+        _:Bad:Stacktrace -> 
+            bug_found(Head#head.name, Op, Bad, Stacktrace, From),
             open_file_loop(Head, N)
     end.
 
@@ -1395,10 +1385,7 @@ apply_op(Op, From, Head, N) ->
     case Op of
 	{add_user, Tab, OpenArgs}->
             #open_args{file = Fname, type = Type, keypos = Keypos, 
-                       ram_file = Ram, access = Access, 
-		       version = Version} = OpenArgs,
-            VersionOK = (Version =:= default) or 
-                        (Head#head.version =:= Version),
+                       ram_file = Ram, access = Access} = OpenArgs,
 	    %% min_no_slots and max_no_slots are not tested
 	    Res = if
 		      Tab =:= Head#head.name,
@@ -1406,7 +1393,6 @@ apply_op(Op, From, Head, N) ->
 		      Head#head.type =:= Type,
 		      Head#head.ram_file =:= Ram,
 		      Head#head.access =:= Access,
-		      VersionOK,
 		      Fname =:= Head#head.filename ->
 			  ok;
 		      true ->
@@ -1422,7 +1408,7 @@ apply_op(Op, From, Head, N) ->
 		    Head;
 		_Dirty when N =:= 0 -> % dirty or new_dirty
 		    %% The updates seems to have declined
-		    dets_utils:vformat("** dets: Auto save of ~p\n", 
+		    dets_utils:vformat("** dets: Auto save of ~tp\n",
                                        [Head#head.name]), 
 		    {NewHead, _Res} = perform_save(Head, true),
 		    erlang:garbage_collect(),
@@ -1462,21 +1448,14 @@ apply_op(Op, From, Head, N) ->
             From ! {self(), Res},
             ok;
 	{internal_open, Ref, Args} ->
-	    ?PROFILE(ep:do()),
-	    case do_open_file(Args, Head#head.parent, Head#head.server,Ref) of
-		{ok, H2} -> 
-		    From ! {self(), ok},
-		    H2;
-		Error -> 
-		    From ! {self(), Error},
-		    exit(normal)
-	    end;
+            do_internal_open(Head#head.parent, Head#head.server, From,
+                             Ref, Args);
 	may_grow when Head#head.update_mode =/= saved ->
 	    if
 		Head#head.update_mode =:= dirty ->
 		    %% Won't grow more if the table is full.
 		    {H2, _Res} = 
-			(Head#head.mod):may_grow(Head, 0, many_times),
+			dets_v9:may_grow(Head, 0, many_times),
 		    {N + 1, H2};
 		true -> 
 		    ok
@@ -1506,21 +1485,10 @@ apply_op(Op, From, Head, N) ->
 	    From ! {self(), Res},
 	    erlang:garbage_collect(),
 	    {0, H2};
-	{delete_key, Keys} when Head#head.update_mode =:= dirty ->
-	    if
-		Head#head.version =:= 8 ->
-		    {H2, Res} = fdelete_key(Head, Keys),
-		    From ! {self(), Res},
-		    {N + 1, H2};
-		true ->
-		    stream_op(Op, From, [], Head, N)
-	    end;
+	{delete_key, _Keys} when Head#head.update_mode =:= dirty ->
+            stream_op(Op, From, [], Head, N);
 	{delete_object, Objs} when Head#head.update_mode =:= dirty ->
 	    case check_objects(Objs, Head#head.keypos) of
-		true when Head#head.version =:= 8 ->
-		    {H2, Res} = fdelete_object(Head, Objs),
-		    From ! {self(), Res},
-		    {N + 1, H2};
 		true ->
 		    stream_op(Op, From, [], Head, N);
 		false ->
@@ -1538,10 +1506,6 @@ apply_op(Op, From, Head, N) ->
             H2;
 	{insert, Objs} when Head#head.update_mode =:= dirty ->
 	    case check_objects(Objs, Head#head.keypos) of
-		true when Head#head.version =:= 8 ->
-		    {H2, Res} = finsert(Head, Objs),
-		    From ! {self(), Res},
-		    {N + 1, H2};
 		true ->
 		    stream_op(Op, From, [], Head, N);
 		false ->
@@ -1552,22 +1516,19 @@ apply_op(Op, From, Head, N) ->
             {H2, Res} = finsert_new(Head, Objs),
             From ! {self(), Res},
             {N + 1, H2};
-	{lookup_keys, Keys}  when Head#head.version =:= 8 ->
-	    {H2, Res} = flookup_keys(Head, Keys),
-	    From ! {self(), Res},
-	    H2;
 	{lookup_keys, _Keys} ->
 	    stream_op(Op, From, [], Head, N);
-	{match_init, State} ->
-	    {H2, Res} = fmatch_init(Head, State),
+	{match_init, State, Safe} ->
+	    {H1, Res} = fmatch_init(Head, State),
+            H2 = case Res of
+                     {cont,_} -> H1;
+                     _ when Safe =:= no_safe-> H1;
+                     _ when Safe =:= safe -> do_safe_fixtable(H1, From, false)
+                 end,
 	    From ! {self(), Res},
 	    H2;
-	{match, MP, Spec, NObjs} ->
-	    {H2, Res} = fmatch(Head, MP, Spec, NObjs),
-	    From ! {self(), Res},
-	    H2;
-	{member, Key} when Head#head.version =:= 8 ->
-	    {H2, Res} = fmember(Head, Key),
+	{match, MP, Spec, NObjs, Safe} ->
+	    {H2, Res} = fmatch(Head, MP, Spec, NObjs, Safe, From),
 	    From ! {self(), Res},
 	    H2;
 	{member, _Key} = Op ->
@@ -1577,11 +1538,15 @@ apply_op(Op, From, Head, N) ->
 	    From ! {self(), Res},
 	    H2;
 	{match_delete, State} when Head#head.update_mode =:= dirty ->
-	    {H2, Res} = fmatch_delete(Head, State),
+	    {H1, Res} = fmatch_delete(Head, State),
+            H2 = case Res of
+                     {cont,_S,_N} -> H1;
+                     _ -> do_safe_fixtable(H1, From, false)
+                 end,
 	    From ! {self(), Res},
 	    {N + 1, H2};
 	{match_delete_init, MP, Spec} when Head#head.update_mode =:= dirty ->
-	    {H2, Res} = fmatch_delete_init(Head, MP, Spec),
+	    {H2, Res} = fmatch_delete_init(Head, MP, Spec, From),
 	    From ! {self(), Res},
 	    {N + 1, H2};
 	{safe_fixtable, Bool} ->
@@ -1606,7 +1571,7 @@ apply_op(Op, From, Head, N) ->
 	    apply_op(WriteOp, From, H2, 0);
 	WriteOp when Head#head.access =:= read_write,
 		     Head#head.update_mode =:= saved ->
-	    case catch (Head#head.mod):mark_dirty(Head) of
+	    case catch dets_v9:mark_dirty(Head) of
 		ok ->
 		    start_auto_save_timer(Head),
 		    H2 = Head#head{update_mode = dirty},
@@ -1621,13 +1586,48 @@ apply_op(Op, From, Head, N) ->
 	    ok
     end.
 
+bug_found(Name, Op, Bad, Stacktrace, From) ->
+    case dets_utils:debug_mode() of
+        true ->
+            %% If stream_op/5 found more requests, this is not
+            %% the last operation.
+            error_logger:format
+              ("** dets: Bug was found when accessing table ~tw,~n"
+               "** dets: operation was ~tp and reply was ~tw.~n"
+               "** dets: Stacktrace: ~tw~n",
+               [Name, Op, Bad, Stacktrace]);
+        false ->
+            error_logger:format
+              ("** dets: Bug was found when accessing table ~tw~n",
+               [Name])
+    end,
+    if
+        From =/= self() ->
+            From ! {self(), {error, {dets_bug, Name, Op, Bad}}},
+            ok;
+        true -> % auto_save | may_grow | {delayed_write, _}
+            ok
+    end.
+
+do_internal_open(Parent, Server, From, Ref, Args) ->
+    ?PROFILE(ep:do()),
+    case do_open_file(Args, Parent, Server, Ref) of
+        {ok, Head} ->
+            From ! {self(), ok},
+            Head;
+        Error ->
+            From ! {self(), Error},
+            exit(normal)
+    end.
+
 start_auto_save_timer(Head) when Head#head.auto_save =:= infinity ->
     ok;
 start_auto_save_timer(Head) ->
     Millis = Head#head.auto_save,
-    erlang:send_after(Millis, self(), ?DETS_CALL(self(), auto_save)).
+    _Ref = erlang:send_after(Millis, self(), ?DETS_CALL(self(), auto_save)),
+    ok.
 
-%% Version 9: Peek the message queue and try to evaluate several
+%% Peek the message queue and try to evaluate several
 %% lookup requests in parallel. Evalute delete_object, delete and
 %% insert as well.
 stream_op(Op, Pid, Pids, Head, N) ->
@@ -1674,7 +1674,7 @@ stream_end(Head, Pids0, C, N, Next) ->
 	    %%  replies to delete and insert requests even if the
 	    %%  latter requests were made before the lookup requests,
 	    %%  which can be confusing.)
-	    lookup_replies(Found),
+	    _ = lookup_replies(Found),
 	    stream_end1(Pids0, Next, N, C, Head1, PwriteList);
 	Head1 when is_record(Head1, head) ->
 	    stream_end2(Pids0, Pids0, Next, N, C, Head1, ok);	    
@@ -1724,7 +1724,7 @@ lookup_replies(Q) ->
 lookup_replies(P, O, []) ->
     lookup_reply(P, O);
 lookup_replies(P, O, [{P2,O2} | L]) ->
-    lookup_reply(P, O),
+    _ = lookup_reply(P, O),
     lookup_replies(P2, lists:append(O2), L).
 
 %% If a list of Pid then op was {member, Key}. Inlined.
@@ -1737,7 +1737,7 @@ lookup_reply(P, O) ->
 %% Callback functions for system messages handling.
 %%-----------------------------------------------------------------
 system_continue(_Parent, _, Head) ->
-    open_file_loop(Head).
+    open_file_loop(Head, 0).
 
 system_terminate(Reason, _Parent, _, Head) ->
     _NewHead = do_stop(Head),
@@ -1770,10 +1770,12 @@ read_file_header(FileName, Access, RamFile) ->
         dets_utils:pread_close(Fd, FileName, ?FILE_FORMAT_VERSION_POS, 4),
     if 
         Version =< 8 ->
-            dets_v8:read_file_header(Fd, FileName);
+            _ = file:close(Fd),
+            throw({error, {format_8_no_longer_supported, FileName}});
         Version =:= 9 ->
             dets_v9:read_file_header(Fd, FileName);
         true ->
+            _ = file:close(Fd),
             throw({error, {not_a_dets_file, FileName}})
     end.
 
@@ -1781,19 +1783,22 @@ fclose(Head) ->
     {Head1, Res} = perform_save(Head, false),
     case Head1#head.ram_file of
 	true -> 
-	    ignore;
+            Res;
 	false -> 
             dets_utils:stop_disk_map(),
-	    file:close(Head1#head.fptr)
-    end,
-    Res.
+	    Res2 = file:close(Head1#head.fptr),
+            if
+                Res2 =:= ok -> Res;
+                true -> Res2
+            end
+    end.
 
 %% -> {NewHead, Res}
 perform_save(Head, DoSync) when Head#head.update_mode =:= dirty;
 				Head#head.update_mode =:= new_dirty ->
     case catch begin
                    {Head1, []} = write_cache(Head),
-                   {Head2, ok} = (Head1#head.mod):do_perform_save(Head1),
+                   {Head2, ok} = dets_v9:do_perform_save(Head1),
                    ok = ensure_written(Head2, DoSync),
                    {Head2#head{update_mode = saved}, ok}
                end of
@@ -1826,7 +1831,7 @@ ensure_written(Head, false) when not Head#head.ram_file ->
 do_bchunk_init(Head, Tab) ->
     case catch write_cache(Head) of
 	{H2, []} ->
-	    case (H2#head.mod):table_parameters(H2) of
+	    case dets_v9:table_parameters(H2) of
 		undefined ->
 		    {H2, {error, old_version}};
 		Parms ->
@@ -1835,9 +1840,9 @@ do_bchunk_init(Head, Tab) ->
                               L =:= <<>> -> eof;
                               true -> <<>>
                           end,
-                    C0 = #dets_cont{no_objs = default, bin = Bin, alloc = L},
 		    BinParms = term_to_binary(Parms),
-		    {H2, {C0#dets_cont{tab = Tab, proc = self(),what = bchunk},
+		    {H2, {#dets_cont{no_objs = default, bin = Bin, alloc = L,
+                                     tab = Tab, proc = self(),what = bchunk},
                           [BinParms]}}
 	    end;
 	{NewHead, _} = HeadError when is_record(NewHead, head) ->
@@ -1877,16 +1882,8 @@ do_delete_all_objects(Head) ->
 	  max_no_slots = MaxSlots, cache = Cache} = Head, 
     CacheSz = dets_utils:cache_size(Cache),
     ok = dets_utils:truncate(Fd, Fname, bof),
-    (Head#head.mod):initiate_file(Fd, Tab, Fname, Type, Kp, MinSlots, MaxSlots,
-				  Ram, CacheSz, Auto, true).
-
-%% -> {NewHead, Reply}, Reply = ok | Error.
-fdelete_key(Head, Keys) ->
-    do_delete(Head, Keys, delete_key).
-
-%% -> {NewHead, Reply}, Reply = ok | badarg | Error.
-fdelete_object(Head, Objects) ->
-    do_delete(Head, Objects, delete_object).
+    dets_v9:initiate_file(Fd, Tab, Fname, Type, Kp, MinSlots, MaxSlots,
+                          Ram, CacheSz, Auto, true).
 
 ffirst(H) ->
     Ref = make_ref(),
@@ -1903,7 +1900,7 @@ ffirst1(H) ->
     ffirst(NH, 0).
 
 ffirst(H, Slot) ->
-    case (H#head.mod):slot_objs(H, Slot) of
+    case dets_v9:slot_objs(H, Slot) of
 	'$end_of_table' -> {H, '$end_of_table'};
 	[] -> ffirst(H, Slot+1);
 	[X|_] -> {H, element(H#head.keypos, X)}
@@ -1947,7 +1944,9 @@ do_safe_fixtable(Head, Pid, true) ->
     case Head#head.fixed of 
 	false -> 
 	    link(Pid),
-	    Fixed = {erlang:now(), [{Pid, 1}]},
+	    MonTime = erlang:monotonic_time(),
+	    TimeOffset = erlang:time_offset(),
+	    Fixed = {{MonTime, TimeOffset}, [{Pid, 1}]},
 	    Ftab = dets_utils:get_freelists(Head),
 	    Head#head{fixed = Fixed, freelists = {Ftab, Ftab}};
 	{TimeStamp, Counters} ->
@@ -1993,7 +1992,7 @@ remove_fix(Head, Pid, How) ->
     end.
 
 do_stop(Head) ->
-    unlink_fixing_procs(Head),
+    _NewHead = unlink_fixing_procs(Head),
     fclose(Head).
 
 unlink_fixing_procs(Head) ->
@@ -2001,7 +2000,7 @@ unlink_fixing_procs(Head) ->
 	false ->
 	    Head;
 	{_, Counters} ->
-	    lists:map(fun({Pid, _Counter}) -> unlink(Pid) end, Counters),
+	    lists:foreach(fun({Pid, _Counter}) -> unlink(Pid) end, Counters),
 	    Head#head{fixed = false, 
 		      freelists = dets_utils:get_freelists(Head)}
     end.
@@ -2012,8 +2011,9 @@ check_growth(Head) ->
     NoThings = no_things(Head),
     if
 	NoThings > Head#head.next ->
-	    erlang:send_after(200, self(), 
-			      ?DETS_CALL(self(), may_grow)); % Catch up.
+	    _Ref = erlang:send_after
+                     (200, self(), ?DETS_CALL(self(), may_grow)), % Catch up.
+            ok;
 	true ->
 	    ok
     end.
@@ -2037,7 +2037,7 @@ finfo(H, auto_save) -> {H, H#head.auto_save};
 finfo(H, bchunk_format) -> 
     case catch write_cache(H) of
         {H2, []} ->
-            case (H2#head.mod):table_parameters(H2) of
+            case dets_v9:table_parameters(H2) of
                 undefined = Undef ->
                     {H2, Undef};
                 Parms ->
@@ -2070,10 +2070,25 @@ finfo(H, no_keys) ->
 	{H2, _} = HeadError when is_record(H2, head) ->
 	    HeadError
     end;
-finfo(H, no_slots) -> {H, (H#head.mod):no_slots(H)};
+finfo(H, no_slots) -> {H, dets_v9:no_slots(H)};
 finfo(H, pid) -> {H, self()};
 finfo(H, ram_file) -> {H, H#head.ram_file};
-finfo(H, safe_fixed) -> {H, H#head.fixed};
+finfo(H, safe_fixed) ->
+    {H,
+     case H#head.fixed of
+	 false ->
+	     false;
+	 {{FixMonTime, TimeOffset}, RefList} ->
+	     {make_timestamp(FixMonTime, TimeOffset), RefList}
+     end};
+finfo(H, safe_fixed_monotonic_time) ->
+    {H,
+     case H#head.fixed of
+	 false ->
+	     false;
+	 {{FixMonTime, _TimeOffset}, RefList} ->
+	     {FixMonTime, RefList}
+     end};
 finfo(H, size) -> 
     case catch write_cache(H) of
 	{H2, []} ->
@@ -2082,7 +2097,7 @@ finfo(H, size) ->
 	    HeadError
     end;
 finfo(H, type) -> {H, H#head.type};
-finfo(H, version) -> {H, H#head.version};
+finfo(H, version) -> {H, 9};
 finfo(H, _) -> {H, undefined}.
 
 file_size(Fd, FileName) -> 
@@ -2091,13 +2106,13 @@ file_size(Fd, FileName) ->
 
 test_bchunk_format(_Head, undefined) ->
     false;
-test_bchunk_format(Head, _Term) when Head#head.version =:= 8 ->
-    false;
 test_bchunk_format(Head, Term) ->
     dets_v9:try_bchunk_header(Term, Head) =/= not_ok.
 
 do_open_file([Fname, Verbose], Parent, Server, Ref) ->
     case catch fopen2(Fname, Ref) of
+	{error, {tooshort, _}} ->
+            err({error, {not_a_dets_file, Fname}});
 	{error, _Reason} = Error ->
 	    err(Error);
 	{ok, Head} ->
@@ -2107,15 +2122,14 @@ do_open_file([Fname, Verbose], Parent, Server, Ref) ->
 	    Error;
 	Bad ->
 	    error_logger:format
-	      ("** dets: Bug was found in open_file/1, reply was ~w.~n", 
+	      ("** dets: Bug was found in open_file/1, reply was ~tw.~n",
 	       [Bad]),
 	    {error, {dets_bug, Fname, Bad}}
     end;
-do_open_file([Tab, OpenArgs, Verb], Parent, Server, Ref) ->
+do_open_file([Tab, OpenArgs, Verb], Parent, Server, _Ref) ->
     case catch fopen3(Tab, OpenArgs) of
 	{error, {tooshort, _}} ->
-	    file:delete(OpenArgs#open_args.file),
-	    do_open_file([Tab, OpenArgs, Verb], Parent, Server, Ref);
+            err({error, {not_a_dets_file, OpenArgs#open_args.file}});
 	{error, _Reason} = Error ->
 	    err(Error);
 	{ok, Head} ->
@@ -2126,7 +2140,7 @@ do_open_file([Tab, OpenArgs, Verb], Parent, Server, Ref) ->
 	Bad ->
 	    error_logger:format
 	      ("** dets: Bug was found in open_file/2, arguments were~n"
-	       "** dets: ~w and reply was ~w.~n", 
+	       "** dets: ~tw and reply was ~tw.~n",
 	       [OpenArgs, Bad]),
 	    {error, {dets_bug, Tab, {open_file, OpenArgs}, Bad}}
     end.
@@ -2160,7 +2174,7 @@ do_finit(Head, Init, Format, NoSlots) ->
     #head{fptr = Fd, type = Type, keypos = Kp, auto_save = Auto,
           cache = Cache, filename = Fname, ram_file = Ram,
 	  min_no_slots = MinSlots0, max_no_slots = MaxSlots,
-          name = Tab, update_mode = UpdateMode, mod = HMod} = Head,
+          name = Tab, update_mode = UpdateMode} = Head,
     CacheSz = dets_utils:cache_size(Cache),
     {How, Head1} =
 	case Format of
@@ -2173,9 +2187,10 @@ do_finit(Head, Init, Format, NoSlots) ->
 			{general_init, Head};
 		    true ->
 			ok = dets_utils:truncate(Fd, Fname, bof),
-			{ok, H} = HMod:initiate_file(Fd, Tab, Fname, Type, Kp,
-						     MinSlots, MaxSlots, Ram,
-						     CacheSz, Auto, false),
+			{ok, H} =
+                            dets_v9:initiate_file(Fd, Tab, Fname, Type, Kp,
+                                                  MinSlots, MaxSlots, Ram,
+                                                  CacheSz, Auto, false),
 			{general_init, H}
 		end;
 	    bchunk ->
@@ -2184,7 +2199,7 @@ do_finit(Head, Init, Format, NoSlots) ->
 	end,
     case How of
 	bchunk_init -> 
-	    case HMod:bchunk_init(Head1, Init) of
+	    case dets_v9:bchunk_init(Head1, Init) of
 		{ok, NewHead} ->
 		    {ok, NewHead#head{update_mode = dirty}};
 		Error ->
@@ -2192,10 +2207,10 @@ do_finit(Head, Init, Format, NoSlots) ->
 	    end;
 	general_init ->
 	    Cntrs = ets:new(dets_init, []),
-	    Input = HMod:bulk_input(Head1, Init, Cntrs),
+	    Input = dets_v9:bulk_input(Head1, Init, Cntrs),
 	    SlotNumbers = {Head1#head.min_no_slots, bulk_init, MaxSlots},
 	    {Reply, SizeData} = 
-		do_sort(Head1, SlotNumbers, Input, Cntrs, Fname, not_used),
+		do_sort(Head1, SlotNumbers, Input, Cntrs, Fname),
 	    Bulk = true,
 	    case Reply of 
 		{ok, NoDups, H1} ->
@@ -2229,13 +2244,18 @@ fmatch_init(Head, C) ->
     end.
 
 %% -> {NewHead, Result}
-fmatch(Head, MP, Spec, N) ->
+fmatch(Head, MP, Spec, N, Safe, From) ->
     KeyPos = Head#head.keypos,
     case find_all_keys(Spec, KeyPos, []) of
 	[] -> 
 	    %% Complete match
 	    case catch write_cache(Head) of
-		{NewHead, []} ->
+		{Head1, []} ->
+                    NewHead =
+                        case Safe of
+                            safe -> do_safe_fixtable(Head1, From, true);
+                            no_safe -> Head1
+                        end,
 		    C0 = init_scan(NewHead, N),
 		    {NewHead, {cont, C0#dets_cont{match_program = MP}}};
 		{NewHead, _} = HeadError when is_record(NewHead, head) ->
@@ -2246,7 +2266,8 @@ fmatch(Head, MP, Spec, N) ->
 	    {NewHead, Reply} = flookup_keys(Head, Keys),
 	    case Reply of
 		Objs when is_list(Objs) ->
-		    MatchingObjs = ets:match_spec_run(Objs, MP),
+                    {match_spec, MS} = MP,
+		    MatchingObjs = ets:match_spec_run(Objs, MS),
 		    {NewHead, {done, MatchingObjs}};
 		Error ->
 		    {NewHead, Error}
@@ -2300,12 +2321,12 @@ contains_variable(_) ->
     false.
 
 %% -> {NewHead, Res}
-fmatch_delete_init(Head, MP, Spec)  ->
+fmatch_delete_init(Head, MP, Spec, From) ->
     KeyPos = Head#head.keypos,
     case catch 
         case find_all_keys(Spec, KeyPos, []) of
             [] -> 
-                do_fmatch_delete_var_keys(Head, MP, Spec);
+                do_fmatch_delete_var_keys(Head, MP, Spec, From);
             List ->
                 Keys = lists:usort(List),
                 do_fmatch_constant_keys(Head, Keys, MP)
@@ -2326,7 +2347,7 @@ fmatch_delete(Head, C) ->
 	{[], _} ->
 	    {Head, {done, 0}};
 	{RTs, NC} ->
-	    MP = C#dets_cont.match_program,
+	    {match_spec, MP} = C#dets_cont.match_program,
 	    case catch filter_binary_terms(RTs, MP, []) of
 		{'EXIT', _} ->
                     Bad = dets_utils:bad_object(fmatch_delete, RTs),
@@ -2336,7 +2357,7 @@ fmatch_delete(Head, C) ->
 	    end
     end.
 
-do_fmatch_delete_var_keys(Head, _MP, ?PATTERN_TO_TRUE_MATCH_SPEC('_')) 
+do_fmatch_delete_var_keys(Head, _MP, ?PATTERN_TO_TRUE_MATCH_SPEC('_'), _From)
             when Head#head.fixed =:= false ->
     %% Handle the case where the file is emptied efficiently.
     %% Empty the cache just to get the number of objects right.
@@ -2348,12 +2369,13 @@ do_fmatch_delete_var_keys(Head, _MP, ?PATTERN_TO_TRUE_MATCH_SPEC('_'))
 	Reply ->
 	    Reply
     end;
-do_fmatch_delete_var_keys(Head, MP, _Spec) ->
-    {NewHead, []} = write_cache(Head),
+do_fmatch_delete_var_keys(Head, MP, _Spec, From) ->
+    Head1 = do_safe_fixtable(Head, From, true),
+    {NewHead, []} = write_cache(Head1),
     C0 = init_scan(NewHead, default),
     {NewHead, {cont, C0#dets_cont{match_program = MP}, 0}}.
 
-do_fmatch_constant_keys(Head, Keys, MP) ->
+do_fmatch_constant_keys(Head, Keys, {match_spec, MP}) ->
     case flookup_keys(Head, Keys) of
 	{NewHead, ReadTerms} when is_list(ReadTerms) ->
 	    Terms = filter_terms(ReadTerms, MP, []),
@@ -2402,18 +2424,8 @@ do_delete(Head, Things, What) ->
 	    HeadError
     end.
 
-fmember(Head, Key) ->
-    case catch begin
-                   {Head2, [{_NoPid,Objs}]} = 
-                       update_cache(Head, [Key], {lookup, nopid}),
-                   {Head2, Objs =/= []}
-               end of
-        {NewHead, _} = Reply when is_record(NewHead, head) ->
-            Reply
-    end.
-
 fnext(Head, Key) ->
-    Slot = (Head#head.mod):db_hash(Key, Head),
+    Slot = dets_v9:db_hash(Key, Head),
     Ref = make_ref(),
     case catch {Ref, fnext(Head, Key, Slot)} of
 	{Ref, {H, R}} -> 
@@ -2424,7 +2436,7 @@ fnext(Head, Key) ->
 
 fnext(H, Key, Slot) ->
     {NH, []} = write_cache(H),
-    case (H#head.mod):slot_objs(NH, Slot) of
+    case dets_v9:slot_objs(NH, Slot) of
 	'$end_of_table' -> {NH, '$end_of_table'};
 	L -> fnext_search(NH, Key, Slot, L)
     end.
@@ -2438,7 +2450,7 @@ fnext_search(H, K, Slot, L) ->
 
 %% We've got to continue to search for the next key in the next slot
 fnext_slot(H, K, Slot) ->
-    case (H#head.mod):slot_objs(H, Slot) of
+    case dets_v9:slot_objs(H, Slot) of
 	'$end_of_table' -> {H, '$end_of_table'};
 	[] -> fnext_slot(H, K, Slot+1);
 	L -> {H, element(H#head.keypos, hd(L))}
@@ -2465,13 +2477,11 @@ fopen2(Fname, Tab) ->
 	{ok, _} ->
 	    Acc = read_write,
 	    Ram = false, 
-	    %% Fd is not always closed upon error, but exit is soon called.
 	    {ok, Fd, FH} = read_file_header(Fname, Acc, Ram),
-            Mod = FH#fileheader.mod,
-            Do = case Mod:check_file_header(FH, Fd) of
-                     {ok, Head1, ExtraInfo} ->
+            Do = case dets_v9:check_file_header(FH, Fd) of
+                     {ok, Head1} ->
                          Head2 = Head1#head{filename = Fname},
-                         try {ok, Mod:init_freelist(Head2, ExtraInfo)}
+                         try {ok, dets_v9:init_freelist(Head2)}
                          catch
                              throw:_ ->
                                  {repair, " has bad free lists, repairing ..."}
@@ -2484,9 +2494,8 @@ fopen2(Fname, Tab) ->
                  end,
             case Do of
 		{repair, Mess} ->
-                    io:format(user, "dets: file ~p~s~n", [Fname, Mess]),
-                    Version = default,
-                    case fsck(Fd, Tab, Fname, FH, default, default, Version) of
+                    io:format(user, "dets: file ~tp~s~n", [Fname, Mess]),
+                    case fsck(Fd, Tab, Fname, FH, default, default) of
                         ok ->
                             fopen2(Fname, Tab);
                         Error ->
@@ -2519,34 +2528,23 @@ fopen_existing_file(Tab, OpenArgs) ->
     #open_args{file = Fname, type = Type, keypos = Kp, repair = Rep,
                min_no_slots = MinSlots, max_no_slots = MaxSlots,
                ram_file = Ram, delayed_write = CacheSz, auto_save =
-               Auto, access = Acc, version = Version, debug = Debug} =
+               Auto, access = Acc, debug = Debug} =
         OpenArgs,
-    %% Fd is not always closed upon error, but exit is soon called.
     {ok, Fd, FH} = read_file_header(Fname, Acc, Ram),
-    V9 = (Version =:= 9) or (Version =:= default),
     MinF = (MinSlots =:= default) or (MinSlots =:= FH#fileheader.min_no_slots),
     MaxF = (MaxSlots =:= default) or (MaxSlots =:= FH#fileheader.max_no_slots),
-    Mod = (FH#fileheader.mod),
-    Wh = case Mod:check_file_header(FH, Fd) of
-	     {ok, Head, true} when Rep =:= force, Acc =:= read_write,
-				   FH#fileheader.version =:= 9,
-				   FH#fileheader.no_colls =/= undefined,
-				   MinF, MaxF, V9 ->
-		 {compact, Head, true};
-             {ok, _Head, _Extra} when Rep =:= force, Acc =:= read ->
+    Wh = case dets_v9:check_file_header(FH, Fd) of
+	     {ok, Head} when Rep =:= force, Acc =:= read_write,
+                             FH#fileheader.no_colls =/= undefined,
+                             MinF, MaxF ->
+	         {compact, Head};
+             {ok, _Head} when Rep =:= force, Acc =:= read ->
                  throw({error, {access_mode, Fname}});
-	     {ok, Head, need_compacting} when Acc =:= read ->
-                 {final, Head, true}; % Version 8 only.
-	     {ok, _Head, need_compacting} when Rep =:= true ->
-		 %% The file needs to be compacted due to a very big
-		 %% and fragmented free_list. Version 8 only.
-		 M = " is now compacted ...",
-		 {repair, M};
-	     {ok, _Head, _Extra} when Rep =:= force ->
+	     {ok, _Head} when Rep =:= force ->
 		 M = ", repair forced.",
 		 {repair, M};
-	     {ok, Head, ExtraInfo} ->
-		 {final, Head, ExtraInfo};
+	     {ok, Head} ->
+		 {final, Head};
 	     {error, not_closed} when Rep =:= force, Acc =:= read_write ->
 		 M = ", repair forced.",
 		 {repair, M};
@@ -2555,17 +2553,13 @@ fopen_existing_file(Tab, OpenArgs) ->
 		 {repair, M};
 	     {error, not_closed} when Rep =:= false ->
 		 throw({error, {needs_repair, Fname}});
-	     {error, version_bump} when Rep =:= true, Acc =:= read_write ->
-                 %% Version 8 only
-		 M = " old version, upgrading ...",
-		 {repair, M};
 	     {error, Reason} ->
 		 throw({error, {Reason, Fname}})
 	 end,
     Do = case Wh of
-             {Tag, Hd, Extra} when Tag =:= final; Tag =:= compact ->
+             {Tag, Hd} when Tag =:= final; Tag =:= compact ->
                  Hd1 = Hd#head{filename = Fname},
-                 try {Tag, Mod:init_freelist(Hd1, Extra)}
+                 try {Tag, dets_v9:init_freelist(Hd1)}
                  catch
                      throw:_ ->
                          {repair, " has bad free lists, repairing ..."}
@@ -2579,7 +2573,7 @@ fopen_existing_file(Tab, OpenArgs) ->
 	_ when FH#fileheader.keypos =/= Kp ->
 	    throw({error, {keypos_mismatch, Fname}});
 	{compact, SourceHead} ->
-	    io:format(user, "dets: file ~p is now compacted ...~n", [Fname]),
+	    io:format(user, "dets: file ~tp is now compacted ...~n", [Fname]),
 	    {ok, NewSourceHead} = open_final(SourceHead, Fname, read, false,
 					     ?DEFAULT_CACHE, Tab, Debug),
 	    case catch compact(NewSourceHead) of
@@ -2589,27 +2583,24 @@ fopen_existing_file(Tab, OpenArgs) ->
 		_Err ->
                     _ = file:close(Fd),
                     dets_utils:stop_disk_map(),
-		    io:format(user, "dets: compaction of file ~p failed, "
+		    io:format(user, "dets: compaction of file ~tp failed, "
 			      "now repairing ...~n", [Fname]),
                     {ok, Fd2, _FH} = read_file_header(Fname, Acc, Ram),
                     do_repair(Fd2, Tab, Fname, FH, MinSlots, MaxSlots, 
-			      Version, OpenArgs)
+			      OpenArgs)
 	    end;
 	{repair, Mess} ->
-	    io:format(user, "dets: file ~p~s~n", [Fname, Mess]),
+	    io:format(user, "dets: file ~tp~s~n", [Fname, Mess]),
             do_repair(Fd, Tab, Fname, FH, MinSlots, MaxSlots, 
-		      Version, OpenArgs);
-	_ when FH#fileheader.version =/= Version, Version =/= default ->
-	    throw({error, {version_mismatch, Fname}});
+		      OpenArgs);
 	{final, H} ->
 	    H1 = H#head{auto_save = Auto},
 	    open_final(H1, Fname, Acc, Ram, CacheSz, Tab, Debug)
     end.
 
-do_repair(Fd, Tab, Fname, FH, MinSlots, MaxSlots, Version, OpenArgs) ->
-    case fsck(Fd, Tab, Fname, FH, MinSlots, MaxSlots, Version) of
+do_repair(Fd, Tab, Fname, FH, MinSlots, MaxSlots, OpenArgs) ->
+    case fsck(Fd, Tab, Fname, FH, MinSlots, MaxSlots) of
 	ok ->
-	    %% No need to update 'version'.
 	    erlang:garbage_collect(),
 	    fopen3(Tab, OpenArgs#open_args{repair = false});
 	Error ->
@@ -2623,8 +2614,8 @@ open_final(Head, Fname, Acc, Ram, CacheSz, Tab, Debug) ->
 		      filename = Fname,
 		      name = Tab,
 		      cache = dets_utils:new_cache(CacheSz)},
-    init_disk_map(Head1#head.version, Tab, Debug),
-    (Head1#head.mod):cache_segps(Head1#head.fptr, Fname, Head1#head.next),
+    init_disk_map(Tab, Debug),
+    dets_v9:cache_segps(Head1#head.fptr, Fname, Head1#head.next),
     check_growth(Head1),
     {ok, Head1}.
 
@@ -2633,7 +2624,7 @@ fopen_init_file(Tab, OpenArgs) ->
     #open_args{file = Fname, type = Type, keypos = Kp, 
                min_no_slots = MinSlotsArg, max_no_slots = MaxSlotsArg, 
 	       ram_file = Ram, delayed_write = CacheSz, auto_save = Auto, 
-               version = UseVersion, debug = Debug} = OpenArgs,
+               debug = Debug} = OpenArgs,
     MinSlots = choose_no_slots(MinSlotsArg, ?DEFAULT_MIN_NO_SLOTS),
     MaxSlots = choose_no_slots(MaxSlotsArg, ?DEFAULT_MAX_NO_SLOTS),
     FileSpec = if
@@ -2641,26 +2632,17 @@ fopen_init_file(Tab, OpenArgs) ->
 		   true -> Fname
 	       end,
     {ok, Fd} = dets_utils:open(FileSpec, open_args(read_write, Ram)),
-    Version = if
-                  UseVersion =:= default ->
-                      case os:getenv("DETS_USE_FILE_FORMAT") of
-                          "8" -> 8;
-                          _ -> 9
-                      end;
-                  true ->
-                      UseVersion
-              end,
-    Mod = version2module(Version),
     %% No need to truncate an empty file.
-    init_disk_map(Version, Tab, Debug),
-    case catch Mod:initiate_file(Fd, Tab, Fname, Type, Kp, MinSlots, MaxSlots,
-				 Ram, CacheSz, Auto, true) of
+    init_disk_map(Tab, Debug),
+    case catch dets_v9:initiate_file(Fd, Tab, Fname, Type, Kp,
+                                     MinSlots, MaxSlots,
+                                     Ram, CacheSz, Auto, true) of
 	{error, Reason} when Ram ->
-	    file:close(Fd),
+	    _ = file:close(Fd),
 	    throw({error, Reason});
 	{error, Reason} ->
-	    file:close(Fd),
-	    file:delete(Fname),
+	    _ = file:close(Fd),
+	    _ = file:delete(Fname),
 	    throw({error, Reason});
 	{ok, Head} ->
 	    start_auto_save_timer(Head),
@@ -2669,15 +2651,13 @@ fopen_init_file(Tab, OpenArgs) ->
     end.
 
 %% Debug.
-init_disk_map(9, Name, Debug) ->
+init_disk_map(Name, Debug) ->
     case Debug orelse dets_utils:debug_mode() of
         true -> 
             dets_utils:init_disk_map(Name);
         false ->
             ok
-    end;
-init_disk_map(_Version, _Name, _Debug) ->
-    ok.
+    end.
 
 open_args(Access, RamFile) ->
     A1 = case Access of
@@ -2690,15 +2670,7 @@ open_args(Access, RamFile) ->
 	   end,
     A1 ++ A2 ++ [binary, read].
 
-version2module(V) when V =< 8 -> dets_v8;
-version2module(9) -> dets_v9.
-
-module2version(dets_v8) -> 8;
-module2version(dets_v9) -> 9;
-module2version(not_used) -> 9.
-
 %% -> ok | throw(Error) 
-%% For version 9 tables only.
 compact(SourceHead) ->
     #head{name = Tab, filename = Fname, fptr = SFd, type = Type, keypos = Kp,
 	  ram_file = Ram, auto_save = Auto} = SourceHead,
@@ -2709,14 +2681,14 @@ compact(SourceHead) ->
     %% It is normally not possible to have two open tables in the same
     %% process since the process dictionary is used for caching
     %% segment pointers, but here is works anyway--when reading a file
-    %% serially the pointers to not need to be used.
+    %% serially the pointers do not need to be used.
     Head = case catch dets_v9:prep_table_copy(Fd, Tab, Tmp, Type, Kp, Ram, 
 					      CacheSz, Auto, TblParms) of
 	       {ok, H} ->
 		   H;
 	       Error ->
-		   file:close(Fd),
-                   file:delete(Tmp),
+		   _ = file:close(Fd),
+                   _ = file:delete(Tmp),
 		   throw(Error)
 	   end,
 
@@ -2733,18 +2705,18 @@ compact(SourceHead) ->
 	    if 
 		R =:= ok -> ok;
 		true ->
-		    file:delete(Tmp),
+		    _ = file:delete(Tmp),
 		    throw(R)
 	    end;
 	Err ->
-	    file:close(Fd),
-            file:delete(Tmp),
+	    _ = file:close(Fd),
+            _ = file:delete(Tmp),
 	    throw(Err)
     end.
 	    
 %% -> ok | Error
 %% Closes Fd.
-fsck(Fd, Tab, Fname, FH, MinSlotsArg, MaxSlotsArg, Version) ->
+fsck(Fd, Tab, Fname, FH, MinSlotsArg, MaxSlotsArg) ->
     %% MinSlots and MaxSlots are the option values.
     #fileheader{min_no_slots = MinSlotsFile, 
                 max_no_slots = MaxSlotsFile} = FH,
@@ -2757,12 +2729,12 @@ fsck(Fd, Tab, Fname, FH, MinSlotsArg, MaxSlotsArg, Version) ->
     %% If the number of objects (keys) turns out to be significantly
     %% different from NoSlots, we try again with the correct number of
     %% objects (keys).
-    case fsck_try(Fd, Tab, FH, Fname, SlotNumbers, Version) of
+    case fsck_try(Fd, Tab, FH, Fname, SlotNumbers) of
         {try_again, BetterNoSlots} ->
 	    BetterSlotNumbers = {MinSlots, BetterNoSlots, MaxSlots},
-            case fsck_try(Fd, Tab, FH, Fname, BetterSlotNumbers, Version) of
+            case fsck_try(Fd, Tab, FH, Fname, BetterSlotNumbers) of
                 {try_again, _} ->
-                    file:close(Fd),
+                    _ = file:close(Fd),
                     {error, {cannot_repair, Fname}};
                 Else ->
                     Else
@@ -2779,7 +2751,7 @@ choose_no_slots(NoSlots, _) -> NoSlots.
 %% Initiating a table using a fun and repairing (or converting) a
 %% file are completely different things, but nevertheless the same
 %% method is used in both cases...
-fsck_try(Fd, Tab, FH, Fname, SlotNumbers, Version) ->
+fsck_try(Fd, Tab, FH, Fname, SlotNumbers) ->
     Tmp = tempfile(Fname),
     #fileheader{type = Type, keypos = KeyPos} = FH,
     {_MinSlots, EstNoSlots, MaxSlots} = SlotNumbers,
@@ -2788,7 +2760,7 @@ fsck_try(Fd, Tab, FH, Fname, SlotNumbers, Version) ->
 			  max_no_slots = MaxSlots,
                           ram_file = false, delayed_write = ?DEFAULT_CACHE,
                           auto_save = infinity, access = read_write,
-                          version = Version, debug = false},
+                          debug = false},
     case catch fopen3(Tab, OpenArgs) of
 	{ok, Head} ->
             case fsck_try_est(Head, Fd, Fname, SlotNumbers, FH) of
@@ -2803,58 +2775,65 @@ fsck_try(Fd, Tab, FH, Fname, SlotNumbers, Version) ->
                     if 
 			R =:= ok -> ok;
 			true ->
-			    file:delete(Tmp),
+			    _ = file:delete(Tmp),
 			    R
 		    end;
 		TryAgainOrError ->
-                    file:delete(Tmp),
+                    _ = file:delete(Tmp),
                     TryAgainOrError
             end;
 	Error -> 
-	    file:close(Fd),
+	    _ = file:close(Fd),
 	    Error
     end.
 
 tempfile(Fname) ->
     Tmp = lists:concat([Fname, ".TMP"]),
     case file:delete(Tmp) of
-        {error, eacces} -> % 'dets_process_died' happened anyway... (W-nd-ws)
-            timer:sleep(5000),
-            file:delete(Tmp);
-        _ ->
-            ok
+        {error, _Reason} -> % typically enoent
+            ok;
+        ok ->
+            assure_no_file(Tmp)
     end,
     Tmp.
+
+assure_no_file(File) ->
+    case file:read_file_info(File) of
+        {ok, _FileInfo} ->
+            %% Wait for some other process to close the file:
+            timer:sleep(100),
+            assure_no_file(File);
+        {error, _} ->
+            ok
+    end.
 
 %% -> {ok, NewHead} | {try_again, integer()} | Error
 fsck_try_est(Head, Fd, Fname, SlotNumbers, FH) ->
     %% Mod is the module to use for reading input when repairing.
-    Mod = FH#fileheader.mod,
     Cntrs = ets:new(dets_repair, []),
-    Input = Mod:fsck_input(Head, Fd, Cntrs, FH),
-    {Reply, SizeData} = do_sort(Head, SlotNumbers, Input, Cntrs, Fname, Mod),
+    Input = dets_v9:fsck_input(Head, Fd, Cntrs, FH),
+    {Reply, SizeData} = do_sort(Head, SlotNumbers, Input, Cntrs, Fname),
     Bulk = false,
     case Reply of 
         {ok, NoDups, H1} ->
-            file:close(Fd),
+            _ = file:close(Fd),
             fsck_copy(SizeData, H1, Bulk, NoDups);
         {try_again, _} = Return ->
             close_files(Bulk, SizeData, Head),
             Return;
         Else ->
-            file:close(Fd),
+            _ = file:close(Fd),
             close_files(Bulk, SizeData, Head),
 	    Else
     end.
 
-do_sort(Head, SlotNumbers, Input, Cntrs, Fname, Mod) ->
-    OldV = module2version(Mod),
+do_sort(Head, SlotNumbers, Input, Cntrs, Fname) ->
     %% output_objs/4 replaces {LogSize,NoObjects} in Cntrs by
     %% {LogSize,Position,Data,NoObjects | NoCollections}.
     %% Data = {FileName,FileDescriptor} | [object()]
-    %% For small tables Data may be a list of objects which is more
+    %% For small tables Data can be a list of objects which is more
     %% efficient since no temporary files are created.
-    Output = (Head#head.mod):output_objs(OldV, Head, SlotNumbers, Cntrs),
+    Output = dets_v9:output_objs(Head, SlotNumbers, Cntrs),
     TmpDir = filename:dirname(Fname),
     Reply = (catch file_sorter:sort(Input, Output, 
 				    [{format, binary},{tmpdir, TmpDir}])),
@@ -2877,25 +2856,24 @@ fsck_copy1([SzData | L], Head, Bulk, NoDups) ->
     {LogSz, Pos, {FileName, Fd}, NoObjects} = SzData,
     Size = if NoObjects =:= 0 -> 0; true -> ?POW(LogSz-1) end,
     ExpectedSize = Size * NoObjects,
-    close_tmp(Fd),
-    case file:position(Out, Pos) of
-	{ok, Pos} -> ok;
-	PError -> dets_utils:file_error(FileName, PError)
+    case close_tmp(Fd) of
+        ok -> ok;
+        Err ->
+	    close_files(Bulk, L, Head),
+	    dets_utils:file_error(FileName, Err)
     end,
-    {ok, Pos} = file:position(Out, Pos),
+    case file:position(Out, Pos) of
+        {ok, Pos} -> ok;
+        Err2 ->
+	    close_files(Bulk, L, Head),
+	    dets_utils:file_error(Head#head.filename, Err2)
+        end,
     CR = file:copy({FileName, [raw,binary]}, Out),
-    file:delete(FileName),
+    _ = file:delete(FileName),
     case CR of 
 	{ok, Copied} when Copied =:= ExpectedSize;
 			  NoObjects =:= 0 -> % the segments
 	    fsck_copy1(L, Head, Bulk, NoDups);
-	{ok, Copied} when Bulk, Head#head.version =:= 8 ->
-	    NoZeros = ExpectedSize - Copied,
-	    Dups = NoZeros div Size,
-	    Addr = Pos+Copied,
-	    NewHead = free_n_objects(Head, Addr, Size-1, NoDups),
-	    NewNoDups = NoDups - Dups,
-	    fsck_copy1(L, NewHead, Bulk, NewNoDups);
 	{ok, _Copied} -> % should never happen
 	    close_files(Bulk, L, Head),
 	    Reason = if Bulk -> initialization_failed; 
@@ -2910,19 +2888,12 @@ fsck_copy1([], Head, _Bulk, NoDups) when NoDups =/= 0 ->
 fsck_copy1([], Head, _Bulk, _NoDups) ->
     {ok, Head#head{update_mode = dirty}}. 
 
-free_n_objects(Head, _Addr, _Size, 0) ->
-    Head;
-free_n_objects(Head, Addr, Size, N) ->
-    {NewHead, _} = dets_utils:free(Head, Addr, Size),
-    NewAddr = Addr + Size + 1,
-    free_n_objects(NewHead, NewAddr, Size, N-1).
-
 close_files(false, SizeData, Head) ->
-    file:close(Head#head.fptr),
+    _ = file:close(Head#head.fptr),
     close_files(true, SizeData, Head);
 close_files(true, SizeData, _Head) ->
     Fun = fun({_Size, _Pos, {FileName, Fd}, _No}) ->
-		  close_tmp(Fd),
+		  _ = close_tmp(Fd),
 		  file:delete(FileName);
 	     (_) ->
 		  ok
@@ -2935,7 +2906,7 @@ close_tmp(Fd) ->
 fslot(H, Slot) ->
     case catch begin
                    {NH, []} = write_cache(H),
-                   Objs = (NH#head.mod):slot_objs(NH, Slot),
+                   Objs = dets_v9:slot_objs(NH, Slot),
                    {NH, Objs}
                end of
         {NewHead, _Objects} = Reply when is_record(NewHead, head) ->
@@ -2985,7 +2956,7 @@ where_is_object(Head, Object) ->
 	true ->
 	    case catch write_cache(Head) of
 		{NewHead, []} ->
-		    {NewHead, (Head#head.mod):find_object(NewHead, Object)};
+		    {NewHead, dets_v9:find_object(NewHead, Object)};
 		{NewHead, _} = HeadError when is_record(NewHead, head) ->
 		    HeadError
 	    end;
@@ -2998,13 +2969,9 @@ check_objects([T | Ts], Kp) when tuple_size(T) >= Kp ->
 check_objects(L, _Kp) ->
     L =:= [].
 
-no_things(Head) when Head#head.no_keys =:= undefined ->
-    Head#head.no_objects;
 no_things(Head) ->
     Head#head.no_keys.
 
-file_no_things(FH) when FH#fileheader.no_keys =:= undefined ->
-    FH#fileheader.no_objects;
 file_no_things(FH) ->
     FH#fileheader.no_keys.
 
@@ -3045,20 +3012,20 @@ update_cache(Head, ToAdd) ->
     if 
 	Lookup; NewSize >= Cache#cache.tsize ->
 	    %% The cache is considered full, or some lookup.
-	    {NewHead, LU, PwriteList} = (Head#head.mod):write_cache(Head1),
+	    {NewHead, LU, PwriteList} = dets_v9:write_cache(Head1),
 	    {NewHead, Found ++ LU, PwriteList};
 	NewC =:= [] ->
 	    {Head1, Found, []};
 	Cache#cache.wrtime =:= undefined ->
 	    %% Empty cache. Schedule a delayed write.
-	    Now = now(), Me = self(),
+	    Now = time_now(), Me = self(),
 	    Call = ?DETS_CALL(Me, {delayed_write, Now}),
 	    erlang:send_after(Cache#cache.delay, Me, Call),
 	    {Head1#head{cache = NewCache#cache{wrtime = Now}}, Found, []};
 	Size0 =:= 0 ->
 	    %% Empty cache that has been written after the
 	    %% currently scheduled delayed write.
-	    {Head1#head{cache = NewCache#cache{wrtime = now()}}, Found, []};
+	    {Head1#head{cache = NewCache#cache{wrtime = time_now()}}, Found, []};
 	true ->
 	    %% Cache is not empty, delayed write has been scheduled.
 	    {Head1, Found, []}
@@ -3121,11 +3088,7 @@ delayed_write(Head, WrTime) ->
 		    Head#head{cache = NewCache};
 		true ->
 		    %% Yes, schedule a new delayed write.
-		    {MS1,S1,M1} = WrTime,
-		    {MS2,S2,M2} = LastWrTime,
-		    WrT = M1+1000000*(S1+1000000*MS1),
-		    LastWrT = M2+1000000*(S2+1000000*MS2),
-		    When = round((LastWrT - WrT)/1000), Me = self(),
+		    When = round((LastWrTime - WrTime)/1000), Me = self(),
 		    Call = ?DETS_CALL(Me, {delayed_write, LastWrTime}),
 		    erlang:send_after(When, Me, Call),
 		    Head
@@ -3134,7 +3097,7 @@ delayed_write(Head, WrTime) ->
 
 %% -> {NewHead, [LookedUpObject]} | throw({NewHead, Error})
 write_cache(Head) ->
-    {Head1, LU, PwriteList} = (Head#head.mod):write_cache(Head),
+    {Head1, LU, PwriteList} = dets_v9:write_cache(Head),
     {NewHead, ok} = dets_utils:pwrite(Head1, PwriteList),
     {NewHead, LU}.
 
@@ -3165,7 +3128,7 @@ check_safe_fixtable(Head) ->
          ((get(verbose) =:= yes) orelse dets_utils:debug_mode()) of
         true ->
             error_logger:format
-              ("** dets: traversal of ~p needs safe_fixtable~n",
+              ("** dets: traversal of ~tp needs safe_fixtable~n",
                [Head#head.name]);
         false ->
             ok
@@ -3187,7 +3150,7 @@ scan(Head, C) -> % when is_record(C, dets_cont)
     scan(Bin, Head, From, To, L, [], R, {C, Head#head.type}).
 
 scan(Bin, H, From, To, L, Ts, R, {C0, Type} = C) ->
-    case (H#head.mod):scan_objs(H, Bin, From, To, L, Ts, R, Type) of
+    case dets_v9:scan_objs(H, Bin, From, To, L, Ts, R, Type) of
         {more, NFrom, NTo, NL, NTs, NR, Sz} ->
             scan_read(H, NFrom, NTo, Sz, NL, NTs, NR, C);
         {stop, <<>>=B, NFrom, NTo, <<>>=NL, NTs} ->
@@ -3231,19 +3194,32 @@ scan_read(H, From, _To, Min, _L, Ts, R, C) ->
 err(Error) ->
     case get(verbose) of
 	yes -> 
-	    error_logger:format("** dets: failed with ~w~n", [Error]),
+	    error_logger:format("** dets: failed with ~tw~n", [Error]),
 	    Error;
 	undefined  ->
 	    Error
     end.
+
+-compile({inline, [time_now/0]}).
+time_now() ->
+    erlang:monotonic_time(1000000).
+
+make_timestamp(MonTime, TimeOffset) ->
+    ErlangSystemTime = erlang:convert_time_unit(MonTime+TimeOffset,
+						native,
+						microsecond),
+    MegaSecs = ErlangSystemTime div 1000000000000,
+    Secs = ErlangSystemTime div 1000000 - MegaSecs*1000000,
+    MicroSecs = ErlangSystemTime rem 1000000,
+    {MegaSecs, Secs, MicroSecs}.
 
 %%%%%%%%%%%%%%%%%  DEBUG functions %%%%%%%%%%%%%%%%
 
 file_info(FileName) ->
     case catch read_file_header(FileName, read, false) of
 	{ok, Fd, FH} ->
-	    file:close(Fd),
-            (FH#fileheader.mod):file_info(FH);
+	    _ = file:close(Fd),
+            dets_v9:file_info(FH);
 	Other ->
 	    Other
     end.
@@ -3258,20 +3234,18 @@ get_head_field(Fd, Field) ->
 view(FileName) ->
     case catch read_file_header(FileName, read, false) of
         {ok, Fd, FH} ->
-	    Mod = FH#fileheader.mod,
-            try Mod:check_file_header(FH, Fd) of
-                {ok, H0, ExtraInfo} ->
-                    Mod = FH#fileheader.mod,
-                    case Mod:check_file_header(FH, Fd) of
-                        {ok, H0, ExtraInfo} ->
-                            H = Mod:init_freelist(H0, ExtraInfo),
+            try dets_v9:check_file_header(FH, Fd) of
+                {ok, H0} ->
+                    case dets_v9:check_file_header(FH, Fd) of
+                        {ok, H0} ->
+                            H = dets_v9:init_freelist(H0),
                             v_free_list(H),
-                            Mod:v_segments(H),
+                            dets_v9:v_segments(H),
                             ok;
                         X ->
                             X
                     end
-            after file:close(Fd)
+            after _ = file:close(Fd)
             end;
 	X -> 
 	    X

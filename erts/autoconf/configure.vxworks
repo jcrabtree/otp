@@ -2,18 +2,19 @@
 # 
 # %CopyrightBegin%
 # 
-# Copyright Ericsson AB 1997-2011. All Rights Reserved.
+# Copyright Ericsson AB 1997-2018. All Rights Reserved.
 # 
-# The contents of this file are subject to the Erlang Public License,
-# Version 1.1, (the "License"); you may not use this file except in
-# compliance with the License. You should have received a copy of the
-# Erlang Public License along with this software. If not, it can be
-# retrieved online at http://www.erlang.org/.
-# 
-# Software distributed under the License is distributed on an "AS IS"
-# basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-# the License for the specific language governing rights and limitations
-# under the License.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 # 
 # %CopyrightEnd%
 # 
@@ -67,10 +68,6 @@ WIND_BASE=${WIND_BASE:=`ypmatch tornado passwd | awk -F: '{print $6}'`/$VXTOP}
 # These are created by autoconf.
 MKDIRS="${ERL_TOP}/lib/os_mon/priv/bin/$target
         ${ERL_TOP}/lib/os_mon/priv/obj/$target
-        ${ERL_TOP}/lib/orber/priv/obj/$target
-        ${ERL_TOP}/lib/orber/priv/bin/$target
-        ${ERL_TOP}/lib/ic/priv/lib/$target
-        ${ERL_TOP}/lib/ic/priv/obj/$target
         ${ERL_TOP}/lib/asn1/priv/lib/$target
         ${ERL_TOP}/lib/asn1/priv/obj/$target
         ${ERL_TOP}/lib/erl_interface/obj/$target
@@ -99,8 +96,6 @@ etcdir=${ERL_TOP}/erts/etc/common
 erlint_dir=${ERL_TOP}/lib/erl_interface/src
 epmd_dir=${ERL_TOP}/erts/epmd/src
 os_mon_dir=${ERL_TOP}/lib/os_mon/c_src
-orber_dir=${ERL_TOP}/lib/orber/c_src
-ic_dir=${ERL_TOP}/lib/ic/c_src
 internal_tools_dir=${ERL_TOP}
 libdir=${ERL_TOP}/lib
 tsdir=$libdir/test_server/src
@@ -118,12 +113,11 @@ CONFIG_FILES="${ERL_TOP}/erts/emulator/$host/Makefile
 	    $erlint_dir/$host/eidefs.mk
 	    $epmd_dir/$host/Makefile
 	    $internal_tools_dir/make/$host/otp.mk
+	    $internal_tools_dir/make/$host/otp_ded.mk
 	    $os_mon_dir/$host/Makefile
 	    $zlibdir/$host/Makefile
-	    $ic_dir/$host/Makefile
 	    $runtime_tools_dir/$host/Makefile
-	    $tools_dir/$host/Makefile
-	    $orber_dir/$host/Makefile"
+	    $tools_dir/$host/Makefile"
 
 for file in $CONFIG_FILES; do
     new_name=`echo $file|sed "s%/$host/%/$target/%"`

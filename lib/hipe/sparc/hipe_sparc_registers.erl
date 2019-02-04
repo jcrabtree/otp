@@ -1,22 +1,16 @@
 %% -*- erlang-indent-level: 2 -*-
 %%
-%% %CopyrightBegin%
-%% 
-%% Copyright Ericsson AB 2001-2009. All Rights Reserved.
-%% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
-%% 
-%% %CopyrightEnd%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
 -module(hipe_sparc_registers).
 
@@ -84,6 +78,8 @@
 -define(I6, 30).
 -define(I7, 31).
 -define(LAST_PRECOLOURED,31).	% must handle both GRP and FPR ranges
+
+-define(RA, ?O7).
 
 -define(ARG0, ?O1).
 -define(ARG1, ?O2).
@@ -173,7 +169,7 @@ stack_pointer() -> ?STACK_POINTER.
 
 proc_pointer() -> ?PROC_POINTER.
 
-return_address() -> ?O7.
+return_address() -> ?RA.
 
 g0() -> ?G0.
 
@@ -246,6 +242,8 @@ is_arg(R) ->
     _ -> false
   end.
 
+%% Note: the fact that allocatable_gpr() is a subset of call_clobbered() is
+%% hard-coded in hipe_sparc_defuse:insn_defs_all_gpr/1
 call_clobbered() ->		% does the RA strip the type or not?
   [%% ?G0 is the non-allocatable constant zero
    {?G1,tagged},{?G1,untagged},
@@ -282,7 +280,9 @@ call_clobbered() ->		% does the RA strip the type or not?
   ].
 
 tailcall_clobbered() ->		% tailcall crapola needs one temp
-  [{?TEMP1,tagged},{?TEMP1,untagged}].
+  [{?TEMP1,tagged},{?TEMP1,untagged}
+  ,{?RA,tagged},{?RA,untagged}
+  ].
 
 live_at_return() ->
   [{?HEAP_POINTER,untagged},

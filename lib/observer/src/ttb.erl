@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2002-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2002-2017. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -24,7 +25,8 @@
 -export([tracer/0,tracer/1,tracer/2,p/2,stop/0,stop/1,start_trace/4]).
 -export([get_et_handler/0]).
 -export([tp/2, tp/3, tp/4, ctp/0, ctp/1, ctp/2, ctp/3, tpl/2, tpl/3, tpl/4, 
-	 ctpl/0, ctpl/1, ctpl/2, ctpl/3, ctpg/0, ctpg/1, ctpg/2, ctpg/3]).
+	 ctpl/0, ctpl/1, ctpl/2, ctpl/3, ctpg/0, ctpg/1, ctpg/2, ctpg/3,
+	 tpe/2, ctpe/1]).
 -export([seq_trigger_ms/0,seq_trigger_ms/1]).
 -export([write_trace_info/2]).
 -export([write_config/2,write_config/3,run_config/1,run_config/2,list_config/1]).
@@ -76,6 +78,11 @@ do_tracer(Nodes0,PI,Client,Traci) ->
 
 do_tracer(Clients,PI,Traci) ->
     Shell = proplists:get_value(shell, Traci, false),
+    IpPortSpec =
+	case proplists:get_value(queue_size, Traci) of
+	    undefined -> 0;
+	    QS -> {0,QS}
+	end,
     DefShell = fun(Trace) -> dbg:dhandler(Trace, standard_io) end,
     {ClientSucc,Succ} =
 	lists:foldl(
@@ -93,10 +100,10 @@ do_tracer(Clients,PI,Traci) ->
 				 {ok, H} = inet:gethostname(),
 				 H;
 			     _ ->
-				 [_,H] = string:tokens(atom_to_list(N),"@"),
+				 [_,H] = string:lexemes(atom_to_list(N),"@"),
 				 H
 			 end,
-		  case catch dbg:tracer(N,port,dbg:trace_port(ip,0)) of
+		  case catch dbg:tracer(N,port,dbg:trace_port(ip,IpPortSpec)) of
 		      {ok,N} ->
 			  {ok,Port} = dbg:trace_port_control(N,get_listen_port),
 			  {ok,T} = dbg:get_tracer(N),
@@ -158,6 +165,8 @@ opt([{resume,MSec}|O],{PI,Client,Traci}) ->
     opt(O,{PI,Client,[{resume, {true, MSec}}|Traci]});
 opt([{flush,MSec}|O],{PI,Client,Traci}) ->
     opt(O,{PI,Client,[{flush, MSec}|Traci]});
+opt([{queue_size,QueueSize}|O],{PI,Client,Traci}) ->
+    opt(O,{PI,Client,[{queue_size,QueueSize}|Traci]});
 opt([],Opt) ->
     ensure_opt(Opt).
 
@@ -382,30 +391,30 @@ run_config(ConfigFile,N) ->
     
 print_func(M,F,A) ->
     Args = arg_list(A,[]),
-    io:format("~w:~w(~s) ->~n",[M,F,Args]).
+    io:format("~w:~tw(~ts) ->~n",[M,F,Args]).
 print_result(R) ->
-    io:format("~p~n~n",[R]).
+    io:format("~tp~n~n",[R]).
 
 arg_list([],[]) ->
     "";
 arg_list([A1],Acc) ->
-    Acc++io_lib:format("~w",[A1]);
+    Acc++io_lib:format("~tw",[A1]);
 arg_list([A1|A],Acc) ->
-    arg_list(A,Acc++io_lib:format("~w,",[A1])).
+    arg_list(A,Acc++io_lib:format("~tw,",[A1])).
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Set trace flags on processes
-p(Procs0,Flags0) ->
+p(ProcsPorts0,Flags0) ->
     ensure_no_overloaded_nodes(),
-    store(p,[Procs0,Flags0]),
-    no_store_p(Procs0,Flags0).
-no_store_p(Procs0,Flags0) ->
+    store(p,[ProcsPorts0,Flags0]),
+    no_store_p(ProcsPorts0,Flags0).
+no_store_p(ProcsPorts0,Flags0) ->
     case transform_flags(to_list(Flags0)) of
 	{error,Reason} -> 
 	    {error,Reason};
 	Flags ->
-	    Procs = procs(Procs0),
+	    ProcsPorts = procs_ports(ProcsPorts0),
 	    case lists:foldl(fun(P,{PMatched,Ps}) -> case dbg:p(P,Flags) of
 					     {ok,Matched} -> 
 						 {[{P,Matched}|PMatched],[P|Ps]};
@@ -413,7 +422,7 @@ no_store_p(Procs0,Flags0) ->
 						 display_warning(P,Reason),
 						 {PMatched,Ps}
 						     end
-			     end,{[],[]},Procs) of
+			     end,{[],[]},ProcsPorts) of
 		{[],[]} -> {error, no_match};
 		{SuccMatched,Succ} ->
 		    no_store_write_trace_info(flags,{Succ,Flags}),
@@ -428,18 +437,22 @@ transform_flags(Flags) ->
     dbg:transform_flags([timestamp | Flags]).
 
 
-procs(Procs) when is_list(Procs) ->
-    lists:foldl(fun(P,Acc) -> proc(P)++Acc end,[],Procs);
-procs(Proc) ->
-    proc(Proc).
+procs_ports(Procs) when is_list(Procs) ->
+    lists:foldl(fun(P,Acc) -> proc_port(P)++Acc end,[],Procs);
+procs_ports(Proc) ->
+    proc_port(Proc).
 
-proc(Procs) when Procs=:=all; Procs=:=existing; Procs=:=new ->
-    [Procs];
-proc(Name) when is_atom(Name) ->
+proc_port(P) when P=:=all; P=:=ports; P=:=processes;
+                 P=:=existing; P=:=existing_ports; P=:=existing_processes;
+                 P=:=new; P=:=new_ports; P=:=new_processes ->
+    [P];
+proc_port(Name) when is_atom(Name) ->
     [Name]; % can be registered on this node or other node
-proc(Pid) when is_pid(Pid) ->
+proc_port(Pid) when is_pid(Pid) ->
     [Pid];
-proc({global,Name}) ->
+proc_port(Port) when is_port(Port) ->
+    [Port];
+proc_port({global,Name}) ->
     case global:whereis_name(Name) of
 	Pid when is_pid(Pid) ->
 	    [Pid];
@@ -475,6 +488,11 @@ tpl(A,B,C,D) ->
     ensure_no_overloaded_nodes(),
     store(tpl,[A,B,C,ms(D)]),
     dbg:tpl(A,B,C,ms(D)).
+
+tpe(A,B) ->
+    ensure_no_overloaded_nodes(),
+    store(tpe,[A,ms(B)]),
+    dbg:tpe(A,ms(B)).
 
 ctp() ->
     store(ctp,[]),
@@ -514,6 +532,10 @@ ctpg(A,B) ->
 ctpg(A,B,C) ->
     store(ctpg,[A,B,C]),
     dbg:ctpg(A,B,C).
+
+ctpe(A) ->
+    store(ctpe,[A]),
+    dbg:ctpe(A).
 
 ms(return) ->
     [{'_',[],[{return_trace}]}];
@@ -613,7 +635,7 @@ stop(Opts) when is_list(Opts) ->
             ok;
         {_, {stopped, _}} ->
             %% Printout moved out of the ttb loop to avoid occasional deadlock
-            io:format("Stored logs in ~s~n", [element(2, Result)]);
+            io:format("Stored logs in ~ts~n", [element(2, Result)]);
         {_, _} ->
             ok
     end,
@@ -770,7 +792,7 @@ do_stop({FetchOrFormat, UserDir}, Sender, NodeInfo, SessionInfo) ->
     write_config(?last_config, all),
     Localhost = host(node()),
     Dir = get_fetch_dir(UserDir, proplists:get_value(logfile, SessionInfo)),
-    file:make_dir(Dir),
+    ok = filelib:ensure_dir(filename:join(Dir,"*")),
     %% The nodes are traversed twice here because
     %% the meta tracing in observer_backend must be
     %% stopped before dbg is stopped, and dbg must
@@ -849,7 +871,7 @@ get_nodes() ->
     receive {?MODULE,Nodes} -> Nodes end.
 
 ts() ->
-    {{Y,M,D},{H,Min,S}} = calendar:now_to_local_time(now()),
+    {{Y,M,D},{H,Min,S}} = calendar:now_to_local_time(erlang:timestamp()),
     io_lib:format("-~4.4.0w~2.2.0w~2.2.0w-~2.2.0w~2.2.0w~2.2.0w",
 		  [Y,M,D,H,Min,S]).
 
@@ -878,21 +900,29 @@ fetch_report(Localhost, Dir, Node, MetaFile) ->
 
 fetch(Localhost,Dir,Node,MetaFile) ->
     case (host(Node) == Localhost) orelse is_local(MetaFile) of
-    true -> % same host, just move the files
+        true -> % same host, just move the files
 	    Files = get_filenames(Node,MetaFile),
 	    lists:foreach(
-            fun(File0) ->
-                Dest = filename:join(Dir,filename:basename(File0)),
-                file:rename(File0, Dest)
-            end,
-        Files);
+              fun(File0) ->
+                      Dest = filename:join(Dir,filename:basename(File0)),
+                      file:rename(File0, Dest)
+              end,
+              Files);
 	false ->
 	    {ok, LSock} = gen_tcp:listen(0, [binary,{packet,2},{active,false}]),
 	    {ok,Port} = inet:port(LSock),
-	    rpc:cast(Node,observer_backend,ttb_fetch,
-		     [MetaFile,{Port,Localhost}]),
+            Enc = file:native_name_encoding(),
+            Args =
+                case rpc:call(Node,erlang,function_exported,
+                              [observer_backend,ttb_fetch,3]) of
+                    true ->
+                        [MetaFile,{Port,Localhost},Enc];
+                    false ->
+                        [MetaFile,{Port,Localhost}]
+                end,
+            rpc:cast(Node,observer_backend,ttb_fetch,Args),
 	    {ok, Sock} = gen_tcp:accept(LSock),
-	    receive_files(Dir,Sock,undefined),
+	    receive_files(Dir,Sock,undefined,Enc),
 	    ok = gen_tcp:close(LSock),
 	    ok = gen_tcp:close(Sock)
     end.
@@ -907,24 +937,47 @@ get_filenames(_N, {local,F,_}) ->
 get_filenames(N, F) ->
     rpc:call(N, observer_backend,ttb_get_filenames,[F]).
 
-receive_files(Dir,Sock,Fd) ->
+receive_files(Dir,Sock,Fd,Enc) ->
     case gen_tcp:recv(Sock, 0) of
 	{ok, <<0,Bin/binary>>} ->
 	    file:write(Fd,Bin),
-	    receive_files(Dir,Sock,Fd);
-	{ok, <<1,Bin/binary>>} ->
-	    File0 = binary_to_list(Bin),
+	    receive_files(Dir,Sock,Fd,Enc);
+	{ok, <<Code,Bin/binary>>} when Code==1; Code==2; Code==3 ->
+            File0 = decode_filename(Code,Bin,Enc),
 	    File = filename:join(Dir,File0),
 	    {ok,Fd1} = file:open(File,[raw,write]),
-	    receive_files(Dir,Sock,Fd1);
+	    receive_files(Dir,Sock,Fd1,Enc);
 	{error, closed} ->
 	    ok = file:close(Fd)
     end.    
 
-host(Node) ->
-    [_name,Host] = string:tokens(atom_to_list(Node),"@"),
-    Host.
+decode_filename(1,Bin,_Enc) ->
+    %% Old version of observer_backend - filename encoded with
+    %% list_to_binary
+    binary_to_list(Bin);
+decode_filename(2,Bin,Enc) ->
+    %% Successfully encoded filename with correct encoding
+    unicode:characters_to_list(Bin,Enc);
+decode_filename(3,Bin,latin1) ->
+    %% Filename encoded with faulty encoding. This has to be utf8
+    %% remote and latin1 here, and the filename actually containing
+    %% characters outside the latin1 range. So making an escaped
+    %% variant of the filename and warning about it.
+    File0 = unicode:characters_to_list(Bin,utf8),
+    File = [ case X of
+                     High when High > 255 ->
+                         ["\\\\x{",erlang:integer_to_list(X, 16),$}];
+                     Low ->
+                         Low
+                 end || X <- File0 ],
+    io:format("Warning: fetching file with faulty filename encoding ~ts~n"
+              "Will be written as ~ts~n",
+              [File0,File]),
+    File.
 
+host(Node) ->
+    [_name,Host] = string:lexemes(atom_to_list(Node),"@"),
+    Host.
 
 wait_for_fetch([]) ->
     ok;
@@ -1011,7 +1064,7 @@ collect_files(Dirs) ->
     lists:map(fun(Dir) ->
                       MetaFiles = filelib:wildcard(filename:join(Dir,"*.ti")),
                       lists:map(fun(M) ->
-                                        Sub = string:left(M,length(M)-3),
+                                        Sub = filename:rootname(M,".ti"),
                                         case filelib:is_file(Sub) of
                                             true -> Sub;
                                             false -> Sub++".*.wrp"
@@ -1065,7 +1118,7 @@ read_traci(File) ->
 	{ok,B} -> 
 	    interpret_binary(B,dict:new(),[]);
 	_ -> 
-	    io:format("Warning: no meta data file: ~s~n",[MetaFile]),
+	    io:format("Warning: no meta data file: ~ts~n",[MetaFile]),
 	    {dict:new(),[]}
     end.
 
@@ -1095,7 +1148,7 @@ get_fd(Out) ->
 	    Out;
 	_file ->
 	    file:delete(Out),
-	    case file:open(Out,[append]) of
+	    case file:open(Out,[append,{encoding,utf8}]) of
 		{ok,Fd} -> Fd;
 		Error -> exit(Error)
 	    end
@@ -1281,7 +1334,7 @@ get_term(B) ->
     end.
 
 display_warning(Item,Warning) ->
-    io:format("Warning: {~w,~w}~n",[Warning,Item]).
+    io:format("Warning: {~tw,~tw}~n",[Warning,Item]).
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -1295,6 +1348,9 @@ ip_to_file(Trace, {shell_only, Fun} = State) ->
 ip_to_file(Trace,{{file,File}, ShellOutput}) ->
     Fun = dbg:trace_port(file,File), %File can be a filename or a wrap spec
     Port = Fun(),
+    %% Just in case this is on the traced node,
+    %% make sure the port is not traced.
+    p(Port,clear),
     %% Store the port so it can be properly closed
     ?MODULE ! {ip_to_file_trace_port, Port, self()},
     receive {?MODULE,ok} -> ok end,

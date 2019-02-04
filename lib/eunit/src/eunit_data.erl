@@ -1,17 +1,22 @@
-%% This library is free software; you can redistribute it and/or modify
-%% it under the terms of the GNU Lesser General Public License as
-%% published by the Free Software Foundation; either version 2 of the
-%% License, or (at your option) any later version.
+%% Licensed under the Apache License, Version 2.0 (the "License"); you may
+%% not use this file except in compliance with the License. You may obtain
+%% a copy of the License at <http://www.apache.org/licenses/LICENSE-2.0>
 %%
-%% This library is distributed in the hope that it will be useful, but
-%% WITHOUT ANY WARRANTY; without even the implied warranty of
-%% MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-%% Lesser General Public License for more details.
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
-%% You should have received a copy of the GNU Lesser General Public
-%% License along with this library; if not, write to the Free Software
-%% Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307
-%% USA
+%% Alternatively, you may use this file under the terms of the GNU Lesser
+%% General Public License (the "LGPL") as published by the Free Software
+%% Foundation; either version 2.1, or (at your option) any later version.
+%% If you wish to allow use of your version of this file only under the
+%% terms of the LGPL, you should delete the provisions above and replace
+%% them with the notice and other provisions required by the LGPL; see
+%% <http://www.gnu.org/licenses/>. If you do not delete the provisions
+%% above, a recipient may use your version of this file under the terms of
+%% either the Apache License or the LGPL.
 %%
 %% @author Richard Carlsson <carlsson.richard@gmail.com>
 %% @copyright 2006 Richard Carlsson
@@ -391,7 +396,7 @@ parse({with, X, As}=T) when is_list(As) ->
 parse({S, T1} = T) when is_list(S) ->
     case eunit_lib:is_string(S) of
 	true ->
-	    group(#group{tests = T1, desc = list_to_binary(S)});
+	    group(#group{tests = T1, desc = unicode:characters_to_binary(S)});
 	false ->
 	    bad_test(T)
     end;
@@ -440,13 +445,8 @@ parse_function({M, F}) when is_atom(M), is_atom(F) ->
 parse_function(F) ->
     bad_test(F).
 
-check_arity(F, N, T) when is_function(F) ->
-    case erlang:fun_info(F, arity) of
-	{arity, N} ->
-	    ok;
-	_ ->
-	    bad_test(T) 
-    end;
+check_arity(F, N, _) when is_function(F, N) ->
+    ok;
 check_arity(_, _, T) ->
     bad_test(T).
 
@@ -766,6 +766,7 @@ lazy_test_() ->
 	     lazy_gen(7),
 	     ?_assertMatch(7, get(count))]}.
 
+-dialyzer({no_improper_lists, lazy_gen/1}).
 lazy_gen(N) ->
     {generator,
      fun () ->

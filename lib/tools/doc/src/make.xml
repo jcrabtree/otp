@@ -1,24 +1,25 @@
-<?xml version="1.0" encoding="latin1" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <!DOCTYPE erlref SYSTEM "erlref.dtd">
 
 <erlref>
   <header>
     <copyright>
       <year>1996</year>
-      <year>2011</year>
+      <year>2017</year>
       <holder>Ericsson AB, All Rights Reserved</holder>
     </copyright>
     <legalnotice>
-  The contents of this file are subject to the Erlang Public License,
-  Version 1.1, (the "License"); you may not use this file except in
-  compliance with the License. You should have received a copy of the
-  Erlang Public License along with this software. If not, it can be
-  retrieved online at http://www.erlang.org/.
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+ 
+      http://www.apache.org/licenses/LICENSE-2.0
 
-  Software distributed under the License is distributed on an "AS IS"
-  basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-  the License for the specific language governing rights and limitations
-  under the License.
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
 
   The Initial Developer of the Original Code is Ericsson AB.
     </legalnotice>
@@ -29,7 +30,7 @@
     <date></date>
     <rev></rev>
   </header>
-  <module>make</module>
+  <module since="">make</module>
   <modulesummary>A Make Utility for Erlang</modulesummary>
   <description>
     <p>The module <c>make</c> provides a set of functions similar to
@@ -37,20 +38,20 @@
   </description>
   <funcs>
     <func>
-      <name>all() -> up_to_date | error</name>
-      <name>all(Options) -> up_to_date | error</name>
+      <name since="">all() -> up_to_date | error</name>
+      <name since="">all(Options) -> up_to_date | error</name>
       <fsummary>Compile a set of modules.</fsummary>
       <type>
         <v>Options = [Option]</v>
-        <v>&nbsp;Option = noexec | load | netload | &lt;compiler option&gt;</v>
+	<v>&nbsp;Option = noexec | load | netload | {emake, Emake} | &lt;compiler option&gt;</v>
       </type>
       <desc>
-        <p>This function first looks in the current working directory
-          for a file named <c>Emakefile</c> (see below) specifying the
-          set of modules to compile and the compile options to use. If
-          no such file is found, the set of modules to compile
-          defaults to all modules in the current working
-          directory.</p>
+      <p>This function determines the set of modules to compile and the
+          compile options to use, by first looking for the <c>emake</c> make
+          option, if not present reads the configuration from a file named
+          <c>Emakefile</c> (see below). If no such file is found, the
+          set of modules to compile defaults to all modules in the
+          current working directory.</p>
         <p>Traversing the set of modules, it then recompiles every module for
           which at least one of the following conditions apply:</p>
         <list type="bulleted">
@@ -75,7 +76,10 @@
            Load mode. Loads all recompiled modules.</item>
           <item><c>netload</c>          <br></br>
 
-           Net load mode. Loads all recompiled modules an all known nodes.</item>
+           Net load mode. Loads all recompiled modules on all known nodes.</item>
+          <item><c>{emake, Emake}</c>          <br></br>
+
+           Rather than reading the <c>Emakefile</c> specify configuration explicitly.</item>
         </list>
         <p>All items in <c>Options</c> that are not make options are assumed
           to be compiler options and are passed as-is to
@@ -83,8 +87,8 @@
       </desc>
     </func>
     <func>
-      <name>files(ModFiles) -> up_to_date | error</name>
-      <name>files(ModFiles, Options) -> up_to_date | error</name>
+      <name since="">files(ModFiles) -> up_to_date | error</name>
+      <name since="">files(ModFiles, Options) -> up_to_date | error</name>
       <fsummary>Compile a set of modules.</fsummary>
       <type>
         <v>ModFiles = [Module | File]</v>
@@ -107,9 +111,10 @@
 
   <section>
     <title>Emakefile</title>
-    <p><c>make:all/0,1</c> and <c>make:files/1,2</c> looks in the
-      current working directory for a file named <c>Emakefile</c>. If
-      it exists, <c>Emakefile</c> should contain elements like this:</p>
+    <p><c>make:all/0,1</c> and <c>make:files/1,2</c> first looks for
+      <c>{emake, Emake}</c> in options, then in the current working directory
+      for a file named <c>Emakefile</c>. If present <c>Emake</c> should
+      contain elements like this:</p>
     <code type="none">
 Modules.
 {Modules,Options}.    </code>

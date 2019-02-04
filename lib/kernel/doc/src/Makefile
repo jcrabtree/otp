@@ -1,18 +1,19 @@
 #
 # %CopyrightBegin%
 #
-# Copyright Ericsson AB 1997-2011. All Rights Reserved.
+# Copyright Ericsson AB 1997-2018. All Rights Reserved.
 #
-# The contents of this file are subject to the Erlang Public License,
-# Version 1.1, (the "License"); you may not use this file except in
-# compliance with the License. You should have received a copy of the
-# Erlang Public License along with this software. If not, it can be
-# retrieved online at http://www.erlang.org/.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-# Software distributed under the License is distributed on an "AS IS"
-# basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-# the License for the specific language governing rights and limitations
-# under the License.
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 #
 # %CopyrightEnd%
 #
@@ -41,6 +42,7 @@ XML_REF3_FILES = application.xml \
 	disk_log.xml \
 	erl_boot_server.xml \
 	erl_ddll.xml \
+	erl_epmd.xml \
 	erl_prim_loader_stub.xml \
 	erlang_stub.xml \
 	error_handler.xml \
@@ -55,10 +57,14 @@ XML_REF3_FILES = application.xml \
 	inet.xml \
 	inet_res.xml \
 	init_stub.xml \
+        logger.xml \
+        logger_std_h.xml \
+        logger_disk_log_h.xml \
+        logger_filters.xml \
+        logger_formatter.xml \
 	net_adm.xml \
 	net_kernel.xml \
 	os.xml \
-	packages.xml \
 	pg2.xml \
 	rpc.xml \
 	seq_trace.xml \
@@ -70,15 +76,22 @@ XML_REF4_FILES = app.xml config.xml
 
 XML_REF6_FILES = kernel_app.xml
 
-XML_PART_FILES = part_notes.xml part_notes_history.xml
-XML_CHAPTER_FILES = notes.xml notes_history.xml
+XML_PART_FILES = part.xml
+XML_CHAPTER_FILES = \
+        notes.xml \
+        introduction_chapter.xml \
+	logger_chapter.xml
 
 BOOK_FILES = book.xml
 
+# The .png file is generated from a .dia file with target 'update_png'
+IMAGE_FILES = \
+	logger_arch.png
+
 XML_FILES = \
 	$(BOOK_FILES) $(XML_CHAPTER_FILES) \
-	$(XML_PART_FILES) $(XML_REF3_FILES) $(XML_REF4_FILES) \
-	 $(XML_REF6_FILES) $(XML_APPLICATION_FILES)
+	$(XML_PART_FILES) $(XML_REF3_FILES) $(XML_REF4_FILES)\
+	$(XML_REF6_FILES) $(XML_APPLICATION_FILES)
 
 # ----------------------------------------------------
 
@@ -100,9 +113,20 @@ SPECS_FILES = $(XML_REF3_FILES:%.xml=$(SPECDIR)/specs_%.xml)
 TOP_SPECS_FILE = specs.xml
 
 # ----------------------------------------------------
-# FLAGS 
+# FIGURES
 # ----------------------------------------------------
-XML_FLAGS += 
+# In order to update the figures you have to have both dia
+# and imagemagick installed.
+# The generated .png file must be committed.
+
+update_png:
+	dia --export=logger_arch.eps logger_arch.dia
+	convert logger_arch.eps -resize 65% logger_arch.png
+
+# ----------------------------------------------------
+# FLAGS
+# ----------------------------------------------------
+XML_FLAGS +=
 
 SPECS_ESRC = ../../src
 
@@ -111,7 +135,7 @@ SPECS_FLAGS = -I../../include
 # ----------------------------------------------------
 # Targets
 # ----------------------------------------------------
-$(HTMLDIR)/%.gif: %.gif
+$(HTMLDIR)/%: %
 	$(INSTALL_DATA) $< $@
 
 docs: man pdf html
@@ -120,38 +144,40 @@ $(TOP_PDF_FILE): $(XML_FILES)
 
 pdf: $(TOP_PDF_FILE)
 
-html: gifs $(HTML_REF_MAN_FILE)
+html: images $(HTML_REF_MAN_FILE)
 
 man: $(MAN3_FILES) $(MAN4_FILES) $(MAN6_FILES)
 
-gifs: $(GIF_FILES:%=$(HTMLDIR)/%)
-debug opt: 
+images: $(IMAGE_FILES:%=$(HTMLDIR)/%)
+
+debug opt:
 
 clean clean_docs:
 	rm -rf $(HTMLDIR)/*
+	rm -rf $(XMLDIR)
 	rm -f $(MAN3DIR)/*
 	rm -f $(MAN4DIR)/*
 	rm -f $(MAN6DIR)/*
 	rm -f $(TOP_PDF_FILE) $(TOP_PDF_FILE:%.pdf=%.fo)
 	rm -f $(SPECDIR)/*
-	rm -f errs core *~ 
+	rm -f errs core *~ *.eps
 
 $(SPECDIR)/specs_erl_prim_loader_stub.xml:
-	escript $(SPECS_EXTRACTOR) $(SPECS_FLAGS) \
+	$(gen_verbose)escript $(SPECS_EXTRACTOR) $(SPECS_FLAGS) \
                 -o$(dir $@) -module erl_prim_loader_stub
 $(SPECDIR)/specs_erlang_stub.xml:
-	escript $(SPECS_EXTRACTOR) $(SPECS_FLAGS) \
+	$(gen_verbose)escript $(SPECS_EXTRACTOR) $(SPECS_FLAGS) \
                 -o$(dir $@) -module erlang_stub
 $(SPECDIR)/specs_init_stub.xml:
-	escript $(SPECS_EXTRACTOR) $(SPECS_FLAGS) \
+	$(gen_verbose)escript $(SPECS_EXTRACTOR) $(SPECS_FLAGS) \
                 -o$(dir $@) -module init_stub
 $(SPECDIR)/specs_zlib_stub.xml:
-	escript $(SPECS_EXTRACTOR) $(SPECS_FLAGS) \
+	$(gen_verbose)escript $(SPECS_EXTRACTOR) $(SPECS_FLAGS) \
                 -o$(dir $@) -module zlib_stub
 
 # ----------------------------------------------------
 # Release Target
-# ---------------------------------------------------- 
+# ----------------------------------------------------
 include $(ERL_TOP)/make/otp_release_targets.mk
 
 release_docs_spec: docs
@@ -169,4 +195,3 @@ release_docs_spec: docs
 	$(INSTALL_DATA) $(MAN6_FILES) "$(RELEASE_PATH)/man/man6"
 
 release_spec:
-

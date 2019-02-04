@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -141,6 +142,9 @@
 %% included for test server compatibility
 %% assume that all test cases only takes Config as sole argument
 init_per_testcase(_Func, Config) ->
+    Env = application:get_all_env(mnesia),
+    [application:unset_env(mnesia, Key, [{timeout, infinity}]) ||
+	{Key, _} <- Env, Key /= included_applications],
     global:register_name(mnesia_global_logger, group_leader()),
     Config.
 
@@ -237,8 +241,8 @@ slave_start_link() ->
 
 slave_start_link(Node) ->
     [Local, Host] = node_to_name_and_host(Node),
-    {Mega, Sec, Micro} = erlang:now(),
-    List = [Local, "_", Mega, "_", Sec, "_", Micro],
+    Count = erlang:unique_integer([positive]),
+    List = [Local, "_", Count],
     Name = list_to_atom(lists:concat(List)),
     slave_start_link(list_to_atom(Host), Name).
 
@@ -259,6 +263,7 @@ slave_start_link(Host, Name, Retries) ->
 	    Path = code:get_path(),
 	    ok = rpc:call(NewNode, file, set_cwd, [Cwd]),
 	    true = rpc:call(NewNode, code, set_path, [Path]),
+	    ok = rpc:call(NewNode, error_logger, tty, [false]),
 	    spawn_link(NewNode, ?MODULE, slave_sup, []),
 	    rpc:multicall([node() | nodes()], global, sync, []),
 	    {ok, NewNode};
@@ -272,25 +277,13 @@ slave_start_link(Host, Name, Retries) ->
     end.
 
 starter(Host, Name, Args) ->
-    case os:type() of
-	vxworks ->
-	    X = test_server:start_node(Name, slave, [{args,Args}]),
-	    timer:sleep(5000),
-	    X;
-	_ ->
-	    slave:start(Host, Name, Args)
-    end.
+    slave:start(Host, Name, Args).
 
 slave_sup() ->
     process_flag(trap_exit, true),
     receive
 	{'EXIT', _, _} ->
-	    case os:type() of
-		vxworks ->
-		    erlang:halt();
-		_  ->
-		    ignore
-	    end
+	    ignore
     end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -477,9 +470,9 @@ get_suite(Mod, {group, Suite}) ->
 	{_, _, TCList} = lists:keyfind(Suite, 1, Groups),
 	TCList
     catch
-	_:Reason ->
+	_:Reason:Stacktrace ->
 	    io:format("Not implemented ~p ~p (~p ~p)~n",
-		      [Mod,Suite,Reason, erlang:get_stacktrace()]),
+		      [Mod,Suite,Reason,Stacktrace]),
 	    'NYI'
     end;
 get_suite(Mod, all) ->
@@ -679,11 +672,13 @@ do_prepare([delete_schema | Actions], Selected, All, Config, File, Line) ->
     end,
     do_prepare(Actions, Selected, All, Config, File, Line);
 do_prepare([create_schema | Actions], Selected, All, Config, File, Line) ->
+    Ext = ?BACKEND,
     case diskless(Config) of
 	true ->
+	    rpc:multicall(Selected, application, set_env, [mnesia, schema, Ext]),
 	    skip;
 	_Else ->
-	    case mnesia:create_schema(Selected) of
+	    case mnesia:create_schema(Selected, Ext) of
 		ok ->
 		    ignore;
 		BadNodes ->
@@ -779,7 +774,7 @@ init_nodes([], _File, _Line) ->
 
 %% Returns [Name, Host]
 node_to_name_and_host(Node) ->
-    string:tokens(atom_to_list(Node), [$@]).
+    string:lexemes(atom_to_list(Node), [$@]).
 
 lookup_config(Key,Config) ->
     case lists:keysearch(Key,1,Config) of
@@ -986,7 +981,6 @@ reload_appls([Appl | Appls], Selected) ->
     {Ok2temp, Empty} = rpc:multicall(Selected, application, unload, [Appl]),
     Conv = fun({error,{not_loaded,mnesia}}) -> ok; (Else) -> Else end,
     Ok2 = {lists:map(Conv, Ok2temp), Empty},
-
     Ok3 = rpc:multicall(Selected, application, load, [Appl]),
     if
 	Ok /= Ok2 ->
@@ -1051,7 +1045,8 @@ verify_replica_location(Tab, DiscOnly0, Ram0, Disc0, AliveNodes0) ->
 
     S1 = ?match(AliveNodes, lists:sort(mnesia:system_info(running_db_nodes))),
     S2 = ?match(DiscOnly, lists:sort(mnesia:table_info(Tab, disc_only_copies))),
-    S3 = ?match(Ram, lists:sort(mnesia:table_info(Tab, ram_copies))),
+    S3 = ?match(Ram, lists:sort(mnesia:table_info(Tab, ram_copies) ++
+				    mnesia:table_info(Tab, ext_ets))),
     S4 = ?match(Disc, lists:sort(mnesia:table_info(Tab, disc_copies))),
     S5 = ?match(Write, lists:sort(mnesia:table_info(Tab, where_to_write))),
     S6 = case lists:member(This, Read) of

@@ -2,18 +2,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1999-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1999-2018. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -23,6 +24,9 @@
 -compile({no_auto_import,[error/1]}).
 -export([expr_grp/3,expr_grp/5,match_bits/6, 
 	 match_bits/7,bin_gen/6]).
+
+-define(STACKTRACE,
+        element(2, erlang:process_info(self(), current_stacktrace))).
 
 %% Types used in this module:
 %% @type bindings(). An abstract structure for bindings between
@@ -66,15 +70,20 @@ expr_grp([Field | FS], Bs0, Lf, Acc) ->
 expr_grp([], Bs0, _Lf, Acc) ->
     {value,Acc,Bs0}.
 
+eval_field({bin_element, _, {string, _, S}, {integer,_,8}, [integer,{unit,1},unsigned,big]}, Bs0, _Fun) ->
+    Latin1 = [C band 16#FF || C <- S],
+    {list_to_binary(Latin1),Bs0};
 eval_field({bin_element, _, {string, _, S}, default, default}, Bs0, _Fun) ->
-    {list_to_binary(S),Bs0};
-eval_field({bin_element, Line, {string, _, S}, Size0, Options0}, Bs, _Fun) ->
-    {_Size,[Type,_Unit,_Sign,Endian]} = 
+    Latin1 = [C band 16#FF || C <- S],
+    {list_to_binary(Latin1),Bs0};
+eval_field({bin_element, Line, {string, _, S}, Size0, Options0}, Bs0, Fun) ->
+    {Size1,[Type,{unit,Unit},Sign,Endian]} =
         make_bit_type(Line, Size0, Options0),
-    Res = << <<(eval_exp_field1(C, no_size, no_unit,
-				Type, Endian, no_sign))/binary>> ||
+    {value,Size,Bs1} = Fun(Size1, Bs0),
+    Res = << <<(eval_exp_field1(C, Size, Unit,
+				Type, Endian, Sign))/binary>> ||
 	      C <- S >>,
-    {Res,Bs};
+    {Res,Bs1};
 eval_field({bin_element,Line,E,Size0,Options0}, Bs0, Fun) ->
     {value,V,Bs1} = Fun(E, Bs0),
     {Size1,[Type,{unit,Unit},Sign,Endian]} = 
@@ -87,9 +96,9 @@ eval_exp_field1(V, Size, Unit, Type, Endian, Sign) ->
 	eval_exp_field(V, Size, Unit, Type, Endian, Sign)
     catch
 	error:system_limit ->
-	    error(system_limit);
+	    erlang:raise(error, system_limit, ?STACKTRACE);
 	error:_ ->
-	    error(badarg)
+	    erlang:raise(error, badarg, ?STACKTRACE)
     end.
 
 eval_exp_field(Val, Size, Unit, integer, little, signed) ->
@@ -125,7 +134,7 @@ eval_exp_field(Val, all, Unit, binary, _, _) ->
 	Size when Size rem Unit =:= 0 ->
 	    <<Val:Size/binary-unit:1>>;
 	_ ->
-	    error(badarg)
+	    erlang:raise(error, badarg, ?STACKTRACE)
     end;
 eval_exp_field(Val, Size, Unit, binary, _, _) ->
     <<Val:(Size*Unit)/binary-unit:1>>.
@@ -162,8 +171,10 @@ bin_gen([], Bin, _Bs0, _BBs0, _Mfun, _Efun, false) ->
   
 bin_gen_field({bin_element,_,{string,_,S},default,default},
               Bin, Bs, BBs, _Mfun, _Efun) ->
-    Bits = list_to_binary(S),
-    Size = byte_size(Bits),
+    Bits = try list_to_binary(S)
+           catch _:_ -> <<>>
+           end,
+    Size = length(S),
     case Bin of
         <<Bits:Size/binary,Rest/bitstring>> ->
             {match,Bs,BBs,Rest};
@@ -172,16 +183,42 @@ bin_gen_field({bin_element,_,{string,_,S},default,default},
         _ ->
             done
     end;
+bin_gen_field({bin_element,Line,{string,SLine,S},Size0,Options0},
+              Bin0, Bs0, BBs0, Mfun, Efun) ->
+    {Size1, [Type,{unit,Unit},Sign,Endian]} =
+        make_bit_type(Line, Size0, Options0),
+    match_check_size(Mfun, Size1, BBs0),
+    {value, Size, _BBs} = Efun(Size1, BBs0),
+    F = fun(C, Bin, Bs, BBs) ->
+                bin_gen_field1(Bin, Type, Size, Unit, Sign, Endian,
+                               {integer,SLine,C}, Bs, BBs, Mfun)
+        end,
+    bin_gen_field_string(S, Bin0, Bs0, BBs0, F);
 bin_gen_field({bin_element,Line,VE,Size0,Options0}, 
               Bin, Bs0, BBs0, Mfun, Efun) ->
     {Size1, [Type,{unit,Unit},Sign,Endian]} = 
         make_bit_type(Line, Size0, Options0),
     V = erl_eval:partial_eval(VE),
-    match_check_size(Mfun, Size1, BBs0),
+    NewV = coerce_to_float(V, Type),
+    match_check_size(Mfun, Size1, BBs0, false),
     {value, Size, _BBs} = Efun(Size1, BBs0),
+    bin_gen_field1(Bin, Type, Size, Unit, Sign, Endian, NewV, Bs0, BBs0, Mfun).
+
+bin_gen_field_string([], Rest, Bs, BBs, _F) ->
+    {match,Bs,BBs,Rest};
+bin_gen_field_string([C|Cs], Bin0, Bs0, BBs0, Fun) ->
+    case Fun(C, Bin0, Bs0, BBs0) of
+        {match,Bs,BBs,Rest} ->
+            bin_gen_field_string(Cs, Rest, Bs, BBs, Fun);
+        {nomatch,Rest} ->
+            {nomatch,Rest};
+        done ->
+            done
+    end.
+
+bin_gen_field1(Bin, Type, Size, Unit, Sign, Endian, NewV, Bs0, BBs0, Mfun) ->
     case catch get_value(Bin, Type, Size, Unit, Sign, Endian) of
         {Val,<<_/bitstring>>=Rest} ->
-            NewV = coerce_to_float(V, Type),
             case catch Mfun(match, {NewV,Val,Bs0}) of
                 {match,Bs} ->
                     BBs = add_bin_binding(Mfun, NewV, Bs, BBs0),
@@ -223,20 +260,41 @@ match_bits_1([F|Fs], Bits0, Bs0, BBs0, Mfun, Efun) ->
 
 match_field_1({bin_element,_,{string,_,S},default,default},
               Bin, Bs, BBs, _Mfun, _Efun) ->
-    Bits = list_to_binary(S),
+    Bits = list_to_binary(S), % fails if there are characters > 255
     Size = byte_size(Bits),
     <<Bits:Size/binary,Rest/binary-unit:1>> = Bin,
     {Bs,BBs,Rest};
+match_field_1({bin_element,Line,{string,SLine,S},Size0,Options0},
+              Bin0, Bs0, BBs0, Mfun, Efun) ->
+    {Size1, [Type,{unit,Unit},Sign,Endian]} =
+        make_bit_type(Line, Size0, Options0),
+    Size2 = erl_eval:partial_eval(Size1),
+    match_check_size(Mfun, Size2, BBs0),
+    {value, Size, _BBs} = Efun(Size2, BBs0),
+    F = fun(C, Bin, Bs, BBs) ->
+                match_field(Bin, Type, Size, Unit, Sign, Endian,
+                            {integer,SLine,C}, Bs, BBs, Mfun)
+        end,
+    match_field_string(S, Bin0, Bs0, BBs0, F);
 match_field_1({bin_element,Line,VE,Size0,Options0}, 
               Bin, Bs0, BBs0, Mfun, Efun) ->
     {Size1, [Type,{unit,Unit},Sign,Endian]} = 
         make_bit_type(Line, Size0, Options0),
     V = erl_eval:partial_eval(VE),
+    NewV = coerce_to_float(V, Type),
     Size2 = erl_eval:partial_eval(Size1),
     match_check_size(Mfun, Size2, BBs0),
     {value, Size, _BBs} = Efun(Size2, BBs0),
+    match_field(Bin, Type, Size, Unit, Sign, Endian, NewV, Bs0, BBs0, Mfun).
+
+match_field_string([], Rest, Bs, BBs, _Fun) ->
+    {Bs,BBs,Rest};
+match_field_string([C|Cs], Bin0, Bs0, BBs0, Fun) ->
+    {Bs,BBs,Bin} = Fun(C, Bin0, Bs0, BBs0),
+    match_field_string(Cs, Bin, Bs, BBs, Fun).
+
+match_field(Bin, Type, Size, Unit, Sign, Endian, NewV, Bs0, BBs0, Mfun) ->
     {Val,Rest} = get_value(Bin, Type, Size, Unit, Sign, Endian),
-    NewV = coerce_to_float(V, Type),
     {match,Bs} = Mfun(match, {NewV,Val,Bs0}),
     BBs = add_bin_binding(Mfun, NewV, Bs, BBs0),
     {Bs,BBs,Rest}.
@@ -322,32 +380,31 @@ make_bit_type(Line, default, Type0) ->
         {ok,all,Bt} -> {{atom,Line,all},erl_bits:as_list(Bt)};
 	{ok,undefined,Bt} -> {{atom,Line,undefined},erl_bits:as_list(Bt)};
         {ok,Size,Bt} -> {{integer,Line,Size},erl_bits:as_list(Bt)};
-        {error,Reason} -> error(Reason)
+        {error,Reason} -> erlang:raise(error, Reason, ?STACKTRACE)
     end;
 make_bit_type(_Line, Size, Type0) -> %Size evaluates to an integer or 'all'
     case erl_bits:set_bit_type(Size, Type0) of
         {ok,Size,Bt} -> {Size,erl_bits:as_list(Bt)};
-        {error,Reason} -> error(Reason)
+        {error,Reason} -> erlang:raise(error, Reason, ?STACKTRACE)
     end.
 
-match_check_size(Mfun, {var,_,V}, Bs) ->
+match_check_size(Mfun, Size, Bs) ->
+    match_check_size(Mfun, Size, Bs, true).
+
+match_check_size(Mfun, {var,_,V}, Bs, _AllowAll) ->
     case Mfun(binding, {V,Bs}) of
         {value,_} -> ok;
 	unbound -> throw(invalid) % or, rather, error({unbound,V})
     end;
-match_check_size(_, {atom,_,all}, _Bs) ->
+match_check_size(_, {atom,_,all}, _Bs, true) ->
     ok;
-match_check_size(_, {atom,_,undefined}, _Bs) ->
+match_check_size(_, {atom,_,all}, _Bs, false) ->
+    throw(invalid);
+match_check_size(_, {atom,_,undefined}, _Bs, _AllowAll) ->
     ok;
-match_check_size(_, {integer,_,_}, _Bs) ->
+match_check_size(_, {integer,_,_}, _Bs, _AllowAll) ->
     ok;
-match_check_size(_, {value,_,_}, _Bs) ->
+match_check_size(_, {value,_,_}, _Bs, _AllowAll) ->
     ok;	%From the debugger.
-match_check_size(_, _, _Bs) ->
+match_check_size(_, _, _Bs, _AllowAll) ->
     throw(invalid).
-
-%% error(Reason) -> exception thrown
-%%  Throw a nice-looking exception, similar to exceptions from erl_eval.
-error(Reason) ->
-    erlang:raise(error, Reason, [{erl_eval,expr,3}]).
-

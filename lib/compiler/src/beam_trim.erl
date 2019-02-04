@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2007-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2007-2016. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -23,9 +24,12 @@
 -import(lists, [reverse/1,reverse/2,splitwith/2,sort/1]).
 
 -record(st,
-	{safe,					%Safe labels.
-	 lbl					%Code at each label.
+	{safe :: gb_sets:set(beam_asm:label()), %Safe labels.
+	 lbl :: beam_utils:code_index()         %Code at each label.
 	 }).
+
+-spec module(beam_utils:module_code(), [compile:option()]) ->
+                    {'ok',beam_utils:module_code()}.
 
 module({Mod,Exp,Attr,Fs0,Lc}, _Opts) ->
     Fs = [function(F) || F <- Fs0],
@@ -172,38 +176,20 @@ remap([{bif,Name,Fail,Ss,D}|Is], Map, Acc) ->
 remap([{gc_bif,Name,Fail,Live,Ss,D}|Is], Map, Acc) ->
     I = {gc_bif,Name,Fail,Live,[Map(S) || S <- Ss],Map(D)},
     remap(Is, Map, [I|Acc]);
-remap([{bs_add,Fail,[SrcA,SrcB,U],D}|Is], Map, Acc) ->
-    I = {bs_add,Fail,[Map(SrcA),Map(SrcB),U],Map(D)},
+remap([{get_map_elements,Fail,M,{list,L0}}|Is], Map, Acc) ->
+    L = [Map(E) || E <- L0],
+    I = {get_map_elements,Fail,Map(M),{list,L}},
     remap(Is, Map, [I|Acc]);
-remap([{bs_append=Op,Fail,Bits,Heap,Live,Unit,Bin,Flags,D}|Is], Map, Acc) ->
-    I = {Op,Fail,Map(Bits),Heap,Live,Unit,Map(Bin),Flags,Map(D)},
+remap([{bs_init,Fail,Info,Live,Ss0,Dst0}|Is], Map, Acc) ->
+    Ss = [Map(Src) || Src <- Ss0],
+    Dst = Map(Dst0),
+    I = {bs_init,Fail,Info,Live,Ss,Dst},
     remap(Is, Map, [I|Acc]);
-remap([{bs_private_append=Op,Fail,Bits,Unit,Bin,Flags,D}|Is], Map, Acc) ->
-    I = {Op,Fail,Map(Bits),Unit,Map(Bin),Flags,Map(D)},
-    remap(Is, Map, [I|Acc]);
-remap([bs_init_writable=I|Is], Map, Acc) ->
-    remap(Is, Map, [I|Acc]);
-remap([{bs_init2,Fail,Src,Live,U,Flags,D}|Is], Map, Acc) ->
-    I = {bs_init2,Fail,Map(Src),Live,U,Flags,Map(D)},
-    remap(Is, Map, [I|Acc]);
-remap([{bs_init_bits,Fail,Src,Live,U,Flags,D}|Is], Map, Acc) ->
-    I = {bs_init_bits,Fail,Map(Src),Live,U,Flags,Map(D)},
-    remap(Is, Map, [I|Acc]);
-remap([{bs_put_binary=Op,Fail,Src,U,Flags,D}|Is], Map, Acc) ->
-    I = {Op,Fail,Map(Src),U,Flags,Map(D)},
-    remap(Is, Map, [I|Acc]);
-remap([{bs_put_integer=Op,Fail,Src,U,Flags,D}|Is], Map, Acc) ->
-    I = {Op,Fail,Map(Src),U,Flags,Map(D)},
-    remap(Is, Map, [I|Acc]);
-remap([{bs_put_float=Op,Fail,Src,U,Flags,D}|Is], Map, Acc) ->
-    I = {Op,Fail,Map(Src),U,Flags,Map(D)},
-    remap(Is, Map, [I|Acc]);
-remap([{bs_put_string,_,_}=I|Is], Map, Acc) ->
+remap([{bs_put=Op,Fail,Info,Ss}|Is], Map, Acc) ->
+    I = {Op,Fail,Info,[Map(S) || S <- Ss]},
     remap(Is, Map, [I|Acc]);
 remap([{kill,Y}|T], Map, Acc) ->
     remap(T, Map, [{kill,Map(Y)}|Acc]);
-remap([send=I|T], Map, Acc) ->
-    remap(T, Map, [I|Acc]);
 remap([{make_fun2,_,_,_,_}=I|T], Map, Acc) ->
     remap(T, Map, [I|Acc]);
 remap([{deallocate,N}|Is], Map, Acc) ->
@@ -217,12 +203,6 @@ remap([{test,Name,Fail,Live,Ss,Dst}|Is], Map, Acc) ->
     remap(Is, Map, [I|Acc]);
 remap([return|_]=Is, _, Acc) ->
     reverse(Acc, Is);
-remap([{call_last,Ar,Name,N}|Is], Map, Acc) ->
-    I = {call_last,Ar,Name,Map({frame_size,N})},
-    reverse(Acc, [I|Is]);
-remap([{call_ext_last,Ar,Name,N}|Is], Map, Acc) ->
-    I = {call_ext_last,Ar,Name,Map({frame_size,N})},
-    reverse(Acc, [I|Is]);
 remap([{line,_}=I|Is], Map, Acc) ->
     remap(Is, Map, [I|Acc]).
     
@@ -253,7 +233,7 @@ safe_labels([], Acc) -> gb_sets:from_list(Acc).
 
 frame_layout(Is, Kills, #st{safe=Safe,lbl=D}) ->
     N = frame_size(Is, Safe),
-    IsKilled = fun(R) -> beam_utils:is_killed(R, Is, D) end,
+    IsKilled = fun(R) -> beam_utils:is_not_used(R, Is, D) end,
     {N,frame_layout_1(Kills, 0, N, IsKilled, [])}.
 
 frame_layout_1([{kill,{y,Y}}=I|Ks], Y, N, IsKilled, Acc) ->
@@ -280,8 +260,8 @@ frame_size([{call_fun,_}|Is], Safe) ->
     frame_size(Is, Safe);
 frame_size([{call,_,_}|Is], Safe) ->
     frame_size(Is, Safe);
-frame_size([{call_ext,A,{extfunc,M,F,A}}|Is], Safe) ->
-    case erl_bifs:is_exit_bif(M, F, A) of
+frame_size([{call_ext,_,_}=I|Is], Safe) ->
+    case beam_jump:is_exit_instruction(I) of
 	true -> throw(not_possible);
 	false -> frame_size(Is, Safe)
     end;
@@ -295,35 +275,17 @@ frame_size([{test,_,{f,L},_}|Is], Safe) ->
     frame_size_branch(L, Is, Safe);
 frame_size([{test,_,{f,L},_,_,_}|Is], Safe) ->
     frame_size_branch(L, Is, Safe);
-frame_size([{bs_add,{f,L},_,_}|Is], Safe) ->
+frame_size([{bs_init,{f,L},_,_,_,_}|Is], Safe) ->
     frame_size_branch(L, Is, Safe);
-frame_size([{bs_append,{f,L},_,_,_,_,_,_,_}|Is], Safe) ->
+frame_size([{bs_put,{f,L},_,_}|Is], Safe) ->
     frame_size_branch(L, Is, Safe);
-frame_size([{bs_private_append,{f,L},_,_,_,_,_}|Is], Safe) ->
-    frame_size_branch(L, Is, Safe);
-frame_size([bs_init_writable|Is], Safe) ->
-    frame_size(Is, Safe);
-frame_size([{bs_init2,{f,L},_,_,_,_,_}|Is], Safe) ->
-    frame_size_branch(L, Is, Safe);
-frame_size([{bs_init_bits,{f,L},_,_,_,_,_}|Is], Safe) ->
-    frame_size_branch(L, Is, Safe);
-frame_size([{bs_put_binary,{f,L},_,_,_,_}|Is], Safe) ->
-    frame_size_branch(L, Is, Safe);
-frame_size([{bs_put_integer,{f,L},_,_,_,_}|Is], Safe) ->
-    frame_size_branch(L, Is, Safe);
-frame_size([{bs_put_float,{f,L},_,_,_,_}|Is], Safe) ->
-    frame_size_branch(L, Is, Safe);
-frame_size([{bs_put_string,_,_}|Is], Safe) ->
-    frame_size(Is, Safe);
 frame_size([{kill,_}|Is], Safe) ->
-    frame_size(Is, Safe);
-frame_size([send|Is], Safe) ->
     frame_size(Is, Safe);
 frame_size([{make_fun2,_,_,_,_}|Is], Safe) ->
     frame_size(Is, Safe);
+frame_size([{get_map_elements,{f,L},_,_}|Is], Safe) ->
+    frame_size_branch(L, Is, Safe);
 frame_size([{deallocate,N}|_], _) -> N;
-frame_size([{call_last,_,_,N}|_], _) -> N;
-frame_size([{call_ext_last,_,_,N}|_], _) -> N;
 frame_size([{line,_}|Is], Safe) ->
     frame_size(Is, Safe);
 frame_size([_|_], _) -> throw(not_possible).

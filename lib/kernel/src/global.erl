@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2012. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2017. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -57,14 +58,18 @@
 %%% In certain places in the server, calling io:format hangs everything,
 %%% so we'd better use erlang:display/1.
 %%% my_tracer is used in testsuites
--define(trace(_), ok).
 
+%% uncomment this if tracing is wanted
+%%-define(DEBUG, true).
+-ifdef(DEBUG).
+-define(trace(T), erlang:display({format, node(), cs(), T})).
+  cs() ->
+     {_Big, Small, Tiny} = erlang:timestamp(),
+     (Small rem 100) * 100 + (Tiny div 10000).
 %-define(trace(T), (catch my_tracer ! {node(), {line,?LINE}, T})).
-
-%-define(trace(T), erlang:display({format, node(), cs(), T})).
-%cs() ->
-%    {_Big, Small, Tiny} = now(),
-%    (Small rem 100) * 100 + (Tiny div 10000).
+-else.
+-define(trace(_), ok).
+-endif.
 
 %% These are the protocol versions:
 %% Vsn 1 is the original protocol.
@@ -232,7 +237,8 @@ register_name(Name, Pid) when is_pid(Pid) ->
       Name :: term(),
       Pid :: pid(),
       Resolve :: method().
-register_name(Name, Pid, Method) when is_pid(Pid) ->
+register_name(Name, Pid, Method0) when is_pid(Pid) ->
+    Method = allow_tuple_fun(Method0),
     Fun = fun(Nodes) ->
         case (where(Name) =:= undefined) andalso check_dupname(Name, Pid) of
             true ->
@@ -256,7 +262,7 @@ check_dupname(Name, Pid) ->
                 {ok, allow} ->
                     true;
                 _ ->
-                    S = "global: ~w registered under several names: ~w\n",
+                    S = "global: ~w registered under several names: ~tw\n",
                     Names = [Name | [Name1 || {_Pid, Name1} <- PidNames]],
                     error_logger:error_msg(S, [Pid, Names]),
                     false
@@ -290,7 +296,8 @@ re_register_name(Name, Pid) when is_pid(Pid) ->
       Name :: term(),
       Pid :: pid(),
       Resolve :: method().
-re_register_name(Name, Pid, Method) when is_pid(Pid) ->
+re_register_name(Name, Pid, Method0) when is_pid(Pid) ->
+    Method = allow_tuple_fun(Method0),
     Fun = fun(Nodes) ->
 		  gen_server:multi_call(Nodes,
 					global_name_server,
@@ -440,7 +447,8 @@ info() ->
 init([]) ->
     process_flag(trap_exit, true),
     _ = ets:new(global_locks, [set, named_table, protected]),
-    _ = ets:new(global_names, [set, named_table, protected]),
+    _ = ets:new(global_names, [set, named_table, protected,
+                               {read_concurrency, true}]),
     _ = ets:new(global_names_ext, [set, named_table, protected]),
 
     _ = ets:new(global_pid_names, [bag, named_table, protected]),
@@ -456,17 +464,17 @@ init([]) ->
                  no_trace
          end,
 
+    Ca = case init:get_argument(connect_all) of
+             {ok, [["false"]]} ->
+                 false;
+             _ ->
+                 true
+         end,
     S = #state{the_locker = start_the_locker(DoTrace),
                trace = T0,
-               the_registrar = start_the_registrar()},
-    S1 = trace_message(S, {init, node()}, []),
-
-    case init:get_argument(connect_all) of
-	{ok, [["false"]]} ->
-	    {ok, S1#state{connect_all = false}};
-	_ ->
-	    {ok, S1#state{connect_all = true}}
-    end.
+               the_registrar = start_the_registrar(),
+               connect_all = Ca},
+    {ok, trace_message(S, {init, node()}, [])}.
 
 %%-----------------------------------------------------------------
 %% Connection algorithm
@@ -651,7 +659,7 @@ handle_call(stop, _From, S) ->
 handle_call(Request, From, S) ->
     error_logger:warning_msg("The global_name_server "
                              "received an unexpected message:\n"
-                             "handle_call(~p, ~p, _)\n", 
+                             "handle_call(~tp, ~tp, _)\n",
                              [Request, From]),
     {noreply, S}.
 
@@ -820,7 +828,7 @@ handle_cast({async_del_lock, _ResourceId, _Pid}, S) ->
 handle_cast(Request, S) ->
     error_logger:warning_msg("The global_name_server "
                              "received an unexpected message:\n"
-                             "handle_cast(~p, _)\n", [Request]),
+                             "handle_cast(~tp, _)\n", [Request]),
     {noreply, S}.
 
 %%========================================================================
@@ -879,11 +887,12 @@ handle_info({nodeup, Node}, S0) when S0#state.connect_all ->
 	false ->
 	    resend_pre_connect(Node),
 
-	    %% now() is used as a tag to separate different synch sessions
+	    %% erlang:unique_integer([monotonic]) is used as a tag to
+	    %% separate different synch sessions
 	    %% from each others. Global could be confused at bursty nodeups
 	    %% because it couldn't separate the messages between the different
 	    %% synch sessions started by a nodeup.
-	    MyTag = now(),
+	    MyTag = erlang:unique_integer([monotonic]),
 	    put({sync_tag_my, Node}, MyTag),
             ?trace({sending_nodeup_to_locker, {node,Node},{mytag,MyTag}}),
 	    S1#state.the_locker ! {nodeup, Node, MyTag},
@@ -946,7 +955,7 @@ handle_info({'DOWN', MonitorRef, process, _Pid, _Info}, S0) ->
 handle_info(Message, S) ->
     error_logger:warning_msg("The global_name_server "
                              "received an unexpected message:\n"
-                             "handle_info(~p, _)\n", [Message]),
+                             "handle_info(~tp, _)\n", [Message]),
     {noreply, S}.
 
 
@@ -1511,14 +1520,18 @@ delete_global_name(_Name, _Pid) ->
 -record(him, {node, locker, vsn, my_tag}).
 
 start_the_locker(DoTrace) ->
-    spawn_link(fun() -> init_the_locker(DoTrace) end).
+    spawn_link(init_the_locker_fun(DoTrace)).
 
-init_the_locker(DoTrace) ->
-    process_flag(trap_exit, true),    % needed?
-    S0 = #multi{do_trace = DoTrace},
-    S1 = update_locker_known({add, get_known()}, S0),
-    loop_the_locker(S1),
-    erlang:error(locker_exited).
+-spec init_the_locker_fun(boolean()) -> fun(() -> no_return()).
+
+init_the_locker_fun(DoTrace) ->
+    fun() ->
+            process_flag(trap_exit, true),    % needed?
+            S0 = #multi{do_trace = DoTrace},
+            S1 = update_locker_known({add, get_known()}, S0),
+            loop_the_locker(S1),
+            erlang:error(locker_exited)
+    end.
 
 loop_the_locker(S) ->
     ?trace({loop_the_locker,S}),
@@ -1766,8 +1779,8 @@ update_locker_known(Upd, S) ->
     S#multi{known = Known, the_boss = TheBoss}.
 
 random_element(L) ->
-    {A,B,C} = now(),
-    E = (A+B+C) rem length(L),
+    E = abs(erlang:monotonic_time()
+		bxor erlang:unique_integer()) rem length(L),
     lists:nth(E+1, L).
 
 exclude_known(Others, Known) ->
@@ -1936,13 +1949,13 @@ exchange_names([{Name, Pid, Method} | Tail], Node, Ops, Res) ->
 		    exchange_names(Tail, Node, [Op | Ops], [Op | Res]);
 		{badrpc, Badrpc} ->
 		    error_logger:info_msg("global: badrpc ~w received when "
-					  "conflicting name ~w was found\n",
+					  "conflicting name ~tw was found\n",
 					  [Badrpc, Name]),
 		    Op = {insert, {Name, Pid, Method}},
 		    exchange_names(Tail, Node, [Op | Ops], Res);
 		Else ->
 		    error_logger:info_msg("global: Resolve method ~w for "
-					  "conflicting name ~w returned ~w\n",
+					  "conflicting name ~tw returned ~tw\n",
 					  [Method, Name, Else]),
 		    Op = {delete, Name},
 		    exchange_names(Tail, Node, [Op | Ops], [Op | Res])
@@ -1971,7 +1984,7 @@ minmax(P1,P2) ->
       Pid2 :: pid().
 random_exit_name(Name, Pid, Pid2) ->
     {Min, Max} = minmax(Pid, Pid2),
-    error_logger:info_msg("global: Name conflict terminating ~w\n",
+    error_logger:info_msg("global: Name conflict terminating ~tw\n",
 			  [{Name, Max}]),
     exit(Max, kill),
     Min.
@@ -2060,21 +2073,17 @@ get_known() ->
     gen_server:call(global_name_server, get_known, infinity).
 
 random_sleep(Times) ->
-    case (Times rem 10) of
-	0 -> erase(random_seed);
-	_ -> ok
-    end,
-    case get(random_seed) of
-	undefined ->
-	    {A1, A2, A3} = now(),
-	    random:seed(A1, A2, A3 + erlang:phash(node(), 100000));
-	_ -> ok
-    end,
+    _ = case Times rem 10 of
+	    0 ->
+		_ = rand:seed(exsplus);
+	    _ ->
+		ok
+	end,
     %% First time 1/4 seconds, then doubling each time up to 8 seconds max.
     Tmax = if Times > 5 -> 8000;
 	      true -> ((1 bsl Times) * 1000) div 8
 	   end,
-    T = random:uniform(Tmax),
+    T = rand:uniform(Tmax),
     ?trace({random_sleep, {me,self()}, {times,Times}, {t,T}, {tmax,Tmax}}),
     receive after T -> ok end.
 
@@ -2099,7 +2108,7 @@ trace_message(S, M, X) ->
     S#state{trace = [trace_message(M, X) | S#state.trace]}.
 
 trace_message(M, X) ->
-    {node(), now(), M, nodes(), X}.
+    {node(), erlang:timestamp(), M, nodes(), X}.
 
 %%-----------------------------------------------------------------
 %% Each sync process corresponds to one call to sync. Each such
@@ -2191,7 +2200,7 @@ unexpected_message({'EXIT', _Pid, _Reason}, _What) ->
     ok;
 unexpected_message(Message, What) -> 
     error_logger:warning_msg("The global_name_server ~w process "
-                             "received an unexpected message:\n~p\n", 
+                             "received an unexpected message:\n~tp\n",
                              [What, Message]).
 
 %%% Utilities
@@ -2218,3 +2227,9 @@ intersection(_, []) ->
     [];
 intersection(L1, L2) ->
     L1 -- (L1 -- L2).
+
+%% Support legacy tuple funs as resolve functions.
+allow_tuple_fun({M, F}) when is_atom(M), is_atom(F) ->
+    fun M:F/3;
+allow_tuple_fun(Fun) when is_function(Fun, 3) ->
+    Fun.

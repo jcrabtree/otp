@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2001-2011. All Rights Reserved.
+ * Copyright Ericsson AB 2001-2018. All Rights Reserved.
  *
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  * %CopyrightEnd%
  */
@@ -34,6 +35,7 @@
 #include "hipe_native_bif.h"
 #include "hipe_arch.h"
 #include "hipe_stack.h"
+#include "erl_proc_sig_queue.h"
 
 /*
  * These are wrappers for BIFs that may trigger a native
@@ -41,9 +43,8 @@
  */
 
 /* for -Wmissing-prototypes :-( */
-extern Eterm hipe_check_process_code_2(BIF_ALIST_2);
-extern Eterm hipe_garbage_collect_1(BIF_ALIST_1);
-extern Eterm hipe_show_nstack_1(BIF_ALIST_1);
+extern Eterm nbif_impl_hipe_erts_internal_check_process_code_1(NBIF_ALIST_1);
+extern Eterm nbif_impl_hipe_show_nstack_1(NBIF_ALIST_1);
 
 /* Used when a BIF can trigger a stack walk. */
 static __inline__ void hipe_set_narity(Process *p, unsigned int arity)
@@ -51,32 +52,24 @@ static __inline__ void hipe_set_narity(Process *p, unsigned int arity)
     p->hipe.narity = arity;
 }
 
-Eterm hipe_check_process_code_2(BIF_ALIST_2)
-{
-    Eterm ret;
-
-    hipe_set_narity(BIF_P, 2);
-    ret = check_process_code_2(BIF_P, BIF__ARGS);
-    hipe_set_narity(BIF_P, 0);
-    return ret;
-}
-
-Eterm hipe_garbage_collect_1(BIF_ALIST_1)
+/* Called via standard_bif_interface_2 */
+Eterm nbif_impl_hipe_erts_internal_check_process_code_1(NBIF_ALIST_1)
 {
     Eterm ret;
 
     hipe_set_narity(BIF_P, 1);
-    ret = garbage_collect_1(BIF_P, BIF__ARGS);
+    ret = nbif_impl_erts_internal_check_process_code_1(NBIF_CALL_ARGS);
     hipe_set_narity(BIF_P, 0);
     return ret;
 }
 
-Eterm hipe_show_nstack_1(BIF_ALIST_1)
+/* Called via standard_bif_interface_1 */
+Eterm nbif_impl_hipe_show_nstack_1(NBIF_ALIST_1)
 {
     Eterm ret;
 
     hipe_set_narity(BIF_P, 1);
-    ret = hipe_bifs_show_nstack_1(BIF_P, BIF__ARGS);
+    ret = nbif_impl_hipe_bifs_show_nstack_1(NBIF_CALL_ARGS);
     hipe_set_narity(BIF_P, 0);
     return ret;
 }
@@ -90,7 +83,7 @@ Eterm hipe_show_nstack_1(BIF_ALIST_1)
 void hipe_gc(Process *p, Eterm need)
 {
     hipe_set_narity(p, 1);
-    p->fcalls -= erts_garbage_collect(p, unsigned_val(need), NULL, 0);
+    erts_garbage_collect(p, unsigned_val(need), NULL, 0);
     hipe_set_narity(p, 0);
 }
 
@@ -99,13 +92,10 @@ void hipe_gc(Process *p, Eterm need)
  *  has begun.
  * XXX: BUG: native code should check return status
  */
-BIF_RETTYPE hipe_set_timeout(BIF_ALIST_1)
+BIF_RETTYPE nbif_impl_hipe_set_timeout(NBIF_ALIST_1)
 {
     Process* p = BIF_P;
     Eterm timeout_value = BIF_ARG_1;
-#if !defined(ARCH_64)
-    Uint time_val;
-#endif
     /* XXX: This should be converted to follow BEAM conventions,
      * but that requires some compiler changes.
      *
@@ -113,7 +103,8 @@ BIF_RETTYPE hipe_set_timeout(BIF_ALIST_1)
      * p->def_arg_reg[0] and p->i are both defined and used.
      * If a message arrives, BEAM resumes at p->i.
      * If a timeout fires, BEAM resumes at p->def_arg_reg[0].
-     * (See set_timer() and timeout_proc() in erl_process.c.)
+     * (See erts_set_proc_timer() and proc_timeout_common() in
+     * erl_hl_timer.c.)
      *
      * Here we set p->def_arg_reg[0] to hipe_beam_pc_resume.
      * Assuming our caller invokes suspend immediately after
@@ -146,28 +137,19 @@ BIF_RETTYPE hipe_set_timeout(BIF_ALIST_1)
      */
     if (p->flags & (F_INSLPQUEUE | F_TIMO))
 	return NIL;	/* caller had better call nbif_suspend ASAP! */
-    if (is_small(timeout_value) && signed_val(timeout_value) >= 0 &&
-#if defined(ARCH_64)
-	(unsigned_val(timeout_value) >> 32) == 0
-#else
-	1
-#endif
-	) {
-	set_timer(p, unsigned_val(timeout_value));
-    } else if (timeout_value == am_infinity) {
+
+    if (timeout_value == am_infinity) {
 	/* p->flags |= F_TIMO; */	/* XXX: nbif_suspend_msg_timeout */
-#if !defined(ARCH_64)
-    } else if (term_to_Uint(timeout_value, &time_val)) {
-	set_timer(p, time_val);
-#endif
-    } else {
-#ifdef ERTS_SMP
-	if (p->hipe_smp.have_receive_locks) {
-	    p->hipe_smp.have_receive_locks = 0;
-	    erts_smp_proc_unlock(p, ERTS_PROC_LOCKS_MSG_RECEIVE);
+    }
+    else {
+	int tres = erts_set_proc_timer_term(p, timeout_value);
+	if (tres != 0) { /* Wrong time */
+	    if (p->flags & F_HIPE_RECV_LOCKED) {
+                p->flags &= ~F_HIPE_RECV_LOCKED;
+		erts_proc_unlock(p, ERTS_PROC_LOCKS_MSG_RECEIVE);
+	    }
+	    BIF_ERROR(p, EXC_TIMEOUT_VALUE);
 	}
-#endif
-	BIF_ERROR(p, EXC_TIMEOUT_VALUE);
     }
     return NIL;	/* caller had better call nbif_suspend ASAP! */
 }
@@ -176,13 +158,22 @@ BIF_RETTYPE hipe_set_timeout(BIF_ALIST_1)
  */
 void hipe_select_msg(Process *p)
 {
-    ErlMessage *msgp;
+    ErtsMessage *msgp;
 
     msgp = PEEK_MESSAGE(p);
     UNLINK_MESSAGE(p, msgp);	/* decrements global 'erts_proc_tot_mem' variable */
     JOIN_MESSAGE(p);
-    CANCEL_TIMER(p);		/* calls erl_cancel_timer() */
-    free_message(msgp);
+    CANCEL_TIMER(p);		/* calls erts_cancel_proc_timer() */
+    erts_save_message_in_proc(p, msgp);
+    p->flags &= ~F_DELAY_GC;
+    if (ERTS_IS_GC_DESIRED(p)) {
+	/*
+	 * We want to GC soon but we leave a few
+	 * reductions giving the message some time
+	 * to turn into garbage.
+	 */
+	ERTS_VBUMP_LEAVE_REDS(p, 5);
+    }
 }
 
 void hipe_fclearerror_error(Process *p)
@@ -190,7 +181,7 @@ void hipe_fclearerror_error(Process *p)
 #if !defined(NO_FPE_SIGNALS)
     erts_fp_check_init_error(&p->fp_exception);
 #else
-    erl_exit(ERTS_ABORT_EXIT, "Emulated FPE not cleared by HiPE");
+    erts_exit(ERTS_ABORT_EXIT, "Emulated FPE not cleared by HiPE");
 #endif
 }
 
@@ -236,11 +227,6 @@ void hipe_handle_exception(Process *c_p)
 
     ASSERT(c_p->freason != TRAP); /* Should have been handled earlier. */
 
-    if (c_p->mbuf) {
-	erts_printf("%s line %u: p==%p, p->mbuf==%p\n", __FUNCTION__, __LINE__, c_p, c_p->mbuf);
-	//erts_garbage_collect(c_p, 0, NULL, 0);
-    }
-
     /*
      * Check if we have an arglist for the top level call. If so, this
      * is encoded in Value, so we have to dig out the real Value as well
@@ -269,10 +255,7 @@ void hipe_handle_exception(Process *c_p)
     /* Synthesized to avoid having to generate code for it. */
     c_p->def_arg_reg[0] = exception_tag[GET_EXC_CLASS(c_p->freason)];
 
-    if (c_p->mbuf) {
-	//erts_printf("%s line %u: p==%p, p->mbuf==%p, p->lastbif==%p\n", __FUNCTION__, __LINE__, c_p, c_p->mbuf, c_p->hipe.lastbif);
-	erts_garbage_collect(c_p, 0, NULL, 0);
-    }
+    ERTS_RECV_MARK_CLEAR(c_p);  /* No longer safe to use this position */
 
     hipe_find_handler(c_p);
 }
@@ -290,10 +273,10 @@ static struct StackTrace *get_trace_from_exc(Eterm exc)
  * This does what the (misnamed) Beam instruction 'raise_ss' does,
  * namely, a proper re-throw of an exception that was caught by 'try'.
  */
-
-BIF_RETTYPE hipe_rethrow(BIF_ALIST_2)
+/* Called via standard_bif_interface_2 */
+BIF_RETTYPE nbif_impl_hipe_rethrow(NBIF_ALIST_2)
 {
-    Process* c_p = BIF_P;
+    Process *c_p = BIF_P;
     Eterm exc = BIF_ARG_1;
     Eterm value = BIF_ARG_2;
 
@@ -332,6 +315,32 @@ BIF_RETTYPE hipe_rethrow(BIF_ALIST_2)
     }
 }
 
+/* Called via standard_bif_interface_3 */
+BIF_RETTYPE nbif_impl_hipe_raw_raise(NBIF_ALIST_3)
+{
+    Process *c_p = BIF_P;
+    Eterm class = BIF_ARG_1;
+    Eterm value = BIF_ARG_2;
+    Eterm stacktrace = BIF_ARG_3;
+    Eterm reason;
+
+    if (class == am_error) {
+	c_p->fvalue = value;
+	reason = EXC_ERROR;
+    } else if (class == am_exit) {
+	c_p->fvalue = value;
+	reason = EXC_EXIT;
+    } else if (class == am_throw) {
+	c_p->fvalue = value;
+	reason = EXC_THROWN;
+    } else {
+        return am_badarg;
+    }
+    reason &= ~EXF_SAVETRACE;
+    c_p->ftrace = stacktrace;
+    BIF_ERROR(c_p, reason);
+}
+
 /*
  * Support for compiled binary syntax operations.
  */
@@ -341,9 +350,6 @@ char *hipe_bs_allocate(int len)
     Binary *bptr;
 
     bptr = erts_bin_nrml_alloc(len);
-    bptr->flags = 0;
-    bptr->orig_size = len;
-    erts_smp_atomic_init_nob(&bptr->refc, 1);
     return bptr->orig_bytes;
 }
 
@@ -352,14 +358,11 @@ Binary *hipe_bs_reallocate(Binary* oldbptr, int newsize)
     Binary *bptr;
 
     bptr = erts_bin_realloc(oldbptr, newsize);
-    bptr->orig_size = newsize;
     return bptr;
 }
 
 int hipe_bs_put_big_integer(
-#ifdef ERTS_SMP
     Process *p,
-#endif
     Eterm arg, Uint num_bits, byte* base, unsigned offset, unsigned flags)
 {
     byte *save_bin_buf;
@@ -420,12 +423,8 @@ Eterm hipe_bs_utf8_size(Eterm arg)
 	return make_small(4);
 }
 
-BIF_RETTYPE hipe_bs_put_utf8(BIF_ALIST_3)
+Eterm hipe_bs_put_utf8(Process* p, Eterm arg, byte* base, Uint offset)
 {
-    Process* p = BIF_P;
-    Eterm arg = BIF_ARG_1;
-    byte* base = (byte*) BIF_ARG_2;
-    Uint offset = (Uint) BIF_ARG_3;
     byte *save_bin_buf;
     Uint save_bin_offset;
     int res;
@@ -441,7 +440,8 @@ BIF_RETTYPE hipe_bs_put_utf8(BIF_ALIST_3)
     erts_current_bin = save_bin_buf;
     erts_bin_offset = save_bin_offset;
     if (res == 0)
-	BIF_ERROR(p, BADARG);
+        return 0;
+    ASSERT(new_offset != 0);
     return new_offset;
 }
 
@@ -481,7 +481,7 @@ Eterm hipe_bs_put_utf16(Process *p, Eterm arg, byte *base, unsigned int offset, 
     return new_offset;
 }
 
-BIF_RETTYPE hipe_bs_put_utf16be(BIF_ALIST_3)
+BIF_RETTYPE nbif_impl_hipe_bs_put_utf16be(NBIF_ALIST_3)
 {
     Process *p = BIF_P;
     Eterm arg = BIF_ARG_1;
@@ -490,7 +490,7 @@ BIF_RETTYPE hipe_bs_put_utf16be(BIF_ALIST_3)
     return hipe_bs_put_utf16(p, arg, base, offset, 0);
 }
 
-BIF_RETTYPE hipe_bs_put_utf16le(BIF_ALIST_3)
+BIF_RETTYPE nbif_impl_hipe_bs_put_utf16le(NBIF_ALIST_3)
 {
     Process *p = BIF_P;
     Eterm arg = BIF_ARG_1;
@@ -503,21 +503,16 @@ static int validate_unicode(Eterm arg)
 {
     if (is_not_small(arg) ||
 	arg > make_small(0x10FFFFUL) ||
-	(make_small(0xD800UL) <= arg && arg <= make_small(0xDFFFUL)) ||
-	arg == make_small(0xFFFEUL) ||
-	arg == make_small(0xFFFFUL))
+	(make_small(0xD800UL) <= arg && arg <= make_small(0xDFFFUL)))
 	return 0;
     return 1;
 }
 
-BIF_RETTYPE hipe_bs_validate_unicode(BIF_ALIST_1)
+Uint hipe_is_unicode(Eterm arg)
 {
-    Process *p = BIF_P;
-    Eterm arg = BIF_ARG_1;
-    if (!validate_unicode(arg))
-	BIF_ERROR(p, BADARG);
-    return NIL;
+    return (Uint) validate_unicode(arg);
 }
+
 
 int hipe_bs_validate_unicode_retract(ErlBinMatchBuffer* mb, Eterm arg)
 {
@@ -528,58 +523,84 @@ int hipe_bs_validate_unicode_retract(ErlBinMatchBuffer* mb, Eterm arg)
     return 1;
 }
 
+Uint hipe_is_divisible(Uint dividend, Uint divisor)
+{
+    if (dividend % divisor) {
+        return 0;
+    } else {
+        return 1;
+    }
+}
+
 /* This is like the loop_rec_fr BEAM instruction
  */
 Eterm hipe_check_get_msg(Process *c_p)
 {
-    Eterm ret;
-    ErlMessage *msgp;
+    ErtsMessage *msgp;
+
+    c_p->flags |= F_DELAY_GC;
 
  next_message:
 
     msgp = PEEK_MESSAGE(c_p);
 
     if (!msgp) {
-#ifdef ERTS_SMP
-	erts_smp_proc_lock(c_p, ERTS_PROC_LOCKS_MSG_RECEIVE);
-	/* Make sure messages wont pass exit signals... */
-	if (ERTS_PROC_PENDING_EXIT(c_p)) {
-	    erts_smp_proc_unlock(c_p, ERTS_PROC_LOCKS_MSG_RECEIVE);
-	    return THE_NON_VALUE; /* Will be rescheduled for exit */
-	}
-	ERTS_SMP_MSGQ_MV_INQ2PRIVQ(c_p);
-	msgp = PEEK_MESSAGE(c_p);
-	if (msgp)
-	    erts_smp_proc_unlock(c_p, ERTS_PROC_LOCKS_MSG_RECEIVE);
-	else {
-	    /* XXX: BEAM doesn't need this */
-	    c_p->hipe_smp.have_receive_locks = 1;
-#endif
-	    return THE_NON_VALUE;
-#ifdef ERTS_SMP
-	}
-#endif
+        int get_out;
+        c_p->i = NULL;
+        c_p->arity = 0;
+        c_p->current = NULL;
+        (void) erts_proc_sig_receive_helper(c_p, CONTEXT_REDS/4, 0,
+                                            &msgp, &get_out);
+        /* FIXME: Need to bump reductions... */
+        if (!msgp) {
+            if (get_out) {
+                if (get_out < 0)
+                    c_p->flags |= F_HIPE_RECV_YIELD; /* yield... */
+                /* else: go exit... */
+                return THE_NON_VALUE;
+            }
+
+            /*
+             * If there are no more messages in queue
+             * (and we are not yielding or exiting)
+             * erts_proc_sig_receive_helper()
+             * returns with message queue lock locked...
+             */
+
+            /* XXX: BEAM doesn't need this */
+            c_p->flags |= F_HIPE_RECV_LOCKED;
+            c_p->flags &= ~F_DELAY_GC;
+            return THE_NON_VALUE;
+        }
     }
-    ErtsMoveMsgAttachmentIntoProc(msgp, c_p, c_p->stop, HEAP_TOP(c_p),
-				  c_p->fcalls, (void) 0, (void) 0);
-    ret = ERL_MESSAGE_TERM(msgp);
-    if (is_non_value(ret)) {
-	/*
-	 * A corrupt distribution message that we weren't able to decode;
-	 * remove it...
-	 */
-	ASSERT(!msgp->data.attached);
-	UNLINK_MESSAGE(c_p, msgp);
-	free_message(msgp);
-	goto next_message;
+
+    ASSERT(msgp == PEEK_MESSAGE(c_p));
+    ASSERT(msgp && ERTS_SIG_IS_MSG(msgp));
+
+    if (ERTS_SIG_IS_EXTERNAL_MSG(msgp)) {
+        /* FIXME: bump appropriate amount... */
+        if (!erts_decode_dist_message(c_p, ERTS_PROC_LOCK_MAIN, msgp, 0)) {
+            /*
+             * A corrupt distribution message that we weren't able to decode;
+             * remove it...
+             */
+            /* TODO: Add DTrace probe for this bad message situation? */
+            UNLINK_MESSAGE(c_p, msgp);
+            msgp->next = NULL;
+            erts_cleanup_messages(msgp);
+            goto next_message;
+        }
     }
-    return ret;
+
+    ASSERT(msgp == PEEK_MESSAGE(c_p));
+    ASSERT(ERTS_SIG_IS_INTERNAL_MSG(msgp));
+
+    return ERL_MESSAGE_TERM(msgp);
 }
 
 /*
  * SMP-specific stuff
  */
-#ifdef ERTS_SMP
 
 /*
  * This is like the timeout BEAM instruction.
@@ -590,16 +611,14 @@ void hipe_clear_timeout(Process *c_p)
      * A timeout has occurred.  Reset the save pointer so that the next
      * receive statement will examine the first message first.
      */
-#ifdef ERTS_SMP
     /* XXX: BEAM has different entries for the locked and unlocked
        cases. HiPE doesn't, so we must check dynamically. */
-    if (c_p->hipe_smp.have_receive_locks) {
-	c_p->hipe_smp.have_receive_locks = 0;
-	erts_smp_proc_unlock(c_p, ERTS_PROC_LOCKS_MSG_RECEIVE);
+    if (c_p->flags & F_HIPE_RECV_LOCKED) {
+	c_p->flags &= ~F_HIPE_RECV_LOCKED;
+	erts_proc_unlock(c_p, ERTS_PROC_LOCKS_MSG_RECEIVE);
     }
-#endif
     if (IS_TRACED_FL(c_p, F_TRACE_RECEIVE)) {
-	trace_receive(c_p, am_timeout);
+	trace_receive(c_p, am_clock_service, am_timeout, NULL);
     }
     c_p->flags &= ~F_TIMO;
     JOIN_MESSAGE(c_p);
@@ -607,7 +626,6 @@ void hipe_clear_timeout(Process *c_p)
 
 void hipe_atomic_inc(int *counter)
 {
-    erts_smp_atomic_inc_nob((erts_smp_atomic_t*)counter);
+    erts_atomic_inc_nob((erts_atomic_t*)counter);
 }
 
-#endif

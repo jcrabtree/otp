@@ -1,30 +1,22 @@
 %% -*- erlang-indent-level: 2 -*-
 %%
-%% %CopyrightBegin%
-%% 
-%% Copyright Ericsson AB 2001-2009. All Rights Reserved.
-%% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
-%% 
-%% %CopyrightEnd%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %%=======================================================================
 %% File        : hipe_icode2rtl.erl
 %% Author(s)   : Erik Johansson
 %% Description : Translates Icode to RTL
 %%=======================================================================
-%%
-%% $Id$
-%%
 %% TODO: Better handling of switches...
 
 -module(hipe_icode2rtl).
@@ -427,8 +419,6 @@ gen_type_test([X], Type, TrueLbl, FalseLbl, Pred, ConstTab) ->
         hipe_rtl:mk_branch(X, eq, TmpF, TrueLbl, FalseLbl, Pred)], ConstTab};
     cons ->
       {hipe_tagscheme:test_cons(X, TrueLbl, FalseLbl, Pred), ConstTab};
-    constant ->
-      {hipe_tagscheme:test_constant(X, TrueLbl, FalseLbl, Pred), ConstTab};
     fixnum ->
       {hipe_tagscheme:test_fixnum(X, TrueLbl, FalseLbl, Pred), ConstTab};
     float ->
@@ -439,6 +429,8 @@ gen_type_test([X], Type, TrueLbl, FalseLbl, Pred, ConstTab) ->
       {hipe_tagscheme:test_integer(X, TrueLbl, FalseLbl, Pred), ConstTab};
     list ->
       {hipe_tagscheme:test_list(X, TrueLbl, FalseLbl, Pred), ConstTab};
+    map ->
+      {hipe_tagscheme:test_map(X, TrueLbl, FalseLbl, Pred), ConstTab};
     nil ->
       {hipe_tagscheme:test_nil(X, TrueLbl, FalseLbl, Pred), ConstTab};
     number ->
@@ -540,8 +532,12 @@ gen_cond(CondOp, Args, TrueLbl, FalseLbl, Pred) ->
 			  FalseLbl, Pred)];
     '=:=' ->
       [Arg1, Arg2] = Args,
+      TypeTestLbl = hipe_rtl:mk_new_label(),
       [hipe_rtl:mk_branch(Arg1, eq, Arg2, TrueLbl,
-			  hipe_rtl:label_name(GenLbl), Pred),
+			  hipe_rtl:label_name(TypeTestLbl), Pred),
+       TypeTestLbl,
+       hipe_tagscheme:test_either_immed(Arg1, Arg2, FalseLbl,
+					hipe_rtl:label_name(GenLbl)),
        GenLbl,
        hipe_rtl:mk_call([Tmp], op_exact_eqeq_2, Args,
 			TestRetName, [], not_remote),
@@ -554,8 +550,12 @@ gen_cond(CondOp, Args, TrueLbl, FalseLbl, Pred) ->
 			  TrueLbl, 1-Pred)];
     '=/=' ->
       [Arg1, Arg2] = Args,
+      TypeTestLbl = hipe_rtl:mk_new_label(),
       [hipe_rtl:mk_branch(Arg1, eq, Arg2, FalseLbl,
-			  hipe_rtl:label_name(GenLbl), 1-Pred),
+			  hipe_rtl:label_name(TypeTestLbl), 1-Pred),
+       TypeTestLbl,
+       hipe_tagscheme:test_either_immed(Arg1, Arg2, TrueLbl,
+					hipe_rtl:label_name(GenLbl)),
        GenLbl,
        hipe_rtl:mk_call([Tmp], op_exact_eqeq_2, Args,
 			TestRetName, [], not_remote),

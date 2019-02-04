@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 1999-2010. All Rights Reserved.
+ * Copyright Ericsson AB 1999-2018. All Rights Reserved.
  *
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  * %CopyrightEnd%
  */
@@ -41,15 +42,8 @@
 #  define MAX(x, y) (((x) > (y)) ? (x) : (y))
 #endif
 
-#if !HEAP_ON_C_STACK
-#  define DECLARE_TMP(VariableName,N,P)  \
-     Eterm *VariableName = ((ERTS_PROC_GET_SCHDATA(P)->erl_arith_tmp_heap) + (2 * N))
-#else
-#  define DECLARE_TMP(VariableName,N,P) \
-     Eterm VariableName[2]
-#endif
-#  define ARG_IS_NOT_TMP(Arg,Tmp) ((Arg) != make_big((Tmp)))
-
+#define DECLARE_TMP(VariableName,N,P)  Eterm VariableName[2]
+#define ARG_IS_NOT_TMP(Arg,Tmp) ((Arg) != make_big((Tmp)))
 
 static Eterm shift(Process* p, Eterm arg1, Eterm arg2, int right);
 
@@ -120,7 +114,7 @@ BIF_RETTYPE intdiv_2(BIF_ALIST_2)
     }
     if (is_both_small(BIF_ARG_1,BIF_ARG_2)){
 	Sint ires = signed_val(BIF_ARG_1) / signed_val(BIF_ARG_2);
-	if (MY_IS_SSMALL(ires))
+	if (IS_SSMALL(ires))
 	    BIF_RET(make_small(ires));
     } 
     BIF_RET(erts_int_div(BIF_P, BIF_ARG_1, BIF_ARG_2));
@@ -282,8 +276,12 @@ shift(Process* p, Eterm arg1, Eterm arg2, int right)
 		goto do_bsl;
 	    } else if (is_small(arg1) || is_big(arg1)) {
 		/*
-		 * N bsl PositiveBigNum is too large to represent.
+		 * N bsl PositiveBigNum is too large to represent,
+                 * unless N is 0.
 		 */
+                if (arg1 == make_small(0)) {
+                    BIF_RET(arg1);
+                }
 		BIF_ERROR(p, SYSTEM_LIMIT);
 	    }
 	     /* Fall through if the left argument is not an integer. */
@@ -342,8 +340,7 @@ erts_mixed_plus(Process* p, Eterm arg1, Eterm arg2)
 		switch ((arg2 & _TAG_IMMED1_MASK) >> _TAG_PRIMARY_SIZE) {
 		case (_TAG_IMMED1_SMALL >> _TAG_PRIMARY_SIZE):
 		    ires = signed_val(arg1) + signed_val(arg2);
-		    ASSERT(MY_IS_SSMALL(ires) == IS_SSMALL(ires));
-		    if (MY_IS_SSMALL(ires)) {
+		    if (IS_SSMALL(ires)) {
 			return make_small(ires);
 		    } else {
 			hp = HAlloc(p, 2);
@@ -488,8 +485,7 @@ erts_mixed_minus(Process* p, Eterm arg1, Eterm arg2)
 		switch ((arg2 & _TAG_IMMED1_MASK) >> _TAG_PRIMARY_SIZE) {
 		case (_TAG_IMMED1_SMALL >> _TAG_PRIMARY_SIZE):
 		    ires = signed_val(arg1) - signed_val(arg2);
-		    ASSERT(MY_IS_SSMALL(ires) == IS_SSMALL(ires));
-		    if (MY_IS_SSMALL(ires)) {
+		    if (IS_SSMALL(ires)) {
 			return make_small(ires);
 		    } else {
 			hp = HAlloc(p, 2);
@@ -1183,8 +1179,7 @@ erts_gc_mixed_plus(Process* p, Eterm* reg, Uint live)
 		switch ((arg2 & _TAG_IMMED1_MASK) >> _TAG_PRIMARY_SIZE) {
 		case (_TAG_IMMED1_SMALL >> _TAG_PRIMARY_SIZE):
 		    ires = signed_val(arg1) + signed_val(arg2);
-		    ASSERT(MY_IS_SSMALL(ires) == IS_SSMALL(ires));
-		    if (MY_IS_SSMALL(ires)) {
+		    if (IS_SSMALL(ires)) {
 			return make_small(ires);
 		    } else {
 			if (ERTS_NEED_GC(p, 2)) {
@@ -1351,8 +1346,7 @@ erts_gc_mixed_minus(Process* p, Eterm* reg, Uint live)
 		switch ((arg2 & _TAG_IMMED1_MASK) >> _TAG_PRIMARY_SIZE) {
 		case (_TAG_IMMED1_SMALL >> _TAG_PRIMARY_SIZE):
 		    ires = signed_val(arg1) - signed_val(arg2);
-		    ASSERT(MY_IS_SSMALL(ires) == IS_SSMALL(ires));
-		    if (MY_IS_SSMALL(ires)) {
+		    if (IS_SSMALL(ires)) {
 			return make_small(ires);
 		    } else {
 			if (ERTS_NEED_GC(p, 2)) {
@@ -2048,3 +2042,8 @@ Eterm erts_gc_bnot(Process* p, Eterm* reg, Uint live)
     }
     return result;
 } 
+
+/* Needed to remove compiler optimization */
+double erts_get_positive_zero_float() {
+    return 0.0f;
+}

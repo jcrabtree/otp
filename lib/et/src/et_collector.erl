@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2000-2010. All Rights Reserved.
+%% Copyright Ericsson AB 2000-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -26,8 +27,7 @@
 -behaviour(gen_server).
 
 %% External exports
--export([
-         start_link/1, 
+-export([start_link/1, 
          stop/1,
 
          report/2, 
@@ -54,8 +54,7 @@
          dict_delete/2, 
          dict_lookup/2, 
          dict_match/2,
-         multicast/2
-        ]).
+         multicast/2]).
 
 %% Internal export
 -export([monitor_trace_port/2]).
@@ -63,6 +62,8 @@
 %% gen_server callbacks
 -export([init/1,terminate/2, code_change/3,
          handle_call/3, handle_cast/2, handle_info/2]).
+
+-compile([{nowarn_deprecated_function,[{erlang,now,0}]}]).
 
 -include("et_internal.hrl").
 -include("../include/et.hrl").
@@ -255,7 +256,7 @@ parse_opt(BadList, _S, _Dict, _Clients) ->
     {error, {bad_option_list, BadList}}.
 
 start_clients(CollectorPid, [{Type, Parameters} | T]) ->
-    start_trace_client(CollectorPid, Type, Parameters),
+    _ = start_trace_client(CollectorPid, Type, Parameters),
     start_clients(CollectorPid, T);
 start_clients(CollectorPid, []) ->
     {ok, CollectorPid}.
@@ -409,8 +410,6 @@ report(TH, TraceOrEvent) when is_record(TH, table_handle) ->
                     report(TH#table_handle.collector_pid, TraceOrEvent)
             end
     end;
-report(TH, end_of_trace) when is_record(TH, table_handle) ->
-    {ok, TH};
 report(_, Bad) ->
     exit({bad_event, Bad}).
 
@@ -510,7 +509,7 @@ get_global_pid() ->
 %% CollectorPid = pid()
 %% RawPattern = {report_module(), extended_dbg_match_spec()}
 %% report_module() = atom() | undefined
-%% extended_dbg_match_spec()() = detail_level() | dbg_match_spec()
+%% extended_dbg_match_spec() = detail_level() | dbg_match_spec()
 %% RawPattern = detail_level()
 %% detail_level() = min | max | integer(X) when X =< 0, X >= 100
 %% TracePattern = {report_module(), dbg_match_spec_match_spec()}
@@ -654,13 +653,8 @@ start_trace_client(CollectorPid, Type, FileName) when Type =:= file ->
     Ref = erlang:monitor(process, Pid),
     receive
         WaitFor -> 
-	    erlang:demonitor(Ref),
-	    receive 
-		{'DOWN', Ref, _, _, _} ->
-		    file_loaded
-	    after 0 ->
-		    file_loaded
-	    end;
+	    erlang:demonitor(Ref, [flush]),
+	    file_loaded;
         {'DOWN', Ref, _, _, Reason} ->
             exit(Reason)
     end;
@@ -756,7 +750,7 @@ next_iterate(TH, Prev = first, Limit, Fun, Acc) ->
         '$end_of_table' ->
             Acc;
         {'EXIT', _} = Error ->
-            io:format("~p(~p): First ~p~n", [?MODULE, ?LINE, Error]),
+            io:format("~p(~p): First ~tp~n", [?MODULE, ?LINE, Error]),
             iterate(TH#table_handle.collector_pid, Prev, Limit, Fun, Acc);
         First ->
             lookup_and_apply(TH, Prev, First, Limit, -1, Fun, Acc)
@@ -767,7 +761,7 @@ next_iterate(TH, Prev = last, Limit, Fun, Acc) ->
         '$end_of_table' ->
             Acc;
         {'EXIT', _} = Error ->
-            io:format("~p(~p): Last ~p~n", [?MODULE, ?LINE, Error]),
+            io:format("~p(~p): Last ~tp~n", [?MODULE, ?LINE, Error]),
             iterate(TH#table_handle.collector_pid, Prev, Limit, Fun, Acc);
         Last ->
             lookup_and_apply(TH, Prev, Last, Limit, -1, Fun, Acc)
@@ -779,7 +773,7 @@ next_iterate(TH, Prev, Limit, Fun, Acc) ->
         '$end_of_table' ->
             Acc;
         {'EXIT', _} = Error ->
-            io:format("~p(~p): Next ~p -> ~p~n", [?MODULE, ?LINE, Key, Error]),
+            io:format("~p(~p): Next ~tp -> ~tp~n", [?MODULE, ?LINE, Key, Error]),
             iterate(TH#table_handle.collector_pid, Prev, Limit, Fun, Acc);
         Next ->
             lookup_and_apply(TH, Prev, Next, Limit, -1, Fun, Acc)
@@ -791,7 +785,7 @@ prev_iterate(TH, Prev = first, Limit, Fun, Acc) ->
         '$end_of_table' ->
             Acc;
         {'EXIT', _} = Error ->
-            io:format("~p(~p): First ~p~n", [?MODULE, ?LINE, Error]),
+            io:format("~p(~p): First ~tp~n", [?MODULE, ?LINE, Error]),
             iterate(TH#table_handle.collector_pid, Prev, Limit, Fun, Acc);
         First ->
             lookup_and_apply(TH, Prev, First, Limit, 1, Fun, Acc)
@@ -802,7 +796,7 @@ prev_iterate(TH, Prev = last, Limit, Fun, Acc) ->
         '$end_of_table' ->
             Acc;
         {'EXIT', _} = Error ->
-            io:format("~p(~p): Last ~p~n", [?MODULE, ?LINE, Error]),
+            io:format("~p(~p): Last ~tp~n", [?MODULE, ?LINE, Error]),
             iterate(TH#table_handle.collector_pid, Prev, Limit, Fun, Acc);
         Last ->
             lookup_and_apply(TH, Prev, Last, Limit, 1, Fun, Acc)
@@ -814,7 +808,7 @@ prev_iterate(TH, Prev, Limit, Fun, Acc) ->
         '$end_of_table' ->
             Acc;
         {'EXIT', _} = Error ->
-            io:format("~p(~p): Prev ~p -> ~p~n", [?MODULE, ?LINE, Key, Error]),
+            io:format("~p(~p): Prev ~tp -> ~tp~n", [?MODULE, ?LINE, Key, Error]),
             iterate(TH#table_handle.collector_pid, Prev, Limit, Fun, Acc);
         Next ->
             lookup_and_apply(TH, Prev, Next, Limit, 1, Fun, Acc)
@@ -896,7 +890,7 @@ init([InitialS, Dict]) ->
     process_flag(trap_exit, true),
     case InitialS#state.parent_pid of
 	undefined ->
-	    ignore;
+	    ok;
 	Pid when is_pid(Pid) ->
 	    link(Pid)
     end,
@@ -918,7 +912,7 @@ init_global(S) ->
             Spec = trace_spec_wrapper(EventFun, EndFun, {ok, self()}),
             dbg:tracer(process, Spec),
             et_selector:change_pattern(S#state.trace_pattern),
-            net_kernel:monitor_nodes(true),
+            ok = net_kernel:monitor_nodes(true),
             lists:foreach(fun(N) -> self() ! {nodeup, N} end, nodes()),
             S#state{trace_nodes = [node()]};
         false ->
@@ -1005,7 +999,7 @@ handle_call({save_event_file, FileName, Options}, _From, S) ->
                             %% insert() ->
                             %%   case S2#state.file of    
                             %%       undefined ->
-                            %%           ignore;
+                            %%           ok;
                             %%       F  ->
                             %%           Fd = F#file.desc,
                             %%           ok = disk_log:log(Fd, Event)
@@ -1014,7 +1008,7 @@ handle_call({save_event_file, FileName, Options}, _From, S) ->
                                 Fun = fun({_, E}, A) -> ok = disk_log:log(Fd, E), A end,
                                 Tab = S#state.event_tab,
                                 Reply = tab_iterate(Fun, Tab, ets:first(Tab), ok),
-                                disk_log:close(Fd),
+                                ok = disk_log:close(Fd),
                                 {Reply, S}
                             %% all ->
                             %%     Reply = tab_iterate(WriteFun, Tab, ok),
@@ -1037,7 +1031,7 @@ handle_call({save_event_file, FileName, Options}, _From, S) ->
 
 handle_call({change_pattern, Pattern}, _From, S) ->
     Ns = S#state.trace_nodes,
-    rpc:multicall(Ns, et_selector, change_pattern, [Pattern]),
+    {_,[]} = rpc:multicall(Ns, et_selector, change_pattern, [Pattern]),
     Reply = {old_pattern, S#state.trace_pattern},
     S2 = S#state{trace_pattern = Pattern},
     reply(Reply, S2);
@@ -1049,12 +1043,13 @@ handle_call(clear_table, _From, S) ->
 handle_call(stop, _From, S) ->
     do_multicast(S#state.subscribers, close),
     case S#state.trace_global of
-        true  -> rpc:multicall(S#state.trace_nodes, dbg, stop_clear, []);
-        false -> ignore
+        true  -> {_,[]} = rpc:multicall(S#state.trace_nodes, dbg, stop_clear, []),
+                 ok;
+        false -> ok
     end,
     {stop, shutdown, ok, S};
 handle_call(Request, From, S) ->
-    ok = error_logger:format("~p(~p): handle_call(~p, ~p, ~p)~n",
+    ok = error_logger:format("~p(~p): handle_call(~tp, ~tp, ~tp)~n",
                              [?MODULE, self(), Request, From, S]),
     reply({error, {bad_request, Request}}, S).
 
@@ -1066,7 +1061,7 @@ handle_call(Request, From, S) ->
 %%----------------------------------------------------------------------
 
 handle_cast(Msg, S) ->
-    ok = error_logger:format("~p(~p): handle_cast(~p, ~p)~n",
+    ok = error_logger:format("~p(~p): handle_cast(~tp, ~tp)~n",
                              [?MODULE, self(), Msg, S]),
     noreply(S).
 
@@ -1088,18 +1083,18 @@ handle_info({nodeup, Node}, S) ->
             S2 = listen_on_trace_port(Node, Port, S),
 	    noreply(S2);
         {error, Reason} when Reason =:= already_started->
-            ok = error_logger:format("~p(~p): producer ignored(~p:~p):~n    ~p~n",
+            ok = error_logger:format("~p(~p): producer ignored(~p:~p):~n    ~tp~n",
                                      [?MODULE, self(), Node, Port, Reason]),
             S2 = S#state{trace_port = Port + 1},
             noreply(S2);
         {badrpc, Reason} ->
-            ok = error_logger:format("~p(~p): producer ignored(~p:~p):~n    ~p~n",
+            ok = error_logger:format("~p(~p): producer ignored(~p:~p):~n    ~tp~n",
                                      [?MODULE, self(), Node, Port, Reason]),
             S2 = S#state{trace_port = Port + 1},
             noreply(S2);
         {error, Reason} ->
             self() ! {nodeup, Node},
-            ok = error_logger:format("~p(~p): producer retry(~p:~p):~n     ~p~n",
+            ok = error_logger:format("~p(~p): producer retry(~p:~p):~n     ~tp~n",
                                      [?MODULE, self(), Node, Port, Reason]),
             S2 = S#state{trace_port = Port + 1},
             noreply(S2)
@@ -1130,17 +1125,17 @@ handle_info(Info = {'EXIT', Pid, Reason}, S) ->
 	    opt_unlink(S#state.parent_pid),
 	    {stop, Reason, S};
         false ->
-            ok = error_logger:format("~p(~p): handle_info(~p, ~p)~n",
+            ok = error_logger:format("~p(~p): handle_info(~tp, ~tp)~n",
                                      [?MODULE, self(), Info, S]),
             noreply(S)
     end;
 handle_info(Info, S) ->
-    ok = error_logger:format("~p(~p): handle_info(~p, ~p)~n",
+    ok = error_logger:format("~p(~p): handle_info(~tp, ~tp)~n",
                              [?MODULE, self(), Info, S]),
     noreply(S).
 
 listen_on_trace_port(Node, Port, S) ->
-    [_Name, Host] = string:tokens(atom_to_list(Node), [$@]),
+    [_Name, Host] = string:lexemes(atom_to_list(Node), [$@]),
     case catch start_trace_client(self(), ip, {Host, Port}) of
         {trace_client_pid, RemotePid} ->
             rpc:call(Node, et_selector, change_pattern, [S#state.trace_pattern]),
@@ -1148,12 +1143,12 @@ listen_on_trace_port(Node, Port, S) ->
             S#state{trace_nodes = [Node | S#state.trace_nodes],
 		    trace_port  = Port + 1};
         {'EXIT', Reason} when Reason =:= already_started->
-            ok = error_logger:format("~p(~p): consumer ignored(~p:~p): ~p~n",
+            ok = error_logger:format("~p(~p): consumer ignored(~p:~p): ~tp~n",
                                      [?MODULE, self(), Node, Port, Reason]),
             S#state{trace_port = Port + 1};
         {'EXIT', Reason} ->
             self() ! {nodeup, Node},
-            ok = error_logger:format("~p(~p): consumer retry(~p:~p):~n     ~p~n",
+            ok = error_logger:format("~p(~p): consumer retry(~p:~p):~n     ~tp~n",
                                      [?MODULE, self(), Node, Port, Reason]),
             S#state{trace_port = Port + 1}
     end.
@@ -1243,8 +1238,8 @@ tab_iterate(Fun, Tab, Key, Acc) ->
 file_open(F) ->
     Fd = make_ref(),
     case F#file.file_opt of
-        write  -> file:rename(F#file.name, F#file.name ++ ".OLD");
-        append -> ignore
+        write  -> ok = file:rename(F#file.name, F#file.name ++ ".OLD");
+        append -> ok
     end,
     Args = [{file, F#file.name}, {name, Fd},
             {repair, true}, {mode, read_write}],
@@ -1252,7 +1247,7 @@ file_open(F) ->
         {ok, _} ->
             {ok, Fd};
         {repaired, _, _, BadBytes} ->
-            ok = error_logger:format("~p: Skipped ~p bad bytes in file: ~p~n",
+            ok = error_logger:format("~p: Skipped ~p bad bytes in file: ~tp~n",
                                      [?MODULE, BadBytes, F#file.name]),
             {ok, Fd};
         {error,Reason} ->
@@ -1282,7 +1277,7 @@ do_multicast([], _Msg) ->
 opt_unlink(Pid) ->
     if
 	Pid =:= undefined ->
-	    ignore;
+	    ok;
 	true ->
 	    unlink(Pid)
     end.

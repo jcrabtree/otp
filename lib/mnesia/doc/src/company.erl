@@ -1,24 +1,30 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1999-2012. All Rights Reserved.
+%% Copyright Ericsson AB 1999-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
 -module(company).
 
--compile(export_all).
+-export([init/0,insert_emp/3,mk_projs/2,females/0,all_females/0,
+         g/0,female_bosses/0, raise_females/1, over_write/2, raise/2,
+         bad_raise/2, get_emps/2, get_emps2/2, filter/2, filter_deps/3,
+         search_deps/3, bench1/0, dotimes/2, dist_init/0, remove_proj/1,
+         del_in_projs/1, sync/0, tabs/0, find_male_on_second_floor/0,
+         panic/1, fill_tables/0]).
 
 %0
 

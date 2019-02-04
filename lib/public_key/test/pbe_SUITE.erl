@@ -1,100 +1,63 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2011-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2011-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
 
 -module(pbe_SUITE).
 
--include_lib("test_server/include/test_server.hrl").
+-include_lib("common_test/include/ct.hrl").
 -include_lib("public_key/include/public_key.hrl").
 
 %% Note: This directive should only be used in test suites.
 -compile(export_all).
-%% Test server callback functions
+
 %%--------------------------------------------------------------------
-%% Function: init_per_suite(Config) -> Config
-%% Config - [tuple()]
-%%   A list of key/value pairs, holding the test case configuration.
-%% Description: Initialization before the whole suite
-%%
-%% Note: This function is free to add any key/value pairs to the Config
-%% variable, but should NOT alter/remove any existing entries.
+%% Common Test interface functions -----------------------------------
+%%--------------------------------------------------------------------
+
+suite() -> 
+    [].
+
+all() -> 
+    [
+     pbdkdf1,
+     pbdkdf2,
+     old_enc,
+     pbes1,
+     pbes2].
+
+groups() -> 
+    [].
+
 %%--------------------------------------------------------------------
 init_per_suite(Config) ->
+    application:stop(crypto),
     try crypto:start() of
 	ok ->
 	    Config
     catch _:_ ->
 	    {skip, "Crypto did not start"}
     end.
-%%--------------------------------------------------------------------
-%% Function: end_per_suite(Config) -> _
-%% Config - [tuple()]
-%%   A list of key/value pairs, holding the test case configuration.
-%% Description: Cleanup after the whole suite
-%%--------------------------------------------------------------------
+
 end_per_suite(_Config) ->
     application:stop(crypto).
 
 %%--------------------------------------------------------------------
-%% Function: init_per_testcase(TestCase, Config) -> Config
-%% Case - atom()
-%%   Name of the test case that is about to be run.
-%% Config - [tuple()]
-%%   A list of key/value pairs, holding the test case configuration.
-%%
-%% Description: Initialization before each test case
-%%
-%% Note: This function is free to add any key/value pairs to the Config
-%% variable, but should NOT alter/remove any existing entries.
-%% Description: Initialization before each test case
-%%--------------------------------------------------------------------
-init_per_testcase(_TestCase, Config) ->
-   Config.
-
-%%--------------------------------------------------------------------
-%% Function: end_per_testcase(TestCase, Config) -> _
-%% Case - atom()
-%%   Name of the test case that is about to be run.
-%% Config - [tuple()]
-%%   A list of key/value pairs, holding the test case configuration.
-%% Description: Cleanup after each test case
-%%--------------------------------------------------------------------
-end_per_testcase(_TestCase, _Config) ->
-   ok.
-
-%%--------------------------------------------------------------------
-%% Function: all(Clause) -> TestCases
-%% Clause - atom() - suite | doc
-%% TestCases - [Case] 
-%% Case - atom()
-%%   Name of a test case.
-%% Description: Returns a list of all test cases in this test suite
-%%--------------------------------------------------------------------
-suite() -> [{ct_hooks,[ts_install_cth]}].
-
-all() -> 
-    [
-     pbdkdf1,
-     pbdkdf2,
-     encrypted_private_key_info].
-
-groups() -> 
-    [].
 
 init_per_group(_GroupName, Config) ->
     Config.
@@ -102,11 +65,20 @@ init_per_group(_GroupName, Config) ->
 end_per_group(_GroupName, Config) ->
     Config.
 
-
-%% Test cases starts here.
 %%--------------------------------------------------------------------
-pbdkdf1(doc) ->
-    ["Test with PKCS #5 PBKDF1 Test Vectors"];
+init_per_testcase(_TestCase, Config) ->
+   Config.
+
+
+end_per_testcase(_TestCase, _Config) ->
+   ok.
+
+%%--------------------------------------------------------------------
+%% Test Cases --------------------------------------------------------
+%%--------------------------------------------------------------------
+
+pbdkdf1() ->
+    [{doc,"Test with PKCS #5 PBKDF1 Test Vectors"}].
 pbdkdf1(Config) when is_list(Config) ->
     %%Password = "password"
     %%     = (0x)70617373776F7264
@@ -126,8 +98,8 @@ pbdkdf1(Config) when is_list(Config) ->
      16#4A, 16#3D, 16#2A, 16#20, _/binary>> =
 	pubkey_pbe:pbdkdf1(Password, Salt, Count, sha).
 
-pbdkdf2(doc) ->
-    ["Test with PKCS #5 PBKDF2 Test Vectors"];
+pbdkdf2() ->
+    [{doc,"Test with PKCS #5 PBKDF2 Test Vectors"}].
 pbdkdf2(Config) when is_list(Config) ->
     %% Input:
     %%   P = "password" (8 octets)
@@ -142,7 +114,7 @@ pbdkdf2(Config) when is_list(Config) ->
     
     <<16#0c, 16#60, 16#c8, 16#0f, 16#96, 16#1f, 16#0e, 16#71,
       16#f3, 16#a9, 16#b5, 16#24, 16#af, 16#60, 16#12, 16#06,
-      16#2f, 16#e0, 16#37, 16#a6>> = pubkey_pbe:pbdkdf2("password", "salt", 1, 20, fun crypto:sha_mac/3, 20),
+      16#2f, 16#e0, 16#37, 16#a6>> = pubkey_pbe:pbdkdf2("password", "salt", 1, 20, fun crypto:hmac/4, sha, 20),
     
     %% Input:
     %%   P = "password" (8 octets)
@@ -158,7 +130,7 @@ pbdkdf2(Config) when is_list(Config) ->
     <<16#ea, 16#6c, 16#01, 16#4d, 16#c7, 16#2d, 16#6f, 16#8c, 
       16#cd, 16#1e, 16#d9, 16#2a, 16#ce, 16#1d, 16#41, 16#f0,  
       16#d8,  16#de,  16#89, 16#57>>  =
-	pubkey_pbe:pbdkdf2("password", "salt", 2, 20, fun crypto:sha_mac/3, 20),
+	pubkey_pbe:pbdkdf2("password", "salt", 2, 20, fun crypto:hmac/4, sha, 20),
 
      %% Input:
      %%   P = "password" (8 octets)
@@ -173,7 +145,7 @@ pbdkdf2(Config) when is_list(Config) ->
 
     <<16#4b, 16#00, 16#79, 16#01, 16#b7, 16#65, 16#48, 16#9a,
       16#be, 16#ad, 16#49, 16#d9, 16#26, 16#f7, 16#21, 16#d0,
-      16#65, 16#a4, 16#29, 16#c1>> = pubkey_pbe:pbdkdf2("password", "salt", 4096, 20, fun crypto:sha_mac/3, 20),
+      16#65, 16#a4, 16#29, 16#c1>> = pubkey_pbe:pbdkdf2("password", "salt", 4096, 20, fun crypto:hmac/4, sha, 20),
 
     %% Input:
     %%    P = "password" (8 octets)
@@ -189,7 +161,7 @@ pbdkdf2(Config) when is_list(Config) ->
     
     <<16#ee, 16#fe, 16#3d, 16#61, 16#cd, 16#4d, 16#a4, 16#e4, 
       16#e9, 16#94, 16#5b, 16#3d, 16#6b, 16#a2, 16#15, 16#8c, 
-      16#26, 16#34, 16#e9, 16#84>> = pubkey_pbe:pbdkdf2("password", "salt", 16777216, 20, fun crypto:sha_mac/3, 20),
+      16#26, 16#34, 16#e9, 16#84>> = pubkey_pbe:pbdkdf2("password", "salt", 16777216, 20, fun crypto:hmac/4, sha, 20),
     
     %% Input:
     %%    P = "passwordPASSWORDpassword" (24 octets)
@@ -208,7 +180,7 @@ pbdkdf2(Config) when is_list(Config) ->
       16#8b, 16#29, 16#1a, 16#96, 16#4c, 16#f2, 16#f0, 16#70, 
       16#38>>
 	= pubkey_pbe:pbdkdf2("passwordPASSWORDpassword", 
-			     "saltSALTsaltSALTsaltSALTsaltSALTsalt", 4096, 25, fun crypto:sha_mac/3, 20),
+			     "saltSALTsaltSALTsaltSALTsaltSALTsalt", 4096, 25, fun crypto:hmac/4, sha, 20),
     
      %% Input:
      %%   P = "pass\0word" (9 octets)
@@ -223,37 +195,48 @@ pbdkdf2(Config) when is_list(Config) ->
     <<16#56, 16#fa, 16#6a, 16#a7, 16#55, 16#48, 16#09, 16#9d, 
       16#cc, 16#37, 16#d7, 16#f0, 16#34, 16#25, 16#e0, 16#c3>>
 	= pubkey_pbe:pbdkdf2("pass\0word", 
-			     "sa\0lt", 4096, 16, fun crypto:sha_mac/3, 20).
+			     "sa\0lt", 4096, 16, fun crypto:hmac/4, sha, 20).
+
+old_enc() ->
+    [{doc,"Tests encode/decode RSA key encrypted with different ciphers using old PEM encryption scheme"}].
+old_enc(Config) when is_list(Config) ->
+    Datadir = proplists:get_value(data_dir, Config),
+    %% key generated with ssh-keygen -N hello_aes -f old_aes_128_cbc_enc_key.pem
+    {ok, PemAesCbc} = file:read_file(filename:join(Datadir, "old_aes_128_cbc_enc_key.pem")),
     
-encrypted_private_key_info(doc) ->
-    ["Tests reading a EncryptedPrivateKeyInfo file encrypted with different ciphers"];
-encrypted_private_key_info(Config) when is_list(Config) ->
-    Datadir = ?config(data_dir, Config),
-    {ok, PemDes} = file:read_file(filename:join(Datadir, "des_cbc_enc_key.pem")),
+    PemAesCbcEntry = public_key:pem_decode(PemAesCbc),
+    ct:print("Pem entry: ~p" , [PemAesCbcEntry]),
+    [{'RSAPrivateKey', _, {"AES-128-CBC",_}} = PubAesCbcEntry] = PemAesCbcEntry,
+    #'RSAPrivateKey'{} = public_key:pem_entry_decode(PubAesCbcEntry, "hello_aes").
+
+pbes1() ->
+    [{doc,"Tests encode/decode EncryptedPrivateKeyInfo encrypted with different ciphers using PBES1"}].
+pbes1(Config) when is_list(Config) ->
+    decode_encode_key_file("pbes1_des_cbc_md5_enc_key.pem", "password", "DES-CBC", Config).
     
-    PemDesEntry = public_key:pem_decode(PemDes),
-    test_server:format("Pem entry: ~p" , [PemDesEntry]),
-    [{'PrivateKeyInfo', _, {"DES-CBC",_}} = PubEntry0] = PemDesEntry,
-    KeyInfo = public_key:pem_entry_decode(PubEntry0, "password"),
+pbes2() ->
+    [{doc,"Tests encode/decode EncryptedPrivateKeyInfo encrypted with different ciphers using PBES2"}].
+pbes2(Config) when is_list(Config) ->
+    decode_encode_key_file("pbes2_des_cbc_enc_key.pem", "password", "DES-CBC", Config),
+    decode_encode_key_file("pbes2_des_ede3_cbc_enc_key.pem", "password", "DES-EDE3-CBC", Config),   
+    case lists:member(rc2_cbc, proplists:get_value(ciphers, crypto:supports())) of
+	true ->
+	    decode_encode_key_file("pbes2_rc2_cbc_enc_key.pem", "password", "RC2-CBC", Config);
+	false ->
+	    ok
+    end.
+
+decode_encode_key_file(File, Password, Cipher, Config) ->
+    Datadir = proplists:get_value(data_dir, Config),
+    {ok, PemKey} = file:read_file(filename:join(Datadir, File)),
     
-    {ok, Pem3Des} = file:read_file(filename:join(Datadir, "des_ede3_cbc_enc_key.pem")),
+    PemEntry = public_key:pem_decode(PemKey),
+    ct:print("Pem entry: ~p" , [PemEntry]),
+    [{Asn1Type, _, {Cipher,_} = CipherInfo} = PubEntry] = PemEntry,
+    #'RSAPrivateKey'{} = KeyInfo = public_key:pem_entry_decode(PubEntry, Password),
+    PemKey1 = public_key:pem_encode([public_key:pem_entry_encode(Asn1Type, KeyInfo, {CipherInfo, Password})]),
+    Pem = strip_ending_newlines(PemKey),
+    Pem = strip_ending_newlines(PemKey1).
 
-    Pem3DesEntry = public_key:pem_decode(Pem3Des),
-    test_server:format("Pem entry: ~p" , [Pem3DesEntry]),
-    [{'PrivateKeyInfo', _, {"DES-EDE3-CBC",_}} = PubEntry1] = Pem3DesEntry,
-    KeyInfo = public_key:pem_entry_decode(PubEntry1, "password"),
-
-    {ok, PemRc2} = file:read_file(filename:join(Datadir, "rc2_cbc_enc_key.pem")),
-
-    PemRc2Entry = public_key:pem_decode(PemRc2),
-    test_server:format("Pem entry: ~p" , [PemRc2Entry]),
-    [{'PrivateKeyInfo', _, {"RC2-CBC",_}} = PubEntry2] = PemRc2Entry,
-    KeyInfo = public_key:pem_entry_decode(PubEntry2, "password"),
-
-    check_key_info(KeyInfo).
-
-
-check_key_info(#'PrivateKeyInfo'{privateKeyAlgorithm =
-				     #'PrivateKeyInfo_privateKeyAlgorithm'{algorithm = ?rsaEncryption},
-				 privateKey = Key}) ->
-    #'RSAPrivateKey'{} = public_key:der_decode('RSAPrivateKey', iolist_to_binary(Key)).
+strip_ending_newlines(Bin) ->
+    string:strip(binary_to_list(Bin), right, 10).

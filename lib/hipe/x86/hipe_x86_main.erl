@@ -1,22 +1,16 @@
 %% -*- erlang-indent-level: 2 -*-
 %%
-%% %CopyrightBegin%
-%% 
-%% Copyright Ericsson AB 2004-2009. All Rights Reserved.
-%% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
-%% 
-%% %CopyrightEnd%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
 -ifdef(HIPE_AMD64).
 -define(HIPE_X86_MAIN, hipe_amd64_main).
@@ -52,19 +46,23 @@
 ?RTL_TO_X86(MFA, RTL, Options) ->
   Translated = ?option_time(?HIPE_RTL_TO_X86:translate(RTL),
 			    "RTL-to-"?X86STR, Options),
-  SpillRest = 
+  TransCFG = ?option_time(hipe_x86_cfg:init(Translated),
+			  ?X86STR" to cfg", Options),
+  SpillRestCFG =
     case proplists:get_bool(caller_save_spill_restore, Options) of
       true ->
-	?option_time(?HIPE_X86_SPILL_RESTORE:spill_restore(Translated, Options),
+	?option_time(?HIPE_X86_SPILL_RESTORE:spill_restore(TransCFG, Options),
 		     ?X86STR" spill restore", Options);
       false ->
-	Translated
+	TransCFG
     end,
-  Allocated  = ?option_time(?HIPE_X86_RA:ra(SpillRest, Options),
-			    ?X86STR" register allocation", Options),
-  Framed     = ?option_time(?HIPE_X86_FRAME:frame(Allocated, Options), 
-			    ?X86STR" frame", Options),
-  Finalised  = ?option_time(hipe_x86_postpass:postpass(Framed, Options),
-			    ?X86STR" finalise", Options),
+  AllocatedCFG = ?option_time(?HIPE_X86_RA:ra(SpillRestCFG, Options),
+			       ?X86STR" register allocation", Options),
+  FramedCFG    = ?option_time(?HIPE_X86_FRAME:frame(AllocatedCFG, Options),
+			       ?X86STR" frame", Options),
+  Framed       = ?option_time(hipe_x86_cfg:linearise(FramedCFG),
+			      ?X86STR" linearise", Options),
+  Finalised    = ?option_time(hipe_x86_postpass:postpass(Framed, Options),
+			      ?X86STR" finalise", Options),
   ?HIPE_X86_PP:optional_pp(Finalised, MFA, Options),
   {native, ?X86TAG, {unprofiled, Finalised}}.

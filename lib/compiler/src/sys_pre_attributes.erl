@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1998-2009. All Rights Reserved.
+%% Copyright Ericsson AB 1998-2016. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -24,10 +25,10 @@
 
 -define(OPTION_TAG, attributes).
 
--record(state, {forms,
-		pre_ops = [],
-		post_ops = [],
-		options}).
+-record(state, {forms :: [form()],
+		pre_ops = [] :: [op()],
+		post_ops = [] :: [op()],
+                options :: [option()]}).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Inserts, deletes and replaces Erlang compiler attributes.
@@ -58,9 +59,23 @@
 %% due to that the pre_transform pass did not find the attribute plus
 %% all insert operations.
 
+-type attribute() :: atom().
+-type value() :: term().
+-type form() :: {function, integer(), atom(), arity(), _}
+              | {attribute, integer(), attribute(), _}.
+-type option() :: compile:option()
+                | {'attribute', 'insert', attribute(), value()}
+                | {'attribute', 'replace', attribute(), value()}
+                | {'attribute', 'delete', attribute()}.
+-type op() :: {'insert', attribute(), value()}
+            | {'replace', attribute(), value()}
+            | {'delete', attribute()}.
+
+-spec parse_transform([form()], [option()]) -> [form()].
+
 parse_transform(Forms, Options) ->
     S = #state{forms = Forms, options = Options},
-    S2 = init_transform(S),
+    S2 = init_transform(Options, S),
     report_verbose("Pre  options: ~p~n", [S2#state.pre_ops], S2),
     report_verbose("Post options: ~p~n", [S2#state.post_ops], S2),
     S3 = pre_transform(S2),
@@ -70,13 +85,6 @@ parse_transform(Forms, Options) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Computes the lists of pre_ops and post_ops that are 
 %% used in the real transformation.
-init_transform(S) ->
-    case S#state.options of
-	Options when is_list(Options) ->
-	    init_transform(Options, S);
-	Option ->
-	    init_transform([Option], S)
-    end.
 
 init_transform([{attribute, insert, Name, Val} | Tail], S) ->
     Op = {insert, Name, Val},
@@ -91,12 +99,9 @@ init_transform([{attribute, delete, Name} | Tail], S) ->
     Op = {delete, Name},
     PreOps = [Op | S#state.pre_ops],
     init_transform(Tail, S#state{pre_ops = PreOps});
-init_transform([], S) ->
-    S;
 init_transform([_ | T], S) ->
     init_transform(T, S);
-init_transform(BadOpt, S) ->
-    report_error("Illegal option (ignored): ~p~n", [BadOpt], S),
+init_transform([], S) ->
     S.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -175,18 +180,9 @@ attrs([], _, _) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Report functions.
 %%
-%% Errors messages are controlled with the 'report_errors' compiler option
 %% Warning messages are controlled with the 'report_warnings' compiler option
 %% Verbose messages are controlled with the 'verbose' compiler option
 
-report_error(Format, Args, S) -> 
-    case is_error(S) of
-	true ->
-	    io:format("~p: * ERROR * " ++ Format, [?MODULE | Args]);
-	false ->
-	    ok
-    end.
-    
 report_warning(Format, Args, S) -> 
     case is_warning(S) of
 	true ->
@@ -202,9 +198,6 @@ report_verbose(Format, Args, S) ->
 	false ->
 	    ok
     end.
-
-is_error(S) ->
-    lists:member(report_errors, S#state.options) or is_verbose(S).
 
 is_warning(S) ->
     lists:member(report_warnings, S#state.options) or is_verbose(S).

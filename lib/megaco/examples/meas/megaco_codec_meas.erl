@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2002-2010. All Rights Reserved.
+%% Copyright Ericsson AB 2002-2016. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -176,7 +177,7 @@ display_megaco_info() ->
     io:format("Megaco version:      ~s (~s)~n", [Ver, FlexStr]).
 
 display_asn1_info() ->
-    AI = megaco_ber_bin_drv_media_gateway_control_v1:info(),
+    AI = megaco_ber_media_gateway_control_v1:info(),
     Vsn = 
 	case lists:keysearch(vsn, 1, AI) of
 	    {value, {vsn, V}} when is_atom(V) ->
@@ -281,15 +282,11 @@ expand_codec(Codec) ->
 	    [{Codec, megaco_compact_text_encoder, [flex_scanner], 3000},
 	     {Codec, megaco_compact_text_encoder, [],             1500}];
 	ber ->
-	    [{Codec, megaco_ber_bin_encoder, [driver,native], 4000},
-	     {Codec, megaco_ber_bin_encoder, [native],        3000},
-	     {Codec, megaco_ber_bin_encoder, [driver],        3000},
-	     {Codec, megaco_ber_bin_encoder, [],              1000}];
+	    [{Codec, megaco_ber_encoder, [native],        3000},
+	     {Codec, megaco_ber_encoder, [],              1000}];
 	per ->
-	    [{Codec, megaco_per_bin_encoder, [driver,native], 4000},
-	     {Codec, megaco_per_bin_encoder, [native],        3000},
-	     {Codec, megaco_per_bin_encoder, [driver],        3000},
-	     {Codec, megaco_per_bin_encoder, [],              1000}];
+	    [{Codec, megaco_per_encoder, [native],        3000},
+	     {Codec, megaco_per_encoder, [],              1000}];
 	erlang ->
 	    [
 	     {Codec, megaco_erl_dist_encoder, [megaco_compressed,compressed], 500},

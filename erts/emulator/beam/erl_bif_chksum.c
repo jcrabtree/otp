@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2008-2010. All Rights Reserved.
+ * Copyright Ericsson AB 2008-2018. All Rights Reserved.
  *
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  * %CopyrightEnd%
  */
@@ -42,16 +43,9 @@ static Export chksum_md5_2_exp;
 void erts_init_bif_chksum(void)
 {
     /* Non visual BIF to trap to. */
-    memset(&chksum_md5_2_exp, 0, sizeof(Export));
-    chksum_md5_2_exp.address = 
-	&chksum_md5_2_exp.code[3];
-    chksum_md5_2_exp.code[0] = am_erlang;
-    chksum_md5_2_exp.code[1] = am_atom_put("md5_trap",8);
-    chksum_md5_2_exp.code[2] = 2;
-    chksum_md5_2_exp.code[3] =
-	(BeamInstr) em_apply_bif;
-    chksum_md5_2_exp.code[4] = 
-	(BeamInstr) &md5_2;
+    erts_init_trap_export(&chksum_md5_2_exp,
+			  am_erlang, ERTS_MAKE_AM("md5_trap"), 2,
+			  &md5_2);
 }
     
 
@@ -522,7 +516,7 @@ md5_2(BIF_ALIST_2)
     /* No need to check context, this function cannot be called with unaligned
        or badly sized context as it's always trapped to. */
     bytes = binary_bytes(BIF_ARG_1);
-    memcpy(&context,bytes,sizeof(MD5_CTX));
+    sys_memcpy(&context,bytes,sizeof(MD5_CTX));
     rest = do_chksum(&md5_wrap,BIF_P,BIF_ARG_2,100,(void *) &context,&res,
 		     &err);
     if (err != 0) {
@@ -570,7 +564,7 @@ md5_update_2(BIF_ALIST_2)
 	erts_free_aligned_binary_bytes(temp_alloc);
 	BIF_ERROR(BIF_P, BADARG);
     }
-    memcpy(&context,bytes,sizeof(MD5_CTX));
+    sys_memcpy(&context,bytes,sizeof(MD5_CTX));
     erts_free_aligned_binary_bytes(temp_alloc);
     rest = do_chksum(&md5_wrap,BIF_P,BIF_ARG_2,100,(void *) &context,&res,
 		     &err);
@@ -605,7 +599,7 @@ md5_final_1(BIF_ALIST_1)
 	goto error;
     }
     bin = erts_new_heap_binary(BIF_P, (byte *)NULL, 16, &result);
-    memcpy(&ctx_copy, context, sizeof(MD5_CTX));
+    sys_memcpy(&ctx_copy, context, sizeof(MD5_CTX));
     erts_free_aligned_binary_bytes(temp_alloc);
     MD5Final(result, &ctx_copy);
     BIF_RET(bin);

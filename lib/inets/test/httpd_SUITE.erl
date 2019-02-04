@@ -1,2129 +1,1131 @@
 %%
 %% %CopyrightBegin%
+%% 
+%% Copyright Ericsson AB 2013-2018. All Rights Reserved.
+%% 
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Copyright Ericsson AB 2005-2012. All Rights Reserved.
+%%     http://www.apache.org/licenses/LICENSE-2.0
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
-%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
+%% 
 %% %CopyrightEnd%
 %%
 %%
 
+%% 
+%% ct:run("../inets_test", httpd_SUITE).
+%%
+
 -module(httpd_SUITE).
 
--include_lib("test_server/include/test_server.hrl").
--include("test_server_line.hrl").
+-include_lib("kernel/include/file.hrl").
+-include_lib("common_test/include/ct.hrl").
+-include_lib("public_key/include/public_key.hrl").
 -include("inets_test_lib.hrl").
 
--include_lib("kernel/include/file.hrl").
-
-%% Test server specific exports
--export([all/0, suite/0,groups/0,init_per_group/2,end_per_group/2]).
--export([init_per_testcase/2, end_per_testcase/2,
-	 init_per_suite/1, end_per_suite/1]).
-
-%% Core Server tests
--export([
-	 ip_mod_alias/1, 
-	 ip_mod_actions/1, 
-	 ip_mod_security/1, 
-	 ip_mod_auth/1,
-	 ip_mod_auth_api/1, 
-	 ip_mod_auth_mnesia_api/1, 
-	 ip_mod_htaccess/1, 
-	 ip_mod_cgi/1, 
-	 ip_mod_esi/1,
-	 ip_mod_get/1, 
-	 ip_mod_head/1, 
-	 ip_mod_all/1, 
-	 ip_load_light/1,
-	 ip_load_medium/1, 
-	 ip_load_heavy/1, 
-	 ip_dos_hostname/1, 
-	 ip_time_test/1, 
-	 ip_block_disturbing_idle/1, 
-	 ip_block_non_disturbing_idle/1, 
-	 ip_block_503/1, 
-	 ip_block_disturbing_active/1, 
-	 ip_block_non_disturbing_active/1, 
-	 ip_block_disturbing_active_timeout_not_released/1, 
-	 ip_block_disturbing_active_timeout_released/1, 
-	 ip_block_non_disturbing_active_timeout_not_released/1, 
-	 ip_block_non_disturbing_active_timeout_released/1, 
-	 ip_block_disturbing_blocker_dies/1, 
-	 ip_block_non_disturbing_blocker_dies/1, 
-	 ip_restart_no_block/1, 
-	 ip_restart_disturbing_block/1, 
-	 ip_restart_non_disturbing_block/1
-	]).
-
--export([
-	 pssl_mod_alias/1, 
-	 essl_mod_alias/1, 
-	 
-	 pssl_mod_actions/1, 
-	 essl_mod_actions/1, 
-	 
-	 pssl_mod_security/1, 
-	 essl_mod_security/1, 
-	 
-	 pssl_mod_auth/1, 
-	 essl_mod_auth/1, 
-
-	 pssl_mod_auth_api/1,  
-	 essl_mod_auth_api/1,  
-	 
-	 pssl_mod_auth_mnesia_api/1, 
-	 essl_mod_auth_mnesia_api/1, 
-	 
-	 pssl_mod_htaccess/1, 
-	 essl_mod_htaccess/1, 
-	 
-	 pssl_mod_cgi/1, 
-	 essl_mod_cgi/1,
- 
-	 pssl_mod_esi/1, 
-	 essl_mod_esi/1, 
-
-	 pssl_mod_get/1, 
-	 essl_mod_get/1, 
-
-	 pssl_mod_head/1, 
-	 essl_mod_head/1, 
-	 
-	 pssl_mod_all/1, 
-	 essl_mod_all/1, 
-	 
-	 pssl_load_light/1, 
-	 essl_load_light/1, 
-	 
-	 pssl_load_medium/1, 
-	 essl_load_medium/1, 
-
-	 pssl_load_heavy/1, 
-	 essl_load_heavy/1, 
-
-	 pssl_dos_hostname/1, 
-	 essl_dos_hostname/1, 
-
-	 pssl_time_test/1, 
-	 essl_time_test/1,
-	 
-	 pssl_restart_no_block/1, 
-	 essl_restart_no_block/1, 
-	 
-	 pssl_restart_disturbing_block/1, 
-	 essl_restart_disturbing_block/1,
-	 
-	 pssl_restart_non_disturbing_block/1, 
-	 essl_restart_non_disturbing_block/1, 
-	 
-	 pssl_block_disturbing_idle/1, 
-	 essl_block_disturbing_idle/1, 
-
-	 pssl_block_non_disturbing_idle/1, 
-	 essl_block_non_disturbing_idle/1, 
-	 
-	 pssl_block_503/1, 
-	 essl_block_503/1, 
-
-	 pssl_block_disturbing_active/1, 
-	 essl_block_disturbing_active/1, 
-
-	 pssl_block_non_disturbing_active/1, 
-	 essl_block_non_disturbing_active/1, 
-
-	 pssl_block_disturbing_active_timeout_not_released/1, 
-	 essl_block_disturbing_active_timeout_not_released/1, 
-
-	 pssl_block_disturbing_active_timeout_released/1, 
-	 essl_block_disturbing_active_timeout_released/1, 
-
-	 pssl_block_non_disturbing_active_timeout_not_released/1, 
-	 essl_block_non_disturbing_active_timeout_not_released/1, 
-	 
-	 pssl_block_non_disturbing_active_timeout_released/1, 
-	 essl_block_non_disturbing_active_timeout_released/1, 
-
-	 pssl_block_disturbing_blocker_dies/1, 
-	 essl_block_disturbing_blocker_dies/1, 
-
-	 pssl_block_non_disturbing_blocker_dies/1, 
-	 essl_block_non_disturbing_blocker_dies/1
-	]).
-
-%%% HTTP 1.1 tests
--export([ip_host/1, ip_chunked/1, ip_expect/1, ip_range/1,
-	 ip_if_test/1, ip_http_trace/1, ip_http1_1_head/1, 
-	 ip_mod_cgi_chunked_encoding_test/1]).
-
-%%% HTTP 1.0 tests
--export([ip_head_1_0/1, ip_get_1_0/1, ip_post_1_0/1]).
-
-%%% HTTP 0.9 tests
--export([ip_get_0_9/1]).
-
-%%% Ticket tests
--export([ticket_5775/1,ticket_5865/1,ticket_5913/1,ticket_6003/1,
-	 ticket_7304/1]).
-
-%%% IPv6 tests
--export([ipv6_hostname_ipcomm/0, ipv6_hostname_ipcomm/1, 
-	 ipv6_address_ipcomm/0,  ipv6_address_ipcomm/1, 
-	 ipv6_hostname_essl/0,   ipv6_hostname_essl/1,   
-	 ipv6_address_essl/0,    ipv6_address_essl/1]).
-
-%% Help functions 
--export([cleanup_mnesia/0, setup_mnesia/0, setup_mnesia/1]).
-
--define(IP_PORT, 8898).
--define(SSL_PORT, 8899).
--define(MAX_HEADER_SIZE, 256).
--define(IPV6_LOCAL_HOST, "0:0:0:0:0:0:0:1").
-
-%% Minutes before failed auths timeout.
--define(FAIL_EXPIRE_TIME,1). 
-
-%% Seconds before successful auths timeout.
--define(AUTH_TIMEOUT,5).
+%% Note: This directive should only be used in test suites.
+-compile(export_all).
 
 -record(httpd_user,  {user_name, password, user_data}).
 -record(httpd_group, {group_name, userlist}).
-
+-define(MAX_HEADER_SIZE, 256).
+%% Minutes before failed auths timeout.
+-define(FAIL_EXPIRE_TIME,1). 
+%% Seconds before successful auths timeout.
+-define(AUTH_TIMEOUT,5).
+-define(URL_START, "http://").
 
 %%--------------------------------------------------------------------
-%% all(Arg) -> [Doc] | [Case] | {skip, Comment}
-%% Arg - doc | suite
-%% Doc - string()
-%% Case - atom() 
-%%	Name of a test case function. 
-%% Comment - string()
-%% Description: Returns documentation/test cases in this test suite
-%%		or a skip tuple if the platform is not supported.  
+%% Common Test interface functions -----------------------------------
 %%--------------------------------------------------------------------
-suite() -> [{ct_hooks,[ts_install_cth]}].
-
-all() -> 
-    [
-     {group, ip}, 
-     {group, ssl}, 
-     {group, http_1_1_ip},
-     {group, http_1_0_ip}, 
-     {group, http_0_9_ip},
-     {group, ipv6}, 
-     {group, tickets}
+suite() ->
+    [{ct_hooks,[ts_install_cth]},
+     {timetrap,{seconds, 120}}
     ].
 
-groups() -> 
+all() ->
     [
-     {ip, [],
-      [ip_mod_alias, ip_mod_actions, ip_mod_security,
-       ip_mod_auth, ip_mod_auth_api, ip_mod_auth_mnesia_api,
-       ip_mod_htaccess, ip_mod_cgi, ip_mod_esi, ip_mod_get,
-       ip_mod_head, ip_mod_all, ip_load_light, ip_load_medium,
-       ip_load_heavy, ip_dos_hostname, ip_time_test,
-       ip_restart_no_block, ip_restart_disturbing_block,
-       ip_restart_non_disturbing_block,
-       ip_block_disturbing_idle, ip_block_non_disturbing_idle,
-       ip_block_503, ip_block_disturbing_active,
-       ip_block_non_disturbing_active,
-       ip_block_disturbing_active_timeout_not_released,
-       ip_block_disturbing_active_timeout_released,
-       ip_block_non_disturbing_active_timeout_not_released,
-       ip_block_non_disturbing_active_timeout_released,
-       ip_block_disturbing_blocker_dies,
-       ip_block_non_disturbing_blocker_dies]},
-     {ssl, [], [{group, pssl}, {group, essl}]},
-     {pssl, [],
-      [pssl_mod_alias, pssl_mod_actions, pssl_mod_security,
-       pssl_mod_auth, pssl_mod_auth_api,
-       pssl_mod_auth_mnesia_api, pssl_mod_htaccess,
-       pssl_mod_cgi, pssl_mod_esi, pssl_mod_get, pssl_mod_head,
-       pssl_mod_all, pssl_load_light, pssl_load_medium,
-       pssl_load_heavy, pssl_dos_hostname, pssl_time_test,
-       pssl_restart_no_block, pssl_restart_disturbing_block,
-       pssl_restart_non_disturbing_block,
-       pssl_block_disturbing_idle,
-       pssl_block_non_disturbing_idle, pssl_block_503,
-       pssl_block_disturbing_active,
-       pssl_block_non_disturbing_active,
-       pssl_block_disturbing_active_timeout_not_released,
-       pssl_block_disturbing_active_timeout_released,
-       pssl_block_non_disturbing_active_timeout_not_released,
-       pssl_block_non_disturbing_active_timeout_released,
-       pssl_block_disturbing_blocker_dies,
-       pssl_block_non_disturbing_blocker_dies]},
-     {essl, [],
-      [essl_mod_alias, essl_mod_actions, essl_mod_security,
-       essl_mod_auth, essl_mod_auth_api,
-       essl_mod_auth_mnesia_api, essl_mod_htaccess,
-       essl_mod_cgi, essl_mod_esi, essl_mod_get, essl_mod_head,
-       essl_mod_all, essl_load_light, essl_load_medium,
-       essl_load_heavy, essl_dos_hostname, essl_time_test,
-       essl_restart_no_block, essl_restart_disturbing_block,
-       essl_restart_non_disturbing_block,
-       essl_block_disturbing_idle,
-       essl_block_non_disturbing_idle, essl_block_503,
-       essl_block_disturbing_active,
-       essl_block_non_disturbing_active,
-       essl_block_disturbing_active_timeout_not_released,
-       essl_block_disturbing_active_timeout_released,
-       essl_block_non_disturbing_active_timeout_not_released,
-       essl_block_non_disturbing_active_timeout_released,
-       essl_block_disturbing_blocker_dies,
-       essl_block_non_disturbing_blocker_dies]},
-     {http_1_1_ip, [],
-      [ip_host, ip_chunked, ip_expect, ip_range, ip_if_test,
-       ip_http_trace, ip_http1_1_head,
-       ip_mod_cgi_chunked_encoding_test]},
-     {http_1_0_ip, [],
-      [ip_head_1_0, ip_get_1_0, ip_post_1_0]},
-     {http_0_9_ip, [], [ip_get_0_9]},
-     {ipv6, [], [ipv6_hostname_ipcomm, ipv6_address_ipcomm, 
-		 ipv6_hostname_essl,   ipv6_address_essl]},
-     {tickets, [],
-      [ticket_5775, ticket_5865, ticket_5913, ticket_6003,
-       ticket_7304]}].
+     {group, http_basic},
+     {group, https_basic},
+     {group, http_limit},
+     {group, https_limit},
+     {group, http_custom},
+     {group, https_custom},
+     {group, http_basic_auth},
+     {group, https_basic_auth},
+     {group, http_auth_api},
+     {group, https_auth_api},
+     {group, http_auth_api_dets},
+     {group, https_auth_api_dets},
+     {group, http_auth_api_mnesia},
+     {group, https_auth_api_mnesia},
+     {group, http_htaccess}, 
+     {group, https_htaccess},
+     {group, http_security}, 
+     {group, https_security},
+     {group, http_reload},
+     {group, https_reload},
+     {group, http_mime_types},
+     {group, http_logging},
+     {group, http_post},
+     {group, http_rel_path_script_alias},
+     {group, http_not_sup},
+     {group, https_not_sup},
+     mime_types_format
+    ].
+
+groups() ->
+    [
+     {http_basic, [], basic_groups()},
+     {https_basic, [], basic_groups()},
+     {http_limit, [], [{group, limit}]},
+     {https_limit, [], [{group, limit}]},
+     {http_custom, [], [{group,  custom}]},
+     {https_custom, [], [{group,  custom}]},
+     {http_basic_auth, [], [{group, basic_auth}]},
+     {https_basic_auth, [], [{group, basic_auth}]},
+     {http_auth_api, [], [{group, auth_api}]},
+     {https_auth_api, [], [{group, auth_api}]},
+     {http_auth_api_dets, [], [{group, auth_api_dets}]},
+     {https_auth_api_dets, [], [{group, auth_api_dets}]},
+     {http_auth_api_mnesia, [], [{group, auth_api_mnesia}]}, 
+     {https_auth_api_mnesia, [], [{group, auth_api_mnesia}]},
+     {http_htaccess, [], [{group, htaccess}]},
+     {https_htaccess, [], [{group, htaccess}]},
+     {http_security, [], [{group, security}]},
+     {https_security, [], [{group, security}]},
+     {http_logging, [], [{group, logging}]},
+     {http_reload, [], [{group, reload}]},
+     {https_reload, [], [{group, reload}]},
+     {http_post, [], [{group, post}]},
+     {http_not_sup, [], [{group, not_sup}]},
+     {https_not_sup, [], [{group, not_sup}]},
+     {http_mime_types, [], [alias_1_1, alias_1_0, alias_0_9]},
+     {limit, [],  [max_clients_1_1, max_clients_1_0, max_clients_0_9]},  
+     {custom, [],  [customize, add_default]},  
+     {reload, [], [non_disturbing_reconfiger_dies,
+		   disturbing_reconfiger_dies,
+		   non_disturbing_1_1, 
+		   non_disturbing_1_0, 
+		   non_disturbing_0_9,
+		   disturbing_1_1,
+		   disturbing_1_0, 
+		   disturbing_0_9,
+		   reload_config_file
+		  ]},
+     {post, [], [chunked_post, chunked_chunked_encoded_post, post_204]},
+     {basic_auth, [], [basic_auth_1_1, basic_auth_1_0, basic_auth_0_9]},
+     {auth_api, [], [auth_api_1_1, auth_api_1_0, auth_api_0_9
+		    ]},
+     {auth_api_dets, [], [auth_api_1_1, auth_api_1_0, auth_api_0_9
+			 ]},
+     {auth_api_mnesia, [], [auth_api_1_1, auth_api_1_0, auth_api_0_9
+			   ]},
+     {htaccess, [], [htaccess_1_1, htaccess_1_0, htaccess_0_9]},
+     {security, [], [security_1_1, security_1_0]}, %% Skip 0.9 as causes timing issus in test code
+     {logging, [], [disk_log_internal, disk_log_exists,
+             disk_log_bad_size, disk_log_bad_file]},
+     {http_1_1, [],
+      [host, chunked, expect, cgi, cgi_chunked_encoding_test,
+       trace, range, if_modified_since, mod_esi_chunk_timeout,
+       esi_put, esi_post] ++ http_head() ++ http_get() ++ load()},
+     {http_1_0, [], [host, cgi, trace] ++ http_head() ++ http_get() ++ load()},
+     {http_0_9, [], http_head() ++ http_get() ++ load()},
+     {http_rel_path_script_alias, [], [cgi]},
+     {not_sup, [], [put_not_sup]}
+    ].
+
+basic_groups ()->
+    [{group, http_1_1},
+     {group, http_1_0},
+     {group, http_0_9}
+    ].
+
+http_head() ->
+    [head].
+http_get() ->
+    [alias, 
+     get, 
+     %%actions, Add configuration so that this test mod_action
+     esi, 
+     content_length, 
+     bad_hex, 
+     missing_CR,
+     max_header,
+     max_content_length,
+     ipv6
+    ].
 
 
-init_per_group(ipv6 = _GroupName, Config) ->
-    case inets_test_lib:has_ipv6_support() of
-	{ok, _} ->
-	    Config;
-	_ ->
-	    {skip, "Host does not support IPv6"}
-    end;
-init_per_group(_GroupName, Config) ->
-    Config.
-
-end_per_group(_GroupName, Config) ->
-    Config.
-
-
-%%--------------------------------------------------------------------
-%% Function: init_per_suite(Config) -> Config
-%% Config - [tuple()]
-%%   A list of key/value pairs, holding the test case configuration.
-%% Description: Initiation before the whole suite
-%%
-%% Note: This function is free to add any key/value pairs to the Config
-%% variable, but should NOT alter/remove any existing entries.
-%%--------------------------------------------------------------------
+load() ->
+    [light, medium 
+     %%,heavy
+    ]. 
+    
 init_per_suite(Config) ->
-    io:format(user, "init_per_suite -> entry with"
-	      "~n   Config: ~p"
-	      "~n", [Config]),
-
-    ?PRINT_SYSTEM_INFO([]),
-
-    PrivDir = ?config(priv_dir, Config),
-    SuiteTopDir = filename:join(PrivDir, ?MODULE),
-    case file:make_dir(SuiteTopDir) of
-        ok ->
-            ok;
-        {error, eexist} ->
-            ok;
-        Error ->
-            throw({error, {failed_creating_suite_top_dir, Error}})
-    end,
-
-    [{has_ipv6_support, inets_test_lib:has_ipv6_support()}, 
-     {suite_top_dir,    SuiteTopDir},
+    PrivDir = proplists:get_value(priv_dir, Config),
+    DataDir = proplists:get_value(data_dir, Config),
+    inets_test_lib:stop_apps([inets]),
+    ServerRoot = filename:join(PrivDir, "server_root"),
+    inets_test_lib:del_dirs(ServerRoot),
+    DocRoot = filename:join(ServerRoot, "htdocs"),
+    setup_tmp_dir(PrivDir),
+    setup_server_dirs(ServerRoot, DocRoot, DataDir),
+    {ok, Hostname0} = inet:gethostname(),
+    Inet = 
+	case (catch ct:get_config(ipv6_hosts)) of
+	    undefined ->
+		inet;
+	    Hosts when is_list(Hosts) ->
+		case lists:member(list_to_atom(Hostname0), Hosts) of
+		    true ->
+			inet6;
+		    false ->
+			inet
+		end;
+	    _ ->
+		inet
+	end,
+    [{server_root, ServerRoot}, 
+     {doc_root, DocRoot},
+     {ipfamily, Inet},
      {node,             node()},
-     {host,             inets_test_lib:hostname()},
+     {host,             inets_test_lib:hostname()}, 
      {address,          getaddr()} | Config].
 
-
-%%--------------------------------------------------------------------
-%% Function: end_per_suite(Config) -> _
-%% Config - [tuple()]
-%%   A list of key/value pairs, holding the test case configuration.
-%% Description: Cleanup after the whole suite
-%%--------------------------------------------------------------------
-
 end_per_suite(_Config) ->
-    %% SuiteTopDir = ?config(suite_top_dir, Config), 
-    %% inets_test_lib:del_dirs(SuiteTopDir),
     ok.
 
-
 %%--------------------------------------------------------------------
-%% Function: init_per_testcase(Case, Config) -> Config
-%% Case - atom()
-%%   Name of the test case that is about to be run.
-%% Config - [tuple()]
-%%   A list of key/value pairs, holding the test case configuration.
-%%
-%% Description: Initiation before each test case
-%%
-%% Note: This function is free to add any key/value pairs to the Config
-%% variable, but should NOT alter/remove any existing entries.
-%%--------------------------------------------------------------------
-init_per_testcase(Case, Config) ->
-    NewConfig = init_per_testcase2(Case, Config), 
-    init_per_testcase3(Case, NewConfig).
-
-
-init_per_testcase2(Case, Config) ->
-
-    tsp("init_per_testcase2 -> entry with"
-	"~n   Config: ~p", [Config]),
-    
-    IpNormal    = integer_to_list(?IP_PORT)    ++ ".conf",
-    IpHtaccess  = integer_to_list(?IP_PORT)   ++ "htaccess.conf",
-    SslNormal   = integer_to_list(?SSL_PORT)  ++ ".conf",
-    SslHtaccess = integer_to_list(?SSL_PORT) ++ "htaccess.conf",
-
-    DataDir     = ?config(data_dir, Config),
-    SuiteTopDir = ?config(suite_top_dir, Config),
-
-    tsp("init_per_testcase2 -> "
-	"~n   SuiteDir: ~p"
-	"~n   DataDir:  ~p", [SuiteTopDir, DataDir]),
-    
-    TcTopDir = filename:join(SuiteTopDir, Case),
-    ?line ok = file:make_dir(TcTopDir),
-
-    tsp("init_per_testcase2 -> "
-	"~n   TcTopDir: ~p", [TcTopDir]),
-
-    DataSrc    = filename:join([DataDir, "server_root"]),
-    ServerRoot = filename:join([TcTopDir, "server_root"]),
-    
-    tsp("init_per_testcase2 -> "
-	"~n   DataSrc:    ~p"
-	"~n   ServerRoot: ~p", [DataSrc, ServerRoot]),
-
-    ok = file:make_dir(ServerRoot),
-    ok = file:make_dir(filename:join([TcTopDir, "logs"])),
-
-    NewConfig = [{tc_top_dir, TcTopDir}, {server_root, ServerRoot} | Config],
-
-    tsp("init_per_testcase2 -> copy DataSrc to ServerRoot"),
-
-    inets_test_lib:copy_dirs(DataSrc, ServerRoot),
-
-    tsp("init_per_testcase2 -> fix cgi"),
-    EnvCGI =  filename:join([ServerRoot, "cgi-bin", "printenv.sh"]),
-    {ok, FileInfo} = file:read_file_info(EnvCGI),
-    ok = file:write_file_info(EnvCGI, 
-			      FileInfo#file_info{mode = 8#00755}),
-    
-    EchoCGI = case test_server:os_type() of
-	      {win32, _} ->
-		  "cgi_echo.exe";
-	      _ ->
-		  "cgi_echo"
-	      end,
-    CGIDir = filename:join([ServerRoot, "cgi-bin"]),
-    inets_test_lib:copy_file(EchoCGI, DataDir,  CGIDir),
-    NewEchoCGI = filename:join([CGIDir, EchoCGI]),
-    {ok, FileInfo1} = file:read_file_info(NewEchoCGI),
-    ok = file:write_file_info(NewEchoCGI, 
-			      FileInfo1#file_info{mode = 8#00755}),
-    
-    %% To be used by IP test cases
-    tsp("init_per_testcase2 -> ip testcase setups"),
-    create_config([{port, ?IP_PORT}, {sock_type, ip_comm} | NewConfig], 
-		  normal_access, IpNormal), 
-    create_config([{port, ?IP_PORT}, {sock_type, ip_comm} | NewConfig], 
-    		  mod_htaccess, IpHtaccess), 
-
-    %% To be used by SSL test cases
-    tsp("init_per_testcase2 -> ssl testcase setups"),
-    SocketType = 
-	case atom_to_list(Case) of
-	    [X, $s, $s, $l | _] ->
-		case X of
-		    $p -> ssl;
-		    $e -> essl
-		end;
-	    _ ->
-		ssl
-	end,
-
-    create_config([{port, ?SSL_PORT}, {sock_type, SocketType} | NewConfig], 
-		  normal_access, SslNormal),
-    create_config([{port, ?SSL_PORT}, {sock_type, SocketType} | NewConfig],
-    		  mod_htaccess, SslHtaccess),  
-  
-    %% To be used by IPv6 test cases. Case-clause is so that
-    %% you can do ts:run(inets, httpd_SUITE, <test case>)
-    %% for all cases except the ipv6 cases as they depend
-    %% on  'test_host_ipv6_only' that will only be present
-    %% when you run the whole test suite due  to shortcomings
-    %% of the test server.
-
-    tsp("init_per_testcase2 -> maybe generate IPv6 config file(s)"),
-    NewConfig2 = 
-	case atom_to_list(Case) of
-	    "ipv6_" ++ _ ->
-		case (catch inets_test_lib:has_ipv6_support(NewConfig)) of
-		    {ok, IPv6Address0} ->
-			{ok, Hostname} = inet:gethostname(), 
-			IPv6Address = http_transport:ipv6_name(IPv6Address0), 
-			create_ipv6_config([{port, ?IP_PORT}, 
-					    {sock_type, ip_comm},
-					    {ipv6_host, IPv6Address} | 
-					    NewConfig],
-					   "ipv6_hostname_ipcomm.conf", 
-					   Hostname),
-			create_ipv6_config([{port, ?IP_PORT}, 
-					    {sock_type, ip_comm},
-					    {ipv6_host, IPv6Address} | 
-					    NewConfig],
-					   "ipv6_address_ipcomm.conf",  
-					   IPv6Address),
-			create_ipv6_config([{port, ?SSL_PORT}, 
-					    {sock_type, essl},
-					    {ipv6_host, IPv6Address} | 
-					    NewConfig],
-					   "ipv6_hostname_essl.conf", 
-					   Hostname),
-			create_ipv6_config([{port, ?SSL_PORT}, 
-					    {sock_type, essl},
-					    {ipv6_host, IPv6Address} | 
-					    NewConfig],
-					   "ipv6_address_essl.conf",  
-					   IPv6Address),
-			[{ipv6_host, IPv6Address} | NewConfig];
-		    _ ->
-			NewConfig
-		end;
-
-	    _ ->
-		NewConfig
-	end,
-
-    tsp("init_per_testcase2 -> done when"
-	"~n   NewConfig2: ~p", [NewConfig2]),
-
-    NewConfig2.
-
-
-init_per_testcase3(Case, Config) ->
-    tsp("init_per_testcase3(~w) -> entry with"
-	"~n   Config: ~p", [Case, Config]),
-
-    
-%%     %% Create a new fresh node to be used by the server in this test-case
-    
-%%     NodeName = list_to_atom(atom_to_list(Case) ++ "_httpd"), 
-%%     Node     = inets_test_lib:start_node(NodeName),
-    
-    %% Clean up (we do not want this clean up in end_per_testcase
-    %% if init_per_testcase crashes for some testcase it will
-    %% have contaminated the environment and there will be no clean up.)
-    %% This init can take a few different paths so that one crashes
-    %% does not mean that all invocations will.
-
-    application:unset_env(inets, services),
-    application:stop(inets),
-    application:stop(ssl),
-    cleanup_mnesia(),
-
-    %% Set trace level
-    case lists:reverse(atom_to_list(Case)) of
-	"tset_emit" ++ _Rest -> % test-cases ending with time_test
-	    tsp("init_per_testcase3(~w) -> disabling trace", [Case]),
-	    inets:disable_trace();
+init_per_group(Group, Config0) when Group == https_basic;
+				    Group == https_limit;
+				    Group == https_custom;
+				    Group == https_basic_auth;
+				    Group == https_auth_api;
+				    Group == https_auth_api_dets;
+				    Group == https_auth_api_mnesia;
+				    Group == https_security;
+				    Group == https_reload;
+                                    Group == https_not_sup
+				    ->
+    catch crypto:stop(),
+    try crypto:start() of
+        ok ->
+            init_ssl(Group, Config0)
+    catch
+        _:_ ->
+            {skip, "Crypto did not start"}
+    end; 
+init_per_group(Group, Config0)  when  Group == http_basic;
+				      Group == http_limit;
+				      Group == http_custom;
+				      Group == http_basic_auth;
+				      Group == http_auth_api;
+				      Group == http_auth_api_dets;
+				      Group == http_auth_api_mnesia;
+				      Group == http_security;
+				      Group == http_reload;
+                                      Group == http_not_sup;
+                                      Group == http_post;
+                                      Group == http_mime_types
+				      ->
+    ok = start_apps(Group),
+    init_httpd(Group, [{type, ip_comm} | Config0]);
+init_per_group(http_1_1, Config) ->
+    [{http_version, "HTTP/1.1"} | Config];
+init_per_group(http_1_0, Config) ->
+    [{http_version, "HTTP/1.0"} | Config];
+init_per_group(http_0_9, Config) ->
+    case {os:type(), os:version()} of
+	{{win32, _}, {5,1,2600}} ->
+	    {skip, "eaddrinuse XP problem"};
 	_ ->
-	    tsp("init_per_testcase3(~w) -> enabling trace", [Case]),
-	    %% TraceLevel = 70, 
-	    TraceLevel = max, 
-	    TraceDest  = io, 
-	    inets:enable_trace(TraceLevel, TraceDest, httpd)
-    end,
-	    
-    %% Start initialization
-    tsp("init_per_testcase3(~w) -> start init", [Case]),
-    
+	    [{http_version, "HTTP/0.9"} | Config]
+    end;
+init_per_group(http_htaccess = Group, Config) ->
+    Path = proplists:get_value(doc_root, Config),
+    catch remove_htaccess(Path),
+    create_htaccess_data(Path, proplists:get_value(address, Config)),
+    ok = start_apps(Group),
+    init_httpd(Group, [{type, ip_comm} | Config]);
+init_per_group(https_htaccess = Group, Config) ->
+    Path = proplists:get_value(doc_root, Config),
+    catch remove_htaccess(Path),
+    create_htaccess_data(Path, proplists:get_value(address, Config)),
+    catch crypto:stop(),
+    try crypto:start() of
+        ok ->
+            init_ssl(Group, Config)
+    catch
+        _:_ ->
+            {skip, "Crypto did not start"}
+    end; 
+init_per_group(auth_api, Config) -> 
+    [{auth_prefix, ""} | Config];
+init_per_group(auth_api_dets, Config) -> 
+    [{auth_prefix, "dets_"} | Config];
+init_per_group(auth_api_mnesia, Config) ->
+    start_mnesia(proplists:get_value(node, Config)),
+    [{auth_prefix, "mnesia_"} | Config];
+init_per_group(http_logging, Config) ->
+    Config1 = [{http_version, "HTTP/1.1"} | Config],
+    ServerRoot = proplists:get_value(server_root, Config1),
+    Path = ServerRoot ++ "/httpd_log_transfer",
+    [{transfer_log, Path} | Config1];
+init_per_group(http_rel_path_script_alias = Group, Config) ->
+    ok = start_apps(Group),
+    init_httpd(Group, [{type, ip_comm},{http_version, "HTTP/1.1"}| Config]);
+init_per_group(not_sup, Config) ->
+    [{http_version, "HTTP/1.1"} | Config];
+init_per_group(_, Config) ->
+    Config.
 
-    Dog = test_server:timetrap(inets_test_lib:minutes(10)),
-    NewConfig = lists:keydelete(watchdog, 1, Config),
-    TcTopDir = ?config(tc_top_dir, Config),
-    CaseRest = 
-	case atom_to_list(Case) of
-	    "ip_mod_htaccess" ->
-		inets_test_lib:start_http_server(
-		  filename:join(TcTopDir,
-				integer_to_list(?IP_PORT) ++
-				"htaccess.conf")),
-		"mod_htaccess";
-	    "ip_" ++ Rest ->
-		inets_test_lib:start_http_server(
-		  filename:join(TcTopDir,
-				integer_to_list(?IP_PORT) ++ ".conf")),
-		Rest;
-	    "ticket_5913" ->
-		HttpdOptions =
-		    [{file,
-		      filename:join(TcTopDir,
-				    integer_to_list(?IP_PORT) ++ ".conf")},
-		     {accept_timeout,30000},
-		     {debug,[{exported_functions,
-			      [httpd_manager,httpd_request_handler]}]}],
-		inets_test_lib:start_http_server(HttpdOptions);
-	    "ticket_"++Rest ->
-		%% OTP-5913 use the new syntax of inets.config 
-		inets_test_lib:start_http_server([{file,
-		  filename:join(TcTopDir,
-				integer_to_list(?IP_PORT) ++ ".conf")}]),
-		Rest;
+end_per_group(Group, _Config)  when  Group == http_basic;
+				     Group == http_limit;
+				     Group == http_basic_auth;
+				     Group == http_auth_api;
+				     Group == http_auth_api_dets;
+				     Group == http_auth_api_mnesia;
+				     Group == http_htaccess;
+				     Group == http_security;
+				     Group == http_reload;
+                                     Group == http_post;
+                                     Group == http_mime_types
+				     ->
+    inets:stop();
+end_per_group(Group, _Config) when  Group == https_basic;
+				    Group == https_limit;
+				    Group == https_basic_auth;
+				    Group == https_auth_api;
+				    Group == https_auth_api_dets;
+				    Group == https_auth_api_mnesia;
+				    Group == https_htaccess;
+				    Group == https_security;
+				    Group == https_reload
+				    ->
+    ssl:stop(),
+    inets:stop();
 
-	    [X, $s, $s, $l, $_, $m, $o, $d, $_, $h, $t, $a, $c, $c, $e, $s, $s] ->
-		?ENSURE_STARTED([crypto, public_key, ssl]),		
-		SslTag = 
-		    case X of
-			$p -> ssl;  % Plain
-			$e -> essl  % Erlang based ssl
-		    end,
-		case inets_test_lib:start_http_server_ssl(
-		       filename:join(TcTopDir,
-				     integer_to_list(?SSL_PORT) ++ 
-				     "htaccess.conf"), SslTag) of
-		    ok ->
-			"mod_htaccess";
-		    Other ->
-			error_logger:info_msg("Other: ~p~n", [Other]),
-			{skip, "SSL does not seem to be supported"}
-		end;
-	    [X, $s, $s, $l, $_ | Rest] ->
-		?ENSURE_STARTED([crypto, public_key, ssl]),		
-		SslTag = 
-		    case X of
-			$p -> ssl;
-			$e -> essl
-		    end,
-		case inets_test_lib:start_http_server_ssl(
-		       filename:join(TcTopDir,
-				     integer_to_list(?SSL_PORT) ++ 
-				     ".conf"), SslTag) of
-		    ok ->
-			Rest;
-		    Other ->
-			error_logger:info_msg("Other: ~p~n", [Other]),
-			{skip, "SSL does not seem to be supported"}
-		end;
-	    "ipv6_" ++ _  = TestCaseStr ->
-		case inets_test_lib:has_ipv6_support() of
-		    {ok, _} ->
-			inets_test_lib:start_http_server(
-			  filename:join(TcTopDir,
-					TestCaseStr ++ ".conf"));
-		    
-		    _ ->
-			{skip, "Host does not support IPv6"}
-		end
-	end,
+end_per_group(auth_api_mnesia, _) ->
+    cleanup_mnesia();
 
-    InitRes = 
-	case CaseRest of
-	    {skip, _} = Skip ->
-		Skip;
-	    "mod_auth_" ++ _ ->
-		start_mnesia(?config(node, Config)),
-		[{watchdog, Dog} | NewConfig];
-	    "mod_htaccess" ->
-		ServerRoot = ?config(server_root, Config), 
-		Path = filename:join([ServerRoot, "htdocs"]),
-		catch remove_htaccess(Path),
-		create_htaccess_data(Path, ?config(address, Config)),
-		[{watchdog, Dog} | NewConfig];
-	    "range" ->
-		ServerRoot = ?config(server_root, Config), 
-		Path = filename:join([ServerRoot, "htdocs"]),
-		create_range_data(Path),
-		[{watchdog, Dog} | NewConfig];
-	    _ ->
-		[{watchdog, Dog} | NewConfig]
-	end,
-    
-    tsp("init_per_testcase3(~w) -> done when"
-	"~n   InitRes: ~p", [Case, InitRes]),
-
-    InitRes.
-
+end_per_group(_, _) ->
+    ok.
 
 %%--------------------------------------------------------------------
-%% Function: end_per_testcase(Case, Config) -> _
-%% Case - atom()
-%%   Name of the test case that is about to be run.
-%% Config - [tuple()]
-%%   A list of key/value pairs, holding the test case configuration.
-%% Description: Cleanup after each test case
-%%--------------------------------------------------------------------
+init_per_testcase(Case, Config) when Case == host; Case == trace ->
+    ct:timetrap({seconds, 40}),
+    Prop = proplists:get_value(tc_group_properties, Config),
+    Name = proplists:get_value(name, Prop),
+    Cb = case Name of
+	     http_1_0 ->
+		 httpd_1_0;
+	     http_1_1 ->
+		 httpd_1_1
+	 end,
+    dbg(
+      Case,
+      [{version_cb, Cb} | proplists:delete(version_cb, Config)],
+      init);
+
+init_per_testcase(range, Config) ->
+    ct:timetrap({seconds, 20}),
+    DocRoot = proplists:get_value(doc_root, Config),
+    create_range_data(DocRoot),
+    dbg(range, Config, init);
+
+init_per_testcase(disk_log_internal, Config0) ->
+    ok = start_apps(http_logging),
+    Config1 = init_httpd(http_logging, [{type, ip_comm} | Config0]),
+    ct:timetrap({seconds, 20}),
+    dbg(disk_log_internal, Config1, init);
+
+init_per_testcase(disk_log_exists, Config0) ->
+    ServerRoot = proplists:get_value(server_root, Config0),
+    Filename = ServerRoot ++ "/httpd_log_transfer",
+    {ok, Log} = disk_log:open([{name, Filename}, {file, Filename},
+            {repair, truncate}, {format, internal},
+            {type, wrap}, {size, {1048576, 5}}]),
+    ok = disk_log:log(Log, {bogus, node(), self()}),
+    ok = disk_log:close(Log),
+    ok = start_apps(http_logging),
+    Config1 = init_httpd(http_logging, [{type, ip_comm} | Config0]),
+    ct:timetrap({seconds, 20}),
+    dbg(disk_log_internal, Config1, init);
+
+init_per_testcase(disk_log_bad_size, Config0) ->
+    ServerRoot = proplists:get_value(server_root, Config0),
+    Filename = ServerRoot ++ "/httpd_log_transfer",
+    {ok, Log} = disk_log:open([{name, Filename}, {file, Filename},
+            {repair, truncate}, {format, internal},
+            {type, wrap}, {size, {1048576, 5}}]),
+    ok = disk_log:log(Log, {bogus, node(), self()}),
+    ok = disk_log:close(Log),
+    ok = file:delete(Filename ++ ".siz"),
+    ok = start_apps(http_logging),
+    Config1 = init_httpd(http_logging, [{type, ip_comm} | Config0]),
+    ct:timetrap({seconds, 20}),
+    dbg(disk_log_internal, Config1, init);
+
+init_per_testcase(disk_log_bad_file, Config0) ->
+    ServerRoot = proplists:get_value(server_root, Config0),
+    Filename = ServerRoot ++ "/httpd_log_transfer",
+    ok = file:write_file(Filename ++ ".1", <<>>),
+    ok = start_apps(http_logging),
+    Config1 = init_httpd(http_logging, [{type, ip_comm} | Config0]),
+    ct:timetrap({seconds, 20}),
+    dbg(disk_log_internal, Config1, init);
+
+init_per_testcase(Case, Config) ->
+    ct:timetrap({seconds, 20}),
+    dbg(Case, Config, init).
+
+end_per_testcase(Case, Config) when
+        Case == disk_log_internal;
+        Case == disk_log_exists;
+        Case == disk_log_bad_size;
+        Case == disk_log_bad_file ->
+    inets:stop(),
+    dbg(Case, Config, 'end');
+
 end_per_testcase(Case, Config) ->
-    Dog = ?config(watchdog, Config),
-    test_server:timetrap_cancel(Dog),
-    end_per_testcase2(Case, lists:keydelete(watchdog, 1, Config)),
-    ok.
+    dbg(Case, Config, 'end').
 
-end_per_testcase2(Case, Config) ->
-    tsp("end_per_testcase2(~w) -> entry with"
-	"~n   Config: ~p", [Case, Config]),
-    application:unset_env(inets, services),
-    application:stop(inets),
-    application:stop(ssl),     
-    application:stop(crypto), % used by the new ssl (essl test cases)  
-    cleanup_mnesia(),
-    tsp("end_per_testcase2(~w) -> done", [Case]),
-    ok.
 
+dbg(Case, Config, Status) ->
+    Cases = [esi_put],
+    case lists:member(Case, Cases) of
+	true ->
+	    case Status of
+		init ->
+		    dbg:tracer(),
+		    dbg:p(all, c),
+		    dbg:tpl(httpd_example, cx),
+		    dbg:tpl(mod_esi, generate_webpage, cx),
+		    io:format("dbg: started~n"),
+		    Config;
+		'end' ->
+		    io:format("dbg: stopped~n"),
+		    dbg:stop_clear(),
+		    ok
+	    end;
+	false ->
+	    case Status of
+		init ->
+		    Config;
+		'end' ->
+		    ok
+	    end
+    end.
 
 %%-------------------------------------------------------------------------
 %% Test cases starts here.
 %%-------------------------------------------------------------------------
 
-%%-------------------------------------------------------------------------
-ip_mod_alias(doc) -> 
-    ["Module test: mod_alias"];
-ip_mod_alias(suite) -> 
-    [];
-ip_mod_alias(Config) when is_list(Config) ->
-    httpd_mod:alias(ip_comm, ?IP_PORT, 
-		    ?config(host, Config), ?config(node, Config)),
-    ok.
+head() ->
+    [{doc, "HTTP HEAD request for static page"}].
 
-%%-------------------------------------------------------------------------
-ip_mod_actions(doc) -> 
-    ["Module test: mod_actions"];
-ip_mod_actions(suite) -> 
-    [];
-ip_mod_actions(Config) when is_list(Config) ->
-    httpd_mod:actions(ip_comm, ?IP_PORT, 
-		      ?config(host, Config), ?config(node, Config)),
-    ok.
+head(Config) when is_list(Config) -> 
+    Version = proplists:get_value(http_version, Config),
+    Host = proplists:get_value(host, Config),
+    ok = httpd_test_lib:verify_request(proplists:get_value(type, Config), Host, 
+				       proplists:get_value(port, Config),  proplists:get_value(node, Config),
+				       http_request("HEAD /index.html ", Version, Host),
+				       [{statuscode, head_status(Version)},
+					{version, Version}]).
 
-%%-------------------------------------------------------------------------
-ip_mod_security(doc) -> 
-    ["Module test: mod_security"];
-ip_mod_security(suite) -> 
-    [];
-ip_mod_security(Config) when is_list(Config) ->
-    ServerRoot = ?config(server_root, Config), 
-    httpd_mod:security(ServerRoot, ip_comm, ?IP_PORT, 
-		       ?config(host, Config), ?config(node, Config)),
-    ok.
+get() ->
+    [{doc, "HTTP GET request for static page"}].
 
-%%-------------------------------------------------------------------------
-ip_mod_auth(doc) -> 
-    ["Module test: mod_auth"];
-ip_mod_auth(suite) -> 
-    [];
-ip_mod_auth(Config) when is_list(Config) ->
-    httpd_mod:auth(ip_comm, ?IP_PORT, 
-		   ?config(host, Config), ?config(node, Config)),
-    ok.
-
-%%-------------------------------------------------------------------------
-ip_mod_auth_api(doc) -> 
-    ["Module test: mod_auth_api"];
-ip_mod_auth_api(suite) -> 
-    [];
-ip_mod_auth_api(Config) when is_list(Config) ->
-    ServerRoot = ?config(server_root, Config), 
-    Host =  ?config(host, Config),
-    Node = ?config(node, Config),
-    httpd_mod:auth_api(ServerRoot, "", ip_comm, ?IP_PORT, Host, Node),
-    httpd_mod:auth_api(ServerRoot, "dets_", ip_comm, ?IP_PORT, Host, Node),
-    httpd_mod:auth_api(ServerRoot, "mnesia_", ip_comm, ?IP_PORT, Host, Node),
-    ok. 
-%%-------------------------------------------------------------------------
-ip_mod_auth_mnesia_api(doc) -> 
-    ["Module test: mod_auth_mnesia_api"];
-ip_mod_auth_mnesia_api(suite) -> 
-    [];
-ip_mod_auth_mnesia_api(Config) when is_list(Config) ->
-    httpd_mod:auth_mnesia_api(ip_comm, ?IP_PORT, 
-		   ?config(host, Config), ?config(node, Config)),
-    ok.
-%%-------------------------------------------------------------------------
-ip_mod_htaccess(doc) -> 
-    ["Module test: mod_htaccess"];
-ip_mod_htaccess(suite) -> 
-    [];
-ip_mod_htaccess(Config) when is_list(Config) ->
-    httpd_mod:htaccess(ip_comm, ?IP_PORT, 
-		       ?config(host, Config), ?config(node, Config)),
-    ok.
-%%-------------------------------------------------------------------------
-ip_mod_cgi(doc) ->
-    ["Module test: mod_cgi"];
-ip_mod_cgi(suite) ->
-    [];
-ip_mod_cgi(Config) when is_list(Config) ->
-    case test_server:os_type() of
-	vxworks ->
-	    {skip, cgi_not_supported_on_vxwoks};
-	_ ->
-	    httpd_mod:cgi(ip_comm, ?IP_PORT, 
-			  ?config(host, Config), ?config(node, Config)),
-	    ok
-    end.
-%%-------------------------------------------------------------------------
-ip_mod_esi(doc) ->
-    ["Module test: mod_esi"];
-ip_mod_esi(suite) ->
-    [];
-ip_mod_esi(Config) when is_list(Config) ->
-    httpd_mod:esi(ip_comm, ?IP_PORT, 
-		  ?config(host, Config), ?config(node, Config)),
-    ok.
-
-%%-------------------------------------------------------------------------
-ip_mod_get(doc) ->
-    ["Module test: mod_get"];
-ip_mod_get(suite) ->
-    [];
-ip_mod_get(Config) when is_list(Config) ->
-    httpd_mod:get(ip_comm, ?IP_PORT, 
-		  ?config(host, Config), ?config(node, Config)),
-    ok.
-
-%%-------------------------------------------------------------------------
-ip_mod_head(doc) ->
-    ["Module test: mod_head"];
-ip_mod_head(suite) ->
-    [];
-ip_mod_head(Config) when is_list(Config) ->
-    httpd_mod:head(ip_comm, ?IP_PORT, 
-		   ?config(host, Config), ?config(node, Config)),
-    ok.
-%%-------------------------------------------------------------------------
-ip_mod_all(doc) ->
-    ["All modules test"];
-ip_mod_all(suite) ->
-    [];
-ip_mod_all(Config) when is_list(Config) ->
-    httpd_mod:all(ip_comm, ?IP_PORT, 
-		  ?config(host, Config), ?config(node, Config)),
-    ok.
-%%-------------------------------------------------------------------------
-ip_load_light(doc) ->
-    ["Test light load"];
-ip_load_light(suite) ->
-    [];
-ip_load_light(Config) when is_list(Config) ->
-    httpd_load:load_test(ip_comm, ?IP_PORT, ?config(host, Config), 
-			 ?config(node, Config),
-			 get_nof_clients(ip_comm, light)),
-    ok.
-%%-------------------------------------------------------------------------
-ip_load_medium(doc) ->
-    ["Test  medium load"];
-ip_load_medium(suite) ->
-    [];
-ip_load_medium(Config) when is_list(Config) ->
-      httpd_load:load_test(ip_comm, ?IP_PORT, ?config(host, Config),
-			   ?config(node, Config),
-			   get_nof_clients(ip_comm, medium)),
-    ok.
-%%-------------------------------------------------------------------------
-ip_load_heavy(doc) ->
-    ["Test heavy load"];
-ip_load_heavy(suite) ->
-    [];
-ip_load_heavy(Config) when is_list(Config) ->
-     httpd_load:load_test(ip_comm, ?IP_PORT, ?config(host, Config),
-			  ?config(node, Config),
-			  get_nof_clients(ip_comm, heavy)),
-    ok.
-
-
-%%-------------------------------------------------------------------------
-ip_dos_hostname(doc) ->
-    ["Denial Of Service (DOS) attack test case"];
-ip_dos_hostname(suite) ->
-    [];
-ip_dos_hostname(Config) when is_list(Config) ->
-    dos_hostname(ip_comm, ?IP_PORT, ?config(host, Config), 
-		 ?config(node, Config), ?MAX_HEADER_SIZE),
-    ok.
-
-
-%%-------------------------------------------------------------------------
-ip_time_test(doc) ->
-    [""];
-ip_time_test(suite) ->
-    [];
-ip_time_test(Config) when is_list(Config) ->
-    %% <CONDITIONAL-SKIP>
-    Skippable = [win32],
-    Condition = fun() -> ?OS_BASED_SKIP(Skippable) end,
-    ?NON_PC_TC_MAYBE_SKIP(Config, Condition),
-    %% </CONDITIONAL-SKIP>
+get(Config) when is_list(Config) -> 
+    Version = proplists:get_value(http_version, Config),
+    Host = proplists:get_value(host, Config),
+    Type = proplists:get_value(type, Config),
+    ok = httpd_test_lib:verify_request(proplists:get_value(type, Config), Host, 
+				       proplists:get_value(port, Config),  
+				       transport_opts(Type, Config),
+				       proplists:get_value(node, Config),
+				       http_request("GET /index.html ", Version, Host),
+				       [{statuscode, 200},
+					{header, "Content-Type", "text/html"},
+					{header, "Date"},
+					{header, "Server"},
+					{version, Version}]),
     
-    httpd_time_test:t(ip_comm, ?config(host, Config), ?IP_PORT),
-    ok.
+    ok = httpd_test_lib:verify_request(proplists:get_value(type, Config), Host, 
+				       proplists:get_value(port, Config),  
+				       transport_opts(Type, Config),
+				       proplists:get_value(node, Config),
+				       http_request("GET /open/ ", Version, Host),
+				       [{statuscode, 403},
+					{header, "Content-Type", "text/html"},
+					{header, "Date"},
+					{header, "Server"},
+					{version, Version}]).
+    
+basic_auth_1_1(Config) when is_list(Config) -> 
+    basic_auth([{http_version, "HTTP/1.1"} | Config]).
+
+basic_auth_1_0(Config) when is_list(Config) -> 
+    basic_auth([{http_version, "HTTP/1.0"} | Config]).
+
+basic_auth_0_9(Config) when is_list(Config) -> 
+    basic_auth([{http_version, "HTTP/0.9"} | Config]).
+
+basic_auth() ->
+    [{doc, "Test Basic authentication with WWW-Authenticate header"}].
+
+basic_auth(Config) ->
+    Version = proplists:get_value(http_version, Config),
+    Host = proplists:get_value(host, Config),
+    basic_auth_requiered(Config),
+    %% Authentication OK! ["one:OnePassword" user first in user list]
+    ok = auth_status(auth_request("/open/dummy.html", "one", "onePassword", Version, Host), Config, 
+		     [{statuscode, 200}]),
+    %% Authentication OK and a directory listing is supplied!
+    %% ["Aladdin:open sesame" user second in user list]
+    ok = auth_status(auth_request("/open/", "Aladdin", "AladdinPassword", Version, Host), Config, 
+		     [{statuscode, 200}]),
+     %% User correct but wrong password! ["one:one" user first in user list]
+    ok = auth_status(auth_request("/open/dummy.html", "one", "one", Version, Host), Config, 
+		     [{statuscode, 401},
+		      {header, "WWW-Authenticate"}]),
+    %% Make sure Authenticate header is received even the second time
+    %% we try a incorrect password! Otherwise a browser client will hang!
+    ok = auth_status(auth_request("/open/dummy.html", "one", "one", Version, Host), Config, 
+		     [{statuscode, 401},
+		      {header, "WWW-Authenticate"}]),
+    %% Neither user or password correct! ["dummy:dummy"]
+    ok = auth_status(auth_request("/open/dummy.html", "dummy", "dummy", Version, Host), Config, 
+		     [{statuscode, 401}]),
+    %% Nested secret/top_secret OK! ["Aladdin:open sesame"]
+    ok = http_status(auth_request("/secret/top_secret/", "Aladdin", "AladdinPassword", Version, Host), 
+		     Config, [{statuscode, 200}]),
+    %% Authentication still required!
+    basic_auth_requiered(Config).
+
+auth_api_1_1(Config) when is_list(Config) -> 
+    auth_api([{http_version, "HTTP/1.1"} | Config]).
+
+auth_api_1_0(Config) when is_list(Config) -> 
+    auth_api([{http_version, "HTTP/1.0"} | Config]).
+
+auth_api_0_9(Config) when is_list(Config) -> 
+    auth_api([{http_version, "HTTP/0.9"} | Config]).
+
+auth_api() ->
+    [{doc, "Test mod_auth API"}].
+
+auth_api(Config) when is_list(Config) -> 
+    Prefix = proplists:get_value(auth_prefix, Config),
+    do_auth_api(Prefix, Config).
+
+do_auth_api(AuthPrefix, Config) ->
+    Version = proplists:get_value(http_version, Config),
+    Host = proplists:get_value(host, Config),
+    Port =  proplists:get_value(port, Config),
+    Node = proplists:get_value(node, Config),
+    ServerRoot = proplists:get_value(server_root, Config),
+    ok = http_status("GET / ", Config,
+ 		     [{statuscode, 200}]),
+    ok = auth_status(auth_request("/", "one", "WrongPassword", Version, Host), Config,
+ 		     [{statuscode, 200}]),
+
+    %% Make sure Authenticate header is received even the second time
+    %% we try a incorrect password! Otherwise a browser client will hang!
+    ok = auth_status(auth_request("/" ++ AuthPrefix ++ "open/",
+ 				  "dummy", "WrongPassword", Version, Host), Config, 
+ 		     [{statuscode, 401},
+ 		      {header, "WWW-Authenticate"}]),
+    ok = auth_status(auth_request("/" ++ AuthPrefix ++ "open/", "dummy", "WrongPassword", 
+ 				  Version, Host), Config, [{statuscode, 401},	
+ 						  {header, "WWW-Authenticate"}]),
+    
+    %% Change the password to DummyPassword then try to add a user 
+    %% Get an error and set it to NoPassword
+    ok = update_password(Node, ServerRoot, Host, Port, AuthPrefix, 
+			     "open", "NoPassword", "DummyPassword"),
+    {error,bad_password} = 
+ 	add_user(Node, ServerRoot, Port, AuthPrefix, "open", "one", 
+ 		 "onePassword", []),
+     ok = update_password(Node, ServerRoot, Host, Port, AuthPrefix, "open",
+			  "DummyPassword", "NoPassword"),
+  
+    %% Test /*open, require user one Aladdin
+    remove_users(Node, ServerRoot, Host, Port, AuthPrefix, "open"),
+    
+    ok = auth_status(auth_request("/" ++ AuthPrefix ++ "open/",
+     				  "one", "onePassword", Version, Host), Config,
+		     [{statuscode, 401}]),
+    
+    ok = auth_status(auth_request("/" ++ AuthPrefix ++ "open/",
+				  "two", "twoPassword", Version, Host), Config, 
+		     [{statuscode, 401}]),
+ 
+    ok = auth_status(auth_request("/" ++ AuthPrefix ++ "open/", 
+				  "Aladdin", "onePassword", Version, Host),
+		     Config, [{statuscode, 401}]),
+    
+    true = add_user(Node, ServerRoot, Port, AuthPrefix, "open", "one", 
+		    "onePassword", []),
+    true = add_user(Node, ServerRoot, Port, AuthPrefix, "open", "two", 
+     		    "twoPassword", []),
+    true = add_user(Node, ServerRoot, Port, AuthPrefix, "open", "Aladdin", 
+		    "AladdinPassword", []),
+    {ok, [_|_]} = list_users(Node, ServerRoot, Host, Port, 
+      			     AuthPrefix, "open"),
+    ok = auth_status(auth_request("/" ++ AuthPrefix ++ "open/",
+      				  "one", "WrongPassword", Version, Host), 
+      		     Config, [{statuscode, 401}]),
+    ok = auth_status(auth_request("/" ++ AuthPrefix ++ "open/", 
+      				  "one", "onePassword", Version, Host), 
+      		     Config, [{statuscode, 200}]),
+    ok = auth_status(auth_request("/" ++ AuthPrefix ++ "open/", 
+      				  "two", "twoPassword",  Version, Host), 
+      		     Config,[{statuscode, 401}]),
+    ok = auth_status(auth_request("/" ++ AuthPrefix ++ "open/", 
+      				  "Aladdin", "WrongPassword",  Version, Host), 
+      		     Config,[{statuscode, 401}]),
+    ok = auth_status(auth_request("/" ++ AuthPrefix ++ "open/",  
+				  "Aladdin", "AladdinPassword", Version, Host), 
+		     Config, [{statuscode, 200}]),
+    
+    remove_users(Node, ServerRoot, Host, Port, AuthPrefix, "open"),
+    {ok, []} = list_users(Node, ServerRoot, Host, Port, 
+			  AuthPrefix, "open"),
+    
+    %% Phase 2
+      remove_users(Node, ServerRoot, Host, Port, AuthPrefix, "secret"),
+    {ok, []} = list_users(Node, ServerRoot, Host, Port, AuthPrefix,
+			  "secret"),
+    ok = auth_status(auth_request("/" ++ AuthPrefix ++ "secret/",
+       				  "one", "onePassword", Version, Host), 
+       		     Config, [{statuscode, 401}]),
+    ok = auth_status(auth_request("/" ++ AuthPrefix ++ "secret/", 
+				    "two", "twoPassword", Version, Host), 
+		       Config, [{statuscode, 401}]),
+    ok = auth_status(auth_request("/" ++ AuthPrefix ++ "secret/", 
+      				  "three", "threePassword", Version, Host),
+       		     Config, [{statuscode, 401}]),
+    add_user(Node, ServerRoot, Port, AuthPrefix, "secret", "one",
+      	     "onePassword", 
+      	     []),
+    add_user(Node, ServerRoot, Port, AuthPrefix, "secret", 
+      	     "two", "twoPassword", []),
+    add_user(Node, ServerRoot, Port, AuthPrefix, "secret", "Aladdin", 
+	     "AladdinPassword",[]),
+    add_group_member(Node, ServerRoot, Port, AuthPrefix, "secret", 
+      		     "one", "group1"),
+    add_group_member(Node, ServerRoot, Port, AuthPrefix, "secret", 
+      		     "two", "group1"),
+    add_group_member(Node, ServerRoot, Port, AuthPrefix,  
+      			 "secret", "Aladdin", "group2"),
+    {ok, Members} = list_group_members(Node, ServerRoot, Port, AuthPrefix, "secret", "group1"),
+    true = lists:member("one", Members),
+    true = lists:member("two", Members),
+    ok = auth_status(auth_request("/" ++ AuthPrefix ++ "secret/",
+      				  "one", "onePassword", Version, Host),
+      		     Config, [{statuscode, 200}]),
+    ok = auth_status(auth_request("/" ++ AuthPrefix ++ "secret/", 
+				  "two", "twoPassword", Version, Host),
+		       Config,[{statuscode, 200}]),
+    ok = auth_status(auth_request("/" ++ AuthPrefix ++ "secret/",
+       				  "Aladdin", "AladdinPassword", Version, Host),
+       		     Config, [{statuscode, 200}]),
+    ok = auth_status(auth_request("/" ++ AuthPrefix ++ "secret/",
+       				  "three", "threePassword", Version, Host), 
+       		     Config, [{statuscode, 401}]),
+    remove_users(Node, ServerRoot, Host, Port, AuthPrefix, "secret"),
+    {ok, []} = list_users(Node, ServerRoot, Host, Port, 
+       			  AuthPrefix, "secret"),
+    remove_groups(Node, ServerRoot, Host, Port, AuthPrefix, "secret"),
+    
+    {ok, []} = list_groups(Node, ServerRoot, Host, Port, AuthPrefix, "secret"),
+    
+    %% Phase 3
+    remove_users(Node, ServerRoot, Host, Port, AuthPrefix, "secret/top_secret"),
+    remove_groups(Node, ServerRoot, Host, Port, AuthPrefix, "secret/top_secret"),
+    
+    ok = auth_status(auth_request("/" ++ AuthPrefix ++ 
+      				      "secret/top_secret/",
+      				  "three", "threePassword", Version, Host),
+      		     Config, [{statuscode, 401}]),
+    ok = auth_status(auth_request("/" ++ AuthPrefix ++ 
+      				      "secret/top_secret/", "two", "twoPassword", Version, Host),
+      		     Config, [{statuscode, 401}]),
+     add_user(Node, ServerRoot, Port, AuthPrefix,
+	      "secret/top_secret","three",
+	      "threePassword",[]),
+    add_user(Node, ServerRoot, Port, AuthPrefix, "secret/top_secret",
+      	     "two","twoPassword", []),
+    add_group_member(Node, ServerRoot, Port, AuthPrefix, "secret/top_secret", "three", "group3"),
+    ok = auth_status(auth_request("/" ++ AuthPrefix ++ 
+     				      "secret/top_secret/", "three", "threePassword",
+     				  Version, Host), 
+		     Config, [{statuscode, 200}]),
+     ok = auth_status(auth_request("/" ++ AuthPrefix ++ 
+				       "secret/top_secret/", "two", "twoPassword", Version, Host),
+		      Config, [{statuscode, 401}]),
+    add_group_member(Node, ServerRoot, Port, AuthPrefix, "secret/top_secret", "two", "group3"),
+     ok = auth_status(auth_request("/" ++ AuthPrefix ++ 
+				       "secret/top_secret/",
+				   "two", "twoPassword", Version, Host),
+		      Config, [{statuscode, 200}]),
+     remove_users(Node, ServerRoot, Host, Port, AuthPrefix, "secret/top_secret"),
+    {ok, []} = list_users(Node, ServerRoot, Host, Port, 
+     			  AuthPrefix, "secret/top_secret"),
+    remove_groups(Node, ServerRoot, Host, Port, AuthPrefix, "secret/top_secret"),
+     {ok, []} = list_groups(Node, ServerRoot, Host, Port, AuthPrefix,  "secret/top_secret"),
+    ok = auth_status(auth_request("/" ++ AuthPrefix ++ 
+       				      "secret/top_secret/", "two", "twoPassword", Version, Host), 
+		     Config, [{statuscode, 401}]),
+    ok = auth_status(auth_request("/" ++ AuthPrefix ++ 
+       				      "secret/top_secret/","three", "threePassword", Version, Host),
+       		     Config, [{statuscde, 401}]).
+%%-------------------------------------------------------------------------
+ipv6() ->
+    [{require, ipv6_hosts},
+     {doc,"Test ipv6."}].
+ipv6(Config) when is_list(Config) ->
+    {ok, Hostname0} = inet:gethostname(),
+     case lists:member(list_to_atom(Hostname0), ct:get_config(ipv6_hosts)) of
+	 true ->
+	     Version = proplists:get_value(http_version, Config),
+	     Host = proplists:get_value(host, Config),
+	     URI = http_request("GET / ", Version, Host),
+	     httpd_test_lib:verify_request(proplists:get_value(type, Config), Host,
+ 					  proplists:get_value(port, Config), [inet6], 
+					   proplists:get_value(code, Config), 
+					   URI, 
+					   [{statuscode, 200}, {version, Version}]);
+	 false ->
+	     {skip, "Host does not support IPv6"}
+     end.
 
 %%-------------------------------------------------------------------------
-ip_block_503(doc) ->
-    ["Check that you will receive status code 503 when the server"
-     " is blocked and 200 when its not blocked."];
-ip_block_503(suite) ->
-    [];
-ip_block_503(Config) when is_list(Config) ->
-    httpd_block:block_503(ip_comm, ?IP_PORT, ?config(host, Config), 
-				 ?config(node, Config)),
-    ok.
-%%-------------------------------------------------------------------------
-ip_block_disturbing_idle(doc) ->
-    ["Check that you can block/unblock an idle server. The strategy " 
-     "distribing does not really make a difference in this case."];
-ip_block_disturbing_idle(suite) ->
-    [];
-ip_block_disturbing_idle(Config) when is_list(Config) ->
-    httpd_block:block_disturbing_idle(ip_comm, ?IP_PORT, 
-				      ?config(host, Config), 
-				      ?config(node, Config)),
-    ok.
-%%-------------------------------------------------------------------------
-ip_block_non_disturbing_idle(doc) ->
-    ["Check that you can block/unblock an idle server. The strategy " 
-     "non distribing does not really make a difference in this case."];
-ip_block_non_disturbing_idle(suite) ->
-    [];
-ip_block_non_disturbing_idle(Config) when is_list(Config) ->
-    httpd_block:block_non_disturbing_idle(ip_comm, ?IP_PORT, 
-					  ?config(host, Config), 
-					  ?config(node, Config)),
-    ok.
-%%-------------------------------------------------------------------------
-ip_block_disturbing_active(doc) ->
-    ["Check that you can block/unblock an active server. The strategy " 
-     "distribing means ongoing requests should be terminated."];
-ip_block_disturbing_active(suite) ->
-    [];
-ip_block_disturbing_active(Config) when is_list(Config) ->
-    httpd_block:block_disturbing_active(ip_comm, ?IP_PORT, 
-					?config(host, Config), 
-					?config(node, Config)),
-    ok.
-%%-------------------------------------------------------------------------
-ip_block_non_disturbing_active(doc) ->
-    ["Check that you can block/unblock an idle server. The strategy " 
-     "non distribing means the ongoing requests should be compleated."];
-ip_block_non_disturbing_active(suite) ->
-    [];
-ip_block_non_disturbing_active(Config) when is_list(Config) ->
-    httpd_block:block_non_disturbing_idle(ip_comm, ?IP_PORT, 
-					  ?config(host, Config), 
-					  ?config(node, Config)),
-    ok.
+chunked_post() ->
+    [{doc,"Test option max_client_body_chunk"}].
+chunked_post(Config) when is_list(Config) ->
+    ok = http_status("POST /cgi-bin/erl/httpd_example:post_chunked ",  
+                       {"Content-Length:833 \r\n",
+                        "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+                        "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+                        "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+                        "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+                        "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+                        "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+                        "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+                        "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+                        "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+                        "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+                        "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+                        "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+                        "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+                        "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+                        "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+                        "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+                        "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"},
+                     [{http_version, "HTTP/1.1"} |Config], 
+                     [{statuscode, 200}]),
+    ok = http_status("POST /cgi-bin/erl/httpd_example:post_chunked ",  
+                     {"Content-Length:2 \r\n",
+                        "ZZ"
+                     },
+                     [{http_version, "HTTP/1.1"} |Config], 
+                     [{statuscode, 200}]).
+
+chunked_chunked_encoded_post() ->
+    [{doc,"Test option max_client_body_chunk with chunked client encoding"}].
+chunked_chunked_encoded_post(Config) when is_list(Config) ->
+    Chunk = http_chunk:encode("ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"),
+    LastChunk = http_chunk:encode_last(),
+    Chunks = lists:duplicate(10000, Chunk),
+    ok = http_status("POST /cgi-bin/erl/httpd_example:post_chunked ",  
+                     {"Transfer-Encoding:chunked \r\n",
+                      [Chunks | LastChunk]},
+                     [{http_version, "HTTP/1.1"} | Config], 
+                     [{statuscode, 200}]).
 
 %%-------------------------------------------------------------------------
-ip_block_disturbing_active_timeout_not_released(doc) ->
-    ["Check that you can block an active server. The strategy " 
-     "distribing means ongoing requests should be compleated"
-     "if the timeout does not occur."];
-ip_block_disturbing_active_timeout_not_released(suite) ->
-    [];
-ip_block_disturbing_active_timeout_not_released(Config) 
-  when is_list(Config) ->
-    httpd_block:block_disturbing_active_timeout_not_released(ip_comm, 
-							     ?IP_PORT, 
-							     ?config(host,
-								     Config), 
-							     ?config(node, 
-								     Config)),
-    ok.
-%%-------------------------------------------------------------------------
-ip_block_disturbing_active_timeout_released(doc) ->
-    ["Check that you can block an active server. The strategy " 
-     "distribing means ongoing requests should be terminated when"
-     "the timeout occurs."];
-ip_block_disturbing_active_timeout_released(suite) ->
-    [];
-ip_block_disturbing_active_timeout_released(Config) 
-  when is_list(Config) ->
-    httpd_block:block_disturbing_active_timeout_released(ip_comm, 
-							 ?IP_PORT, 
-							 ?config(host,
-								 Config), 
-							 ?config(node, 
-								 Config)),
-    ok.
+post_204() ->
+    [{doc,"Test that 204 responses are not chunk encoded"}].
+post_204(Config) ->
+    Host = proplists:get_value(host, Config),
+    Port =  proplists:get_value(port, Config),
+    SockType = proplists:get_value(type, Config),
+    TranspOpts = transport_opts(SockType, Config),
+    Request = "POST /cgi-bin/erl/httpd_example:post_204 ",
 
-%%-------------------------------------------------------------------------
-ip_block_non_disturbing_active_timeout_not_released(doc) ->
-    ["Check that you can block an active server. The strategy " 
-     "non non distribing means ongoing requests should be completed."];
-ip_block_non_disturbing_active_timeout_not_released(suite) ->
-    [];
-ip_block_non_disturbing_active_timeout_not_released(Config)
-  when is_list(Config) ->
-    httpd_block:
-	block_non_disturbing_active_timeout_not_released(ip_comm,
-							 ?IP_PORT, 
-							 ?config(host, 
-								 Config), 
-							 ?config(node, 
-								 Config)),
-    ok.
-%%-------------------------------------------------------------------------
-ip_block_non_disturbing_active_timeout_released(doc) ->
-    ["Check that you can block an active server. The strategy " 
-     "non non distribing means ongoing requests should be completed. "
-     "When the timeout occurs the block operation sohould be canceled." ];
-ip_block_non_disturbing_active_timeout_released(suite) ->
-    [];
-ip_block_non_disturbing_active_timeout_released(Config)
-  when is_list(Config) ->
-    httpd_block:
-	block_non_disturbing_active_timeout_released(ip_comm,
-						     ?IP_PORT, 
-						     ?config(host, 
-							     Config), 
-						     ?config(node, 
-							     Config)),
-    ok.
-%%-------------------------------------------------------------------------
-ip_block_disturbing_blocker_dies(doc) ->
-    [];
-ip_block_disturbing_blocker_dies(suite) ->
-    [];
-ip_block_disturbing_blocker_dies(Config) when is_list(Config) ->
-    httpd_block:disturbing_blocker_dies(ip_comm, ?IP_PORT, 
-					?config(host, Config), 
-					?config(node, Config)),
-    ok.
-%%-------------------------------------------------------------------------
-ip_block_non_disturbing_blocker_dies(doc) ->
-    [];
-ip_block_non_disturbing_blocker_dies(suite) ->
-    [];
-ip_block_non_disturbing_blocker_dies(Config) when is_list(Config) ->
-    httpd_block:non_disturbing_blocker_dies(ip_comm, ?IP_PORT, 
-					    ?config(host, Config), 
-					    ?config(node, Config)),
-    ok.
-%%-------------------------------------------------------------------------
-ip_restart_no_block(doc) ->
-    [""];
-ip_restart_no_block(suite) ->
-    [];
-ip_restart_no_block(Config) when is_list(Config) ->
-    httpd_block:restart_no_block(ip_comm, ?IP_PORT, ?config(host, Config), 
-				 ?config(node, Config)),
-    ok.
-%%-------------------------------------------------------------------------
-ip_restart_disturbing_block(doc) ->
-    [""];
-ip_restart_disturbing_block(suite) ->
-    [];
-ip_restart_disturbing_block(Config) when is_list(Config) ->
-    %% <CONDITIONAL-SKIP>
-    Condition = 
-	fun() -> 
-		case os:type() of
-		    {unix, linux} ->
-			HW = string:strip(os:cmd("uname -m"), right, $\n),
-			case HW of
-			    "ppc" ->
-				case inet:gethostname() of
-				    {ok, "peach"} ->
-					true;
-				    _ ->
-					false
-				end;
-			    _ ->
-				false
-			end;
-		    _ ->
-			false
-		end
-	end,
-    ?NON_PC_TC_MAYBE_SKIP(Config, Condition),
-    %% </CONDITIONAL-SKIP>
-
-    httpd_block:restart_disturbing_block(ip_comm, ?IP_PORT, 
-					 ?config(host, Config),
-					 ?config(node, Config)),
-    ok.
-
-%%-------------------------------------------------------------------------
-ip_restart_non_disturbing_block(doc) ->
-    [""];
-ip_restart_non_disturbing_block(suite) ->
-    [];
-ip_restart_non_disturbing_block(Config) when is_list(Config) ->
-    %% <CONDITIONAL-SKIP>
-    Condition = 
-	fun() -> 
-		case os:type() of
-		    {unix, linux} ->
-			HW = string:strip(os:cmd("uname -m"), right, $\n),
-			case HW of
-			    "ppc" ->
-				case inet:gethostname() of
-				    {ok, "peach"} ->
-					true;
-				    _ ->
-					false
-				end;
-			    _ ->
-				false
-			end;
-		    _ ->
-			false
-		end
-	end,
-    ?NON_PC_TC_MAYBE_SKIP(Config, Condition),
-    %% </CONDITIONAL-SKIP>
-
-    httpd_block:restart_non_disturbing_block(ip_comm, ?IP_PORT,
-					    ?config(host, Config), 
-					    ?config(node, Config)),
-    ok.
-
-%%-------------------------------------------------------------------------
-
-pssl_mod_alias(doc) -> 
-    ["Module test: mod_alias - old SSL config"];
-pssl_mod_alias(suite) -> 
-    [];
-pssl_mod_alias(Config) when is_list(Config) ->
-    ssl_mod_alias(ssl, Config).
-
-essl_mod_alias(doc) -> 
-    ["Module test: mod_alias - using new of configure new SSL"];
-essl_mod_alias(suite) -> 
-    [];
-essl_mod_alias(Config) when is_list(Config) ->
-    ssl_mod_alias(essl, Config).
-
-
-ssl_mod_alias(Tag, Config) ->
-    httpd_mod:alias(Tag, ?SSL_PORT, 
-		    ?config(host, Config), ?config(node, Config)),
-    ok. 
-
-
-%%-------------------------------------------------------------------------
-
-pssl_mod_actions(doc) -> 
-    ["Module test: mod_actions - old SSL config"];
-pssl_mod_actions(suite) -> 
-    [];
-pssl_mod_actions(Config) when is_list(Config) ->
-    ssl_mod_actions(ssl, Config).
-
-essl_mod_actions(doc) -> 
-    ["Module test: mod_actions - using new of configure new SSL"];
-essl_mod_actions(suite) -> 
-    [];
-essl_mod_actions(Config) when is_list(Config) ->
-    ssl_mod_actions(essl, Config).
-
-
-ssl_mod_actions(Tag, Config) ->
-    httpd_mod:actions(Tag, 
-		      ?SSL_PORT, 
-		      ?config(host, Config), 
-		      ?config(node, Config)),
-    ok.
-
-
-%%-------------------------------------------------------------------------
-
-pssl_mod_security(doc) -> 
-    ["Module test: mod_security - old SSL config"];
-pssl_mod_security(suite) -> 
-    [];
-pssl_mod_security(Config) when is_list(Config) ->
-    ssl_mod_security(ssl, Config).
-
-essl_mod_security(doc) -> 
-    ["Module test: mod_security - using new of configure new SSL"];
-essl_mod_security(suite) -> 
-    [];
-essl_mod_security(Config) when is_list(Config) ->
-    ssl_mod_security(essl, Config).
-
-ssl_mod_security(Tag, Config) ->
-    ServerRoot = ?config(server_root, Config), 
-    httpd_mod:security(ServerRoot, 
-		       Tag, 
-		       ?SSL_PORT, 
-		       ?config(host, Config), 
-		       ?config(node, Config)),
-    ok.
-
-
-%%-------------------------------------------------------------------------
-
-pssl_mod_auth(doc) -> 
-    ["Module test: mod_auth - old SSL config"];
-pssl_mod_auth(suite) -> 
-    [];
-pssl_mod_auth(Config) when is_list(Config) ->
-    ssl_mod_auth(ssl, Config).
-
-essl_mod_auth(doc) -> 
-    ["Module test: mod_auth - using new of configure new SSL"];
-essl_mod_auth(suite) -> 
-    [];
-essl_mod_auth(Config) when is_list(Config) ->
-    ssl_mod_auth(essl, Config).
-
-ssl_mod_auth(Tag, Config) ->
-    httpd_mod:auth(Tag, 
-		   ?SSL_PORT, 
-		   ?config(host, Config), 
-		   ?config(node, Config)),
-    ok.
-
-
-%%-------------------------------------------------------------------------
-
-pssl_mod_auth_api(doc) -> 
-    ["Module test: mod_auth - old SSL config"];
-pssl_mod_auth_api(suite) -> 
-    [];
-pssl_mod_auth_api(Config) when is_list(Config) ->
-    ssl_mod_auth_api(ssl, Config).
-
-essl_mod_auth_api(doc) -> 
-    ["Module test: mod_auth - using new of configure new SSL"];
-essl_mod_auth_api(suite) -> 
-    [];
-essl_mod_auth_api(Config) when is_list(Config) ->
-    ssl_mod_auth_api(essl, Config).
-
-ssl_mod_auth_api(Tag, Config) ->
-    ServerRoot = ?config(server_root, Config), 
-    Host       =  ?config(host, Config),
-    Node       = ?config(node, Config),
-    httpd_mod:auth_api(ServerRoot, "",        Tag, ?SSL_PORT, Host, Node),
-    httpd_mod:auth_api(ServerRoot, "dets_",   Tag, ?SSL_PORT, Host, Node),
-    httpd_mod:auth_api(ServerRoot, "mnesia_", Tag, ?SSL_PORT, Host, Node),
-    ok. 
-
-
-%%-------------------------------------------------------------------------
-
-pssl_mod_auth_mnesia_api(doc) -> 
-    ["Module test: mod_auth_mnesia_api - old SSL config"];
-pssl_mod_auth_mnesia_api(suite) -> 
-    [];
-pssl_mod_auth_mnesia_api(Config) when is_list(Config) ->
-    ssl_mod_auth_mnesia_api(ssl, Config).
-
-essl_mod_auth_mnesia_api(doc) -> 
-    ["Module test: mod_auth_mnesia_api - using new of configure new SSL"];
-essl_mod_auth_mnesia_api(suite) -> 
-    [];
-essl_mod_auth_mnesia_api(Config) when is_list(Config) ->
-    ssl_mod_auth_mnesia_api(essl, Config).
-
-ssl_mod_auth_mnesia_api(Tag, Config) ->
-    httpd_mod:auth_mnesia_api(Tag, 
-			      ?SSL_PORT, 
-			      ?config(host, Config), 
-			      ?config(node, Config)),
-    ok.
-
-
-%%-------------------------------------------------------------------------
-
-pssl_mod_htaccess(doc) -> 
-    ["Module test: mod_htaccess - old SSL config"];
-pssl_mod_htaccess(suite) -> 
-    [];
-pssl_mod_htaccess(Config) when is_list(Config) ->
-    ssl_mod_htaccess(ssl, Config).
-
-essl_mod_htaccess(doc) -> 
-    ["Module test: mod_htaccess - using new of configure new SSL"];
-essl_mod_htaccess(suite) -> 
-    [];
-essl_mod_htaccess(Config) when is_list(Config) ->
-    ssl_mod_htaccess(essl, Config).
-
-ssl_mod_htaccess(Tag, Config) ->
-    httpd_mod:htaccess(Tag, 
-		       ?SSL_PORT, 
-		       ?config(host, Config), 
-		       ?config(node, Config)),
-    ok.
-
-
-%%-------------------------------------------------------------------------
-
-pssl_mod_cgi(doc) ->
-    ["Module test: mod_cgi - old SSL config"];
-pssl_mod_cgi(suite) ->
-    [];
-pssl_mod_cgi(Config) when is_list(Config) ->
-    ssl_mod_cgi(ssl, Config).
-
-essl_mod_cgi(doc) ->
-    ["Module test: mod_cgi - using new of configure new SSL"];
-essl_mod_cgi(suite) ->
-    [];
-essl_mod_cgi(Config) when is_list(Config) ->
-    ssl_mod_cgi(essl, Config).
-
-ssl_mod_cgi(Tag, Config) ->
-    case test_server:os_type() of
-	vxworks ->
-	    {skip, cgi_not_supported_on_vxwoks};
-	_ ->
-	    httpd_mod:cgi(Tag, 
-			  ?SSL_PORT, 
-			  ?config(host, Config), 
-			  ?config(node, Config)),
-	    ok
+    try inets_test_lib:connect_bin(SockType, Host, Port, TranspOpts) of
+	{ok, Socket} ->
+            RequestStr = http_request(Request, "HTTP/1.1", Host),
+	    ok = inets_test_lib:send(SockType, Socket, RequestStr),
+            receive
+                {tcp, Socket, Data} ->
+                    case binary:match(Data, <<"chunked">>,[]) of
+                        nomatch ->
+                            ok;
+                        {_, _} ->
+                            ct:fail("Chunked encoding detected.")
+                    end
+            after 2000 ->
+                    ct:fail(connection_timed_out)
+            end;
+	ConnectError ->
+	    ct:fail({connect_error, ConnectError,
+		     [SockType, Host, Port, TranspOpts]})
+    catch
+	T:E ->
+	    ct:fail({connect_failure,
+		     [{type,       T},
+		      {error,      E},
+		      {stacktrace, erlang:get_stacktrace()},
+		      {args,       [SockType, Host, Port, TranspOpts]}]})
     end.
 
+%%-------------------------------------------------------------------------
+htaccess_1_1(Config) when is_list(Config) -> 
+    htaccess([{http_version, "HTTP/1.1"} | Config]).
+
+htaccess_1_0(Config) when is_list(Config) -> 
+    htaccess([{http_version, "HTTP/1.0"} | Config]).
+
+htaccess_0_9(Config) when is_list(Config) -> 
+    htaccess([{http_version, "HTTP/0.9"} | Config]).
+
+htaccess() ->
+    [{doc, "Test mod_auth API"}].
+
+htaccess(Config) when is_list(Config) -> 
+    Version = proplists:get_value(http_version, Config),
+    Host = proplists:get_value(host, Config),
+    Type = proplists:get_value(type, Config),
+    Port = proplists:get_value(port, Config),
+    Node = proplists:get_value(node, Config),
+    %% Control that authentication required!
+    %% Control that the pages that shall be 
+    %% authenticated really need authenticatin
+    ok = httpd_test_lib:verify_request(Type, Host, Port, Node,
+				       http_request("GET /ht/open/ ", Version, Host),
+				       [{statuscode, 401},
+					{version, Version}, 
+					{header, "WWW-Authenticate"}]),
+    ok = httpd_test_lib:verify_request(Type, Host, Port, Node,
+				       http_request("GET /ht/secret/ ", Version, Host),
+				       [{statuscode, 401},
+					{version, Version}, 
+					{header, "WWW-Authenticate"}]),
+    ok = httpd_test_lib:verify_request(Type, Host, Port, Node,
+				         http_request("GET /ht/secret/top_secret/ ",
+						      Version, Host),
+				       [{statuscode, 401},
+					{version, Version}, 
+					{header, "WWW-Authenticate"}]),
+
+    %% Make sure Authenticate header is received even the second time
+    %% we try a incorrect password! Otherwise a browser client will hang!
+    ok = auth_status(auth_request("/ht/open/",
+				  "dummy", "WrongPassword", Version, Host), Config,
+		     [{statuscode, 401},
+		      {header, "WWW-Authenticate"}]),
+    ok = auth_status(auth_request("/ht/open/",
+				  "dummy", "WrongPassword", Version, Host), Config,
+		     [{statuscode, 401},		
+		      {header, "WWW-Authenticate"}]),
+    
+    %% Control that not just the first user in the list is valid
+    %% Control the first user
+    %% Authennticating ["one:OnePassword" user first in user list]
+    ok = auth_status(auth_request("/ht/open/dummy.html", "one",  "OnePassword",
+				  Version, Host), Config, 
+		     [{statuscode, 200}]),
+    
+    %% Control the second user
+    %% Authentication OK and a directory listing is supplied! 
+    %% ["Aladdin:open sesame" user second in user list]
+    ok = auth_status(auth_request("/ht/open/","Aladdin", 
+				  "AladdinPassword", Version, Host), Config, 
+		     [{statuscode, 200}]),
+    
+    %% Contro that bad passwords and userids get a good denial
+    %% User correct but wrong password! ["one:one" user first in user list]
+    ok = auth_status(auth_request("/ht/open/", "one", "one", Version, Host), Config, 
+		     [{statuscode, 401}]),
+    %% Neither user or password correct! ["dummy:dummy"]
+    ok = auth_status(auth_request("/ht/open/", "dummy", "dummy", Version, Host), Config,
+		     [{statuscode, 401}]),
+    
+    %% Control that authetication still works, even if its a member in a group
+    %% Authentication OK! ["two:TwoPassword" user in first group]
+    ok = auth_status(auth_request("/ht/secret/dummy.html", "two", 
+				  "TwoPassword",  Version, Host), Config, 
+		     [{statuscode, 200}]),
+    
+    %% Authentication OK and a directory listing is supplied! 
+    %% ["three:ThreePassword" user in second group]
+    ok = auth_status(auth_request("/ht/secret/", "three",
+				  "ThreePassword", Version, Host), Config, 
+		     [{statuscode, 200}]),
+    
+    %% Deny users with bad passwords even if the user is a group member
+    %% User correct but wrong password! ["two:two" user in first group]
+    ok = auth_status(auth_request("/ht/secret/", "two", "two", Version, Host), Config, 
+		     [{statuscode, 401}]),
+    %% Neither user or password correct! ["dummy:dummy"]
+    ok = auth_status(auth_request("/ht/secret/", "dummy", "dummy", Version, Host), Config, 
+		     [{statuscode, 401}]),
+    
+    %% control that we deny the users that are in subnet above the allowed
+     ok = auth_status(auth_request("/ht/blocknet/dummy.html", "four",
+				   "FourPassword", Version, Host), Config, 
+		      [{statuscode, 403}]),
+    %% Control that we only applies the rules to the right methods
+    ok = httpd_test_lib:verify_request(Type, Host, Port, Node, 
+      				       http_request("HEAD /ht/blocknet/dummy.html ", Version, Host),
+      				       [{statuscode, head_status(Version)},
+      					{version, Version}]),
+    
+    %% Control that the rerquire directive can be overrideen
+    ok = auth_status(auth_request("/ht/secret/top_secret/ ", "Aladdin", "AladdinPassword", 
+				  Version, Host), Config, 
+		     [{statuscode, 401}]),
+    
+    %% Authentication still required!
+    ok = httpd_test_lib:verify_request(Type, Host, Port, Node, 
+				       http_request("GET /ht/open/ ", Version, Host),
+				       [{statuscode, 401},
+					{version, Version}, 
+					{header, "WWW-Authenticate"}]),
+    ok = httpd_test_lib:verify_request(Type, Host, Port, Node, 
+				        http_request("GET /ht/secret/ ", Version, Host),
+				       [{statuscode, 401},
+					{version, Version},    
+					{header, "WWW-Authenticate"}]),
+    ok = httpd_test_lib:verify_request(Type, Host, Port, Node, 
+				        http_request("GET /ht/secret/top_secret/ ", Version, Host),
+				       [{statuscode, 401},
+					{version, Version}, 
+					{header, "WWW-Authenticate"}]).
 
 %%-------------------------------------------------------------------------
+host() ->
+    [{doc, "Test host header"}].
 
-pssl_mod_esi(doc) ->
-    ["Module test: mod_esi - old SSL config"];
-pssl_mod_esi(suite) ->
-    [];
-pssl_mod_esi(Config) when is_list(Config) ->
-    ssl_mod_esi(ssl, Config).
-
-essl_mod_esi(doc) ->
-    ["Module test: mod_esi - using new of configure new SSL"];
-essl_mod_esi(suite) ->
-    [];
-essl_mod_esi(Config) when is_list(Config) ->
-    ssl_mod_esi(essl, Config).
-
-ssl_mod_esi(Tag, Config) ->
-    httpd_mod:esi(Tag, 
-		  ?SSL_PORT, 
-		  ?config(host, Config), 
-		  ?config(node, Config)),
-    ok.
-
-
+host(Config) when is_list(Config) -> 
+    Cb = proplists:get_value(version_cb, Config),
+    Cb:host(proplists:get_value(type, Config), proplists:get_value(port, Config), 
+	    proplists:get_value(host, Config), proplists:get_value(node, Config)).
 %%-------------------------------------------------------------------------
+chunked() ->
+    [{doc, "Check that the server accepts chunked requests."}].
 
-pssl_mod_get(doc) ->
-    ["Module test: mod_get - old SSL config"];
-pssl_mod_get(suite) ->
-    [];
-pssl_mod_get(Config) when is_list(Config) ->
-    ssl_mod_get(ssl, Config).
-
-essl_mod_get(doc) ->
-    ["Module test: mod_get - using new of configure new SSL"];
-essl_mod_get(suite) ->
-    [];
-essl_mod_get(Config) when is_list(Config) ->
-    ssl_mod_get(essl, Config).
-
-ssl_mod_get(Tag, Config) ->
-    httpd_mod:get(Tag, 
-		  ?SSL_PORT, 
-		  ?config(host, Config), 
-		  ?config(node, Config)),
-    ok.
-
-
+chunked(Config) when is_list(Config) ->
+    httpd_1_1:chunked(proplists:get_value(type, Config), proplists:get_value(port, Config), 
+		      proplists:get_value(host, Config), proplists:get_value(node, Config)).
 %%-------------------------------------------------------------------------
-
-pssl_mod_head(doc) ->
-    ["Module test: mod_head - old SSL config"];
-pssl_mod_head(suite) ->
-    [];
-pssl_mod_head(Config) when is_list(Config) ->
-    ssl_mod_head(ssl, Config).
-
-essl_mod_head(doc) ->
-    ["Module test: mod_head - using new of configure new SSL"];
-essl_mod_head(suite) ->
-    [];
-essl_mod_head(Config) when is_list(Config) ->
-    ssl_mod_head(essl, Config).
-
-ssl_mod_head(Tag, Config) ->
-    httpd_mod:head(Tag, 
-		   ?SSL_PORT, 
-		   ?config(host, Config), 
-		   ?config(node, Config)),
-    ok.
-
-
+expect() ->   
+    ["Check that the server handles request with the expect header "
+     "field appropiate"].
+expect(Config) when is_list(Config) ->
+    httpd_1_1:expect(proplists:get_value(type, Config), proplists:get_value(port, Config), 
+		     proplists:get_value(host, Config), proplists:get_value(node, Config)).
 %%-------------------------------------------------------------------------
+max_clients_1_1() ->
+    [{doc, "Test max clients limit"}].
 
-pssl_mod_all(doc) ->
-    ["All modules test - old SSL config"];
-pssl_mod_all(suite) ->
-    [];
-pssl_mod_all(Config) when is_list(Config) ->
-    ssl_mod_all(ssl, Config).
+max_clients_1_1(Config) when is_list(Config) -> 
+    do_max_clients([{http_version, "HTTP/1.1"} | Config]).
 
-essl_mod_all(doc) ->
-    ["All modules test - using new of configure new SSL"];
-essl_mod_all(suite) ->
-    [];
-essl_mod_all(Config) when is_list(Config) ->
-    ssl_mod_all(essl, Config).
+max_clients_1_0() ->
+    [{doc, "Test max clients limit"}].
 
-ssl_mod_all(Tag, Config) ->
-    httpd_mod:all(Tag, 
-		  ?SSL_PORT, 
-		  ?config(host, Config), 
-		  ?config(node, Config)),
-    ok.
+max_clients_1_0(Config) when is_list(Config) -> 
+    do_max_clients([{http_version, "HTTP/1.0"} | Config]).
 
+max_clients_0_9() ->
+    [{doc, "Test max clients limit"}].
 
-%%-------------------------------------------------------------------------
-
-pssl_load_light(doc) ->
-    ["Test light load - old SSL config"];
-pssl_load_light(suite) ->
-    [];
-pssl_load_light(Config) when is_list(Config) ->
-    ssl_load_light(ssl, Config).
-
-essl_load_light(doc) ->
-    ["Test light load - using new of configure new SSL"];
-essl_load_light(suite) ->
-    [];
-essl_load_light(Config) when is_list(Config) ->
-    ssl_load_light(essl, Config).
-
-ssl_load_light(Tag, Config) ->
-    httpd_load:load_test(Tag, 
-			 ?SSL_PORT, 
-			 ?config(host, Config), 
-			 ?config(node, Config),
-			 get_nof_clients(ssl, light)),
-    ok.
-
-
-%%-------------------------------------------------------------------------
-
-pssl_load_medium(doc) ->
-    ["Test medium load - old SSL config"];
-pssl_load_medium(suite) ->
-    [];
-pssl_load_medium(Config) when is_list(Config) ->
-    ssl_load_medium(ssl, Config).
-
-essl_load_medium(doc) ->
-    ["Test medium load - using new of configure new SSL"];
-essl_load_medium(suite) ->
-    [];
-essl_load_medium(Config) when is_list(Config) ->
-    ssl_load_medium(essl, Config).
-
-ssl_load_medium(Tag, Config) ->
-    %% <CONDITIONAL-SKIP>
-    Skippable = [win32],
-    Condition = fun() -> ?OS_BASED_SKIP(Skippable) end,
-    ?NON_PC_TC_MAYBE_SKIP(Config, Condition),
-    %% </CONDITIONAL-SKIP>
-
-    httpd_load:load_test(Tag, 
-			 ?SSL_PORT, 
-			 ?config(host, Config), 
-			 ?config(node, Config),
-			 get_nof_clients(ssl, medium)),
-    ok.
-
-
-%%-------------------------------------------------------------------------
-
-pssl_load_heavy(doc) ->
-    ["Test heavy load - old SSL config"];
-pssl_load_heavy(suite) ->
-    [];
-pssl_load_heavy(Config) when is_list(Config) ->
-    ssl_load_heavy(ssl, Config).
-
-essl_load_heavy(doc) ->
-    ["Test heavy load - using new of configure new SSL"];
-essl_load_heavy(suite) ->
-    [];
-essl_load_heavy(Config) when is_list(Config) ->
-    ssl_load_heavy(essl, Config).
-
-ssl_load_heavy(Tag, Config) ->
-    %% <CONDITIONAL-SKIP>
-    Skippable = [win32],
-    Condition = fun() -> ?OS_BASED_SKIP(Skippable) end,
-    ?NON_PC_TC_MAYBE_SKIP(Config, Condition),
-    %% </CONDITIONAL-SKIP>
-
-    httpd_load:load_test(Tag, 
-			 ?SSL_PORT, 
-			 ?config(host, Config), 
-			 ?config(node, Config),
-			 get_nof_clients(ssl, heavy)),
-    ok.
+max_clients_0_9(Config) when is_list(Config) -> 
+    do_max_clients([{http_version, "HTTP/0.9"} | Config]).
 
 
 %%-------------------------------------------------------------------------
+put_not_sup() ->
+    [{doc, "Test unhandled request"}].
 
-pssl_dos_hostname(doc) ->
-    ["Denial Of Service (DOS) attack test case - old SSL config"];
-pssl_dos_hostname(suite) ->
-    [];
-pssl_dos_hostname(Config) when is_list(Config) ->
-    ssl_dos_hostname(ssl, Config).
+put_not_sup(Config) when is_list(Config) ->
+    ok = http_status("PUT /index.html ",
+                     {"Content-Length:100 \r\n",
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"},
+		     Config, [{statuscode, 501}]).
+%%-------------------------------------------------------------------------
+esi() ->
+    [{doc, "Test mod_esi"}].
 
-essl_dos_hostname(doc) ->
-    ["Denial Of Service (DOS) attack test case - using new of configure new SSL"];
-essl_dos_hostname(suite) ->
-    [];
-essl_dos_hostname(Config) when is_list(Config) ->
-    ssl_dos_hostname(essl, Config).
+esi(Config) when is_list(Config) -> 
+    ok = http_status("GET /eval?httpd_example:print(\"Hi!\") ",
+		     Config, [{statuscode, 200}]),
+    ok = http_status("GET /eval?not_allowed:print(\"Hi!\") ",
+		     Config, [{statuscode, 403}]),
+    ok = http_status("GET /eval?httpd_example:undef(\"Hi!\") ",
+		      Config, [{statuscode, 500}]),
+    ok = http_status("GET /cgi-bin/erl/httpd_example ", 
+		     Config, [{statuscode, 400}]),
+    ok = http_status("GET /cgi-bin/erl/httpd_example:get ",
+		     Config, [{statuscode, 200}]),
+    ok = http_status("GET /cgi-bin/erl/httpd_example:"
+		     "get?input=4711 ", Config,
+		     [{statuscode, 200}]),
+    ok = http_status("GET /cgi-bin/erl/httpd_example:post ",
+		     Config, [{statuscode, 200}]),
+    ok = http_status("GET /cgi-bin/erl/not_allowed:post ",
+		     Config, [{statuscode, 403}]),
+    ok = http_status("GET /cgi-bin/erl/httpd_example:undef ",
+		     Config, [{statuscode, 404}]),
+    ok = http_status("GET /cgi-bin/erl/httpd_example/yahoo ",
+		     Config, [{statuscode, 302}]),
+    %% Check "ErlScriptNoCache" directive (default: false)
+    ok = http_status("GET /cgi-bin/erl/httpd_example:get ",
+		     Config, [{statuscode, 200},
+		      {no_header, "cache-control"}]),
+    ok = http_status("GET /cgi-bin/erl/httpd_example:peer ",
+	  	     Config, [{statuscode, 200},
+                              {header, "peer-cert-exist", peer(Config)}]),
+    ok = http_status("GET /cgi-bin/erl/httpd_example:new_status_and_location ",
+                     Config, [{statuscode, 201},
+                              {header, "location"}]).
+    
+%%-------------------------------------------------------------------------
+esi_put() ->
+    [{doc, "Test mod_esi PUT"}].
 
-ssl_dos_hostname(Tag, Config) ->
-    dos_hostname(Tag, 
-		 ?SSL_PORT, 
-		 ?config(host, Config), 
-		 ?config(node, Config), 
-		 ?MAX_HEADER_SIZE),
-    ok.
+esi_put(Config) when is_list(Config) ->
+    ok = http_status("PUT /cgi-bin/erl/httpd_example/put/123342234123 ",
+		     Config, [{statuscode, 200}]).
+%%-------------------------------------------------------------------------
+esi_post() ->
+    [{doc, "Test mod_esi POST"}].
 
+esi_post(Config) when is_list(Config) ->
+    Chunk = "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
+    Data = lists:duplicate(10000, Chunk),
+    Length = lists:flatlength(Data),
+    ok = http_status("POST /cgi-bin/erl/httpd_example/post ",
+                     {"Content-Length:" ++ integer_to_list(Length) ++ "\r\n",
+                      Data},
+                     [{http_version, "HTTP/1.1"} |Config], 
+                     [{statuscode, 200}]).
 
 %%-------------------------------------------------------------------------
+mod_esi_chunk_timeout(Config) when is_list(Config) -> 
+    ok = httpd_1_1:mod_esi_chunk_timeout(proplists:get_value(type, Config), 
+					 proplists:get_value(port, Config),
+					 proplists:get_value(host, Config),
+					 proplists:get_value(node, Config)).
 
-pssl_time_test(doc) ->
-    ["old SSL config"];
-pssl_time_test(suite) ->
-    [];
-pssl_time_test(Config) when is_list(Config) ->
-    ssl_time_test(ssl, Config).
+%%-------------------------------------------------------------------------
+cgi() ->
+    [{doc, "Test mod_cgi"}].
 
-essl_time_test(doc) ->
-    ["using new of configure new SSL"];
-essl_time_test(suite) ->
-    [];
-essl_time_test(Config) when is_list(Config) ->
-    ssl_time_test(essl, Config).
-
-ssl_time_test(Tag, Config) when is_list(Config) ->
-    %% <CONDITIONAL-SKIP>
-    FreeBSDVersionVerify = 
-	fun() ->
-		case os:version() of
-		    {7, 1, _} -> % We only have one such machine, so...
-			true;
-		    _ ->
-			false
-		end
+cgi(Config) when is_list(Config) -> 
+    {Script, Script2, Script3} =
+	case test_server:os_type() of
+	    {win32, _} ->
+		{"printenv.bat", "printenv.sh", "cgi_echo.exe"};
+	    _ ->
+		{"printenv.sh", "printenv.bat", "cgi_echo"}
 	end,
-    Skippable = [win32, {unix, [{freebsd, FreeBSDVersionVerify}]}],
-    Condition = fun() -> ?OS_BASED_SKIP(Skippable) end,
-    ?NON_PC_TC_MAYBE_SKIP(Config, Condition),
-    %% </CONDITIONAL-SKIP>
+
+     %%The length (> 100) is intentional
+     ok = http_status("POST /cgi-bin/" ++ Script3 ++ " ", 
+     		     {"Content-Length:100 \r\n",
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"
+     		      "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ"}, 
+		      Config,
+     		     [{statuscode, 200},
+     		      {header, "content-type", "text/plain"}]),
     
-    httpd_time_test:t(Tag, 
-		      ?config(host, Config), 
-		      ?SSL_PORT),
-    ok.
+    ok = http_status("GET /cgi-bin/"++ Script ++ " ", Config, [{statuscode, 200}]),
 
-
-%%-------------------------------------------------------------------------
-
-pssl_block_503(doc) ->
-    ["Check that you will receive status code 503 when the server"
-     " is blocked and 200 when its not blocked - old SSL config."];
-pssl_block_503(suite) ->
-    [];
-pssl_block_503(Config) when is_list(Config) ->
-    ssl_block_503(ssl, Config).
-
-essl_block_503(doc) ->
-    ["Check that you will receive status code 503 when the server"
-     " is blocked and 200 when its not blocked - using new of configure new SSL."];
-essl_block_503(suite) ->
-    [];
-essl_block_503(Config) when is_list(Config) ->
-    ssl_block_503(essl, Config).
-
-ssl_block_503(Tag, Config) ->
-    httpd_block:block_503(Tag, 
-			  ?SSL_PORT, 
-			  ?config(host, Config), 
-			  ?config(node, Config)),
-    ok.
-
-
-%%-------------------------------------------------------------------------
-
-pssl_block_disturbing_idle(doc) ->
-    ["Check that you can block/unblock an idle server. The strategy " 
-     "distribing does not really make a difference in this case." 
-     "Old SSL config"];
-pssl_block_disturbing_idle(suite) ->
-    [];
-pssl_block_disturbing_idle(Config) when is_list(Config) ->
-    ssl_block_disturbing_idle(ssl, Config).
-
-essl_block_disturbing_idle(doc) ->
-    ["Check that you can block/unblock an idle server. The strategy " 
-     "distribing does not really make a difference in this case." 
-     "Using new of configure new SSL"];
-essl_block_disturbing_idle(suite) ->
-    [];
-essl_block_disturbing_idle(Config) when is_list(Config) ->
-    ssl_block_disturbing_idle(essl, Config).
-
-ssl_block_disturbing_idle(Tag, Config) ->
-    httpd_block:block_disturbing_idle(Tag, 
-				      ?SSL_PORT, 
-				      ?config(host, Config), 
-				      ?config(node, Config)),
-    ok.
-
-
-%%-------------------------------------------------------------------------
-
-pssl_block_non_disturbing_idle(doc) ->
-    ["Check that you can block/unblock an idle server. The strategy " 
-     "non distribing does not really make a difference in this case." 
-     "Old SSL config"];
-pssl_block_non_disturbing_idle(suite) ->
-    [];
-pssl_block_non_disturbing_idle(Config) when is_list(Config) ->
-    ssl_block_non_disturbing_idle(ssl, Config).
-
-essl_block_non_disturbing_idle(doc) ->
-    ["Check that you can block/unblock an idle server. The strategy " 
-     "non distribing does not really make a difference in this case." 
-     "Using new of configure new SSL"];
-essl_block_non_disturbing_idle(suite) ->
-    [];
-essl_block_non_disturbing_idle(Config) when is_list(Config) ->
-    ssl_block_non_disturbing_idle(essl, Config).
-
-ssl_block_non_disturbing_idle(Tag, Config) ->
-    httpd_block:block_non_disturbing_idle(Tag, 
-					  ?SSL_PORT, 
-					  ?config(host, Config), 
-					  ?config(node, Config)),
-    ok.
-
-
-%%-------------------------------------------------------------------------
-
-pssl_block_disturbing_active(doc) ->
-    ["Check that you can block/unblock an active server. The strategy " 
-     "distribing means ongoing requests should be terminated." 
-     "Old SSL config"];
-pssl_block_disturbing_active(suite) ->
-    [];
-pssl_block_disturbing_active(Config) when is_list(Config) ->
-    ssl_block_disturbing_active(ssl, Config).
-
-essl_block_disturbing_active(doc) ->
-    ["Check that you can block/unblock an active server. The strategy " 
-     "distribing means ongoing requests should be terminated." 
-     "Using new of configure new SSL"];
-essl_block_disturbing_active(suite) ->
-    [];
-essl_block_disturbing_active(Config) when is_list(Config) ->
-    ssl_block_disturbing_active(essl, Config).
-
-ssl_block_disturbing_active(Tag, Config) ->
-    httpd_block:block_disturbing_active(Tag, 
-					?SSL_PORT, 
-					?config(host, Config), 
-					?config(node, Config)),
-    ok.
-
-
-%%-------------------------------------------------------------------------
-
-pssl_block_non_disturbing_active(doc) ->
-    ["Check that you can block/unblock an idle server. The strategy " 
-     "non distribing means the ongoing requests should be compleated." 
-     "Old SSL config"];
-pssl_block_non_disturbing_active(suite) ->
-    [];
-pssl_block_non_disturbing_active(Config) when is_list(Config) ->
-    ssl_block_non_disturbing_active(ssl, Config).
-
-essl_block_non_disturbing_active(doc) ->
-    ["Check that you can block/unblock an idle server. The strategy " 
-     "non distribing means the ongoing requests should be compleated." 
-     "Using new of configure new SSL"];
-essl_block_non_disturbing_active(suite) ->
-    [];
-essl_block_non_disturbing_active(Config) when is_list(Config) ->
-    ssl_block_non_disturbing_active(essl, Config).
-
-ssl_block_non_disturbing_active(Tag, Config) ->
-    httpd_block:block_non_disturbing_idle(Tag, 
-					  ?SSL_PORT, 
-					  ?config(host, Config), 
-					  ?config(node, Config)),
-    ok.
-
-
-%%-------------------------------------------------------------------------
-
-pssl_block_disturbing_active_timeout_not_released(doc) ->
-    ["Check that you can block an active server. The strategy " 
-     "distribing means ongoing requests should be compleated"
-     "if the timeout does not occur." 
-     "Old SSL config"];
-pssl_block_disturbing_active_timeout_not_released(suite) ->
-    [];
-pssl_block_disturbing_active_timeout_not_released(Config) 
-  when is_list(Config) ->
-    ssl_block_disturbing_active_timeout_not_released(ssl, Config).
-
-essl_block_disturbing_active_timeout_not_released(doc) ->
-    ["Check that you can block an active server. The strategy " 
-     "distribing means ongoing requests should be compleated"
-     "if the timeout does not occur." 
-    "Using new of configure new SSL"];
-essl_block_disturbing_active_timeout_not_released(suite) ->
-    [];
-essl_block_disturbing_active_timeout_not_released(Config) 
-  when is_list(Config) ->
-    ssl_block_disturbing_active_timeout_not_released(essl, Config).
-
-ssl_block_disturbing_active_timeout_not_released(Tag, Config) ->
-    Port = ?SSL_PORT, 
-    Host = ?config(host, Config), 
-    Node = ?config(node, Config), 
-    httpd_block:block_disturbing_active_timeout_not_released(Tag, 
-							     Port, Host, Node),
-    ok.
-
-
-%%-------------------------------------------------------------------------
-
-pssl_block_disturbing_active_timeout_released(doc) ->
-    ["Check that you can block an active server. The strategy " 
-     "distribing means ongoing requests should be terminated when"
-     "the timeout occurs." 
-     "Old SSL config"];
-pssl_block_disturbing_active_timeout_released(suite) ->
-    [];
-pssl_block_disturbing_active_timeout_released(Config) 
-  when is_list(Config) ->
-    ssl_block_disturbing_active_timeout_released(ssl, Config).
-
-essl_block_disturbing_active_timeout_released(doc) ->
-    ["Check that you can block an active server. The strategy " 
-     "distribing means ongoing requests should be terminated when"
-     "the timeout occurs." 
-    "Using new of configure new SSL"];
-essl_block_disturbing_active_timeout_released(suite) ->
-    [];
-essl_block_disturbing_active_timeout_released(Config) 
-  when is_list(Config) ->
-    ssl_block_disturbing_active_timeout_released(essl, Config).
-
-ssl_block_disturbing_active_timeout_released(Tag, Config) ->
-    Port = ?SSL_PORT, 
-    Host = ?config(host, Config), 
-    Node = ?config(node, Config),     
-    httpd_block:block_disturbing_active_timeout_released(Tag, 
-							 Port, 
-							 Host, 
-							 Node), 
-    ok.
-
-
-%%-------------------------------------------------------------------------
-
-pssl_block_non_disturbing_active_timeout_not_released(doc) ->
-    ["Check that you can block an active server. The strategy " 
-     "non non distribing means ongoing requests should be completed." 
-     "Old SSL config"];
-pssl_block_non_disturbing_active_timeout_not_released(suite) ->
-    [];
-pssl_block_non_disturbing_active_timeout_not_released(Config)
-  when is_list(Config) ->
-    ssl_block_non_disturbing_active_timeout_not_released(ssl, Config).
-
-essl_block_non_disturbing_active_timeout_not_released(doc) ->
-    ["Check that you can block an active server. The strategy " 
-     "non non distribing means ongoing requests should be completed." 
-    "Using new of configure new SSL"];
-essl_block_non_disturbing_active_timeout_not_released(suite) ->
-    [];
-essl_block_non_disturbing_active_timeout_not_released(Config)
-  when is_list(Config) ->
-    ssl_block_non_disturbing_active_timeout_not_released(essl, Config).
-
-ssl_block_non_disturbing_active_timeout_not_released(Tag, Config) ->
-    Port = ?SSL_PORT, 
-    Host = ?config(host, Config), 
-    Node = ?config(node, Config), 
-    httpd_block:block_non_disturbing_active_timeout_not_released(Tag,
-								 Port, 
-								 Host, 
-								 Node),
-    ok.
-
-
-%%-------------------------------------------------------------------------
-
-pssl_block_non_disturbing_active_timeout_released(doc) ->
-    ["Check that you can block an active server. The strategy " 
-     "non distribing means ongoing requests should be completed. "
-     "When the timeout occurs the block operation sohould be canceled." 
-     "Old SSL config"];
-pssl_block_non_disturbing_active_timeout_released(suite) ->
-    [];
-pssl_block_non_disturbing_active_timeout_released(Config)
-  when is_list(Config) ->
-    ssl_block_non_disturbing_active_timeout_released(ssl, Config).
-
-essl_block_non_disturbing_active_timeout_released(doc) ->
-    ["Check that you can block an active server. The strategy " 
-     "non distribing means ongoing requests should be completed. "
-     "When the timeout occurs the block operation sohould be canceled." 
-     "Using new of configure new SSL"];
-essl_block_non_disturbing_active_timeout_released(suite) ->
-    [];
-essl_block_non_disturbing_active_timeout_released(Config)
-  when is_list(Config) ->
-    ssl_block_non_disturbing_active_timeout_released(essl, Config).
-
-ssl_block_non_disturbing_active_timeout_released(Tag, Config)
-  when is_list(Config) ->
-    Port = ?SSL_PORT, 
-    Host = ?config(host, Config), 
-    Node = ?config(node, Config), 
-    httpd_block:block_non_disturbing_active_timeout_released(Tag, 
-							     Port, 
-							     Host, 
-							     Node), 
-
-    ok.
-
-
-%%-------------------------------------------------------------------------
-
-pssl_block_disturbing_blocker_dies(doc) ->
-    ["old SSL config"];
-pssl_block_disturbing_blocker_dies(suite) ->
-    [];
-pssl_block_disturbing_blocker_dies(Config) when is_list(Config) ->
-    ssl_block_disturbing_blocker_dies(ssl, Config).
-
-essl_block_disturbing_blocker_dies(doc) ->
-    ["using new of configure new SSL"];
-essl_block_disturbing_blocker_dies(suite) ->
-    [];
-essl_block_disturbing_blocker_dies(Config) when is_list(Config) ->
-    ssl_block_disturbing_blocker_dies(essl, Config).
-
-ssl_block_disturbing_blocker_dies(Tag, Config) ->
-    httpd_block:disturbing_blocker_dies(Tag, 
-					?SSL_PORT, 
-					?config(host, Config), 
-					?config(node, Config)),
-    ok.
-
-
-%%-------------------------------------------------------------------------
-
-pssl_block_non_disturbing_blocker_dies(doc) ->
-    ["old SSL config"];
-pssl_block_non_disturbing_blocker_dies(suite) ->
-    [];
-pssl_block_non_disturbing_blocker_dies(Config) when is_list(Config) ->
-    ssl_block_non_disturbing_blocker_dies(ssl, Config).
-
-essl_block_non_disturbing_blocker_dies(doc) ->
-    ["using new of configure new SSL"];
-essl_block_non_disturbing_blocker_dies(suite) ->
-    [];
-essl_block_non_disturbing_blocker_dies(Config) when is_list(Config) ->
-    ssl_block_non_disturbing_blocker_dies(essl, Config).
-
-ssl_block_non_disturbing_blocker_dies(Tag, Config) ->
-    httpd_block:non_disturbing_blocker_dies(Tag, 
-					    ?SSL_PORT, 
-					    ?config(host, Config), 
-					    ?config(node, Config)),
-    ok.
-
-
-%%-------------------------------------------------------------------------
-
-pssl_restart_no_block(doc) ->
-    ["old SSL config"];
-pssl_restart_no_block(suite) ->
-    [];
-pssl_restart_no_block(Config) when is_list(Config) ->
-    ssl_restart_no_block(ssl, Config).
-
-essl_restart_no_block(doc) ->
-    ["using new of configure new SSL"];
-essl_restart_no_block(suite) ->
-    [];
-essl_restart_no_block(Config) when is_list(Config) ->
-    ssl_restart_no_block(essl, Config).
-
-ssl_restart_no_block(Tag, Config) ->
-    httpd_block:restart_no_block(Tag, 
-				 ?SSL_PORT, 
-				 ?config(host, Config), 
-				 ?config(node, Config)),
-    ok.
-
-
-%%-------------------------------------------------------------------------
-
-pssl_restart_disturbing_block(doc) ->
-    ["old SSL config"];
-pssl_restart_disturbing_block(suite) ->
-    [];
-pssl_restart_disturbing_block(Config) when is_list(Config) ->
-    ssl_restart_disturbing_block(ssl, Config).
-
-essl_restart_disturbing_block(doc) ->
-    ["using new of configure new SSL"];
-essl_restart_disturbing_block(suite) ->
-    [];
-essl_restart_disturbing_block(Config) when is_list(Config) ->
-    ssl_restart_disturbing_block(essl, Config).
-
-ssl_restart_disturbing_block(Tag, Config) ->
-    %% <CONDITIONAL-SKIP>
-    Condition = 
-	fun() -> 
-		case os:type() of
-		    {unix, linux} ->
-			case ?OSCMD("uname -m") of
-			    "ppc" ->
-				case file:read_file_info("/etc/fedora-release") of
-				    {ok, _} ->
-					case ?OSCMD("awk '{print $2}' /etc/fedora-release") of
-					    "release" ->
-						%% Fedora 7 and later
-						case ?OSCMD("awk '{print $3}' /etc/fedora-release") of
-						    "7" ->
-							true;
-						    _ ->
-							false
-						end;
-					    _ ->
-						false
-					end;
-				    _ ->
-					false
-				end;
-			    _ ->
-				false
-			end;
-		    _ ->
-			false
-		end
-	end,
-    ?NON_PC_TC_MAYBE_SKIP(Config, Condition),
-    %% </CONDITIONAL-SKIP>
-
-    httpd_block:restart_disturbing_block(Tag, ?SSL_PORT, 
-					 ?config(host, Config), 
-					 ?config(node, Config)),
-    ok.
-
-
-%%-------------------------------------------------------------------------
-
-pssl_restart_non_disturbing_block(doc) ->
-    ["old SSL config"];
-pssl_restart_non_disturbing_block(suite) ->
-    [];
-pssl_restart_non_disturbing_block(Config) when is_list(Config) ->
-    ssl_restart_non_disturbing_block(ssl, Config).
-
-essl_restart_non_disturbing_block(doc) ->
-    ["using new of configure new SSL"];
-essl_restart_non_disturbing_block(suite) ->
-    [];
-essl_restart_non_disturbing_block(Config) when is_list(Config) ->
-    ssl_restart_non_disturbing_block(essl, Config).
-
-ssl_restart_non_disturbing_block(Tag, Config) ->
-    %% <CONDITIONAL-SKIP>
-    Condition = 
-	fun() -> 
-		case os:type() of
-		    {unix, linux} ->
-			HW = string:strip(os:cmd("uname -m"), right, $\n),
-			case HW of
-			    "ppc" ->
-				case inet:gethostname() of
-				    {ok, "peach"} ->
-					true;
-				    _ ->
-					false
-				end;
-			    _ ->
-				false
-			end;
-		    _ ->
-			false
-		end
-	end,
-    ?NON_PC_TC_MAYBE_SKIP(Config, Condition),
-    %% </CONDITIONAL-SKIP>
-
-    httpd_block:restart_non_disturbing_block(Tag, 
-					     ?SSL_PORT, 
-					     ?config(host, Config), 
-					     ?config(node, Config)),
-    ok.
-
-
-%%-------------------------------------------------------------------------
-ip_host(doc) ->   
-    ["Control that the server accepts/rejects requests with/ without host"];
-ip_host(suite)->
-    [];
-ip_host(Config) when is_list(Config) ->
-    httpd_1_1:host(ip_comm, ?IP_PORT, ?config(host, Config),
-		   ?config(node, Config)),
-    ok.
-%%------------------------------------------------------------------------- 
-ip_chunked(doc) ->   
-    ["Control that the server accepts chunked requests"];
-ip_chunked(suite) ->
-    [];
-ip_chunked(Config) when is_list(Config) ->
-    httpd_1_1:chunked(ip_comm, ?IP_PORT, ?config(host, Config),
-		      ?config(node, Config)),
-    ok.
-%%------------------------------------------------------------------------- 
-ip_expect(doc) ->   
-    ["Control that the server handles request with the expect header "
-     "field appropiate"];
-ip_expect(suite)->
-    [];
-ip_expect(Config) when is_list(Config) ->
-    httpd_1_1:expect(ip_comm, ?IP_PORT, ?config(host, Config),
-		     ?config(node, Config)),
-    ok.
-%%------------------------------------------------------------------------- 
-ip_range(doc) ->   
-    ["Control that the server can handle range requests to plain files"];
-ip_range(suite)->
-    [];
-ip_range(Config) when is_list(Config) ->
-    httpd_1_1:range(ip_comm, ?IP_PORT, ?config(host, Config),
-		    ?config(node, Config)),
-    ok.
-%%------------------------------------------------------------------------- 
-ip_if_test(doc) ->   
-    ["Test that the if - request header fields is handled correclty"];
-ip_if_test(suite) ->
-    [];
-ip_if_test(Config) when is_list(Config) ->
-    ServerRoot = ?config(server_root, Config), 
-    DocRoot = filename:join([ServerRoot, "htdocs"]),
-    httpd_1_1:if_test(ip_comm, ?IP_PORT, ?config(host, Config),
-		      ?config(node, Config), DocRoot),
-    ok.
-%%------------------------------------------------------------------------- 
-ip_http_trace(doc) ->   
-    ["Test the trace module "];
-ip_http_trace(suite) -> 
-    [];
-ip_http_trace(Config) when is_list(Config) ->
-    httpd_1_1:http_trace(ip_comm, ?IP_PORT, ?config(host, Config),
-			 ?config(node, Config)),
-    ok.
-%%------------------------------------------------------------------------- 
-ip_http1_1_head(doc) ->  
-    ["Test the trace module "];
-ip_http1_1_head(suite)->
-    [];
-ip_http1_1_head(Config) when is_list(Config) ->
-    httpd_1_1:head(ip_comm, ?IP_PORT, ?config(host, Config),
-			   ?config(node, Config)),
-    ok.
-
-%%------------------------------------------------------------------------- 
-ip_get_0_9(doc) ->  
-    ["Test simple HTTP/0.9 GET"];
-ip_get_0_9(suite)->
-    [];
-ip_get_0_9(Config) when is_list(Config) ->
-    Host =  ?config(host, Config),
-    Node =  ?config(node, Config),
-    ok = httpd_test_lib:verify_request(ip_comm, Host, ?IP_PORT, Node, 
-				       "GET / \r\n\r\n", 
-				       [{statuscode, 200},
-					{version, "HTTP/0.9"} ]),
-    %% Without space after uri
-    ok = httpd_test_lib:verify_request(ip_comm, Host, ?IP_PORT, Node, 
-				       "GET /\r\n\r\n", 
-				       [{statuscode, 200},
-					{version, "HTTP/0.9"} ]),
-    ok = httpd_test_lib:verify_request(ip_comm, Host, ?IP_PORT, Node, 
-				       "GET / HTTP/0.9\r\n\r\n", 
-				       [{statuscode, 200},
-					{version, "HTTP/0.9"}]),
+    ok = http_status("GET /cgi-bin/not_there ", Config, 
+		     [{statuscode, 404}, {statuscode, 500}]),
     
-    ok.
-%%------------------------------------------------------------------------- 
-ip_head_1_0(doc) ->  
-    ["Test HTTP/1.0 HEAD"];
-ip_head_1_0(suite)->
-    [];
-ip_head_1_0(Config) when is_list(Config) ->
-    Host =  ?config(host, Config),
-    Node =  ?config(node, Config),
-    ok = httpd_test_lib:verify_request(ip_comm, Host, ?IP_PORT, Node, 
-			 "HEAD / HTTP/1.0\r\n\r\n", [{statuscode, 200},
-						    {version, "HTTP/1.0"}]),
+    ok = http_status("GET /cgi-bin/"++ Script ++ "?Nisse:kkk?sss/lll ", 
+     		     Config,
+     		     [{statuscode, 200}]),
     
-    ok.
-%%------------------------------------------------------------------------- 
-ip_get_1_0(doc) ->  
-    ["Test HTTP/1.0 GET"];
-ip_get_1_0(suite)->
-    [];
-ip_get_1_0(Config) when is_list(Config) ->
-    Host =  ?config(host, Config),
-    Node =  ?config(node, Config),
-    ok = httpd_test_lib:verify_request(ip_comm, Host, ?IP_PORT, Node, 
-			 "GET / HTTP/1.0\r\n\r\n", [{statuscode, 200},
-						    {version, "HTTP/1.0"}]),
+    ok = http_status("POST /cgi-bin/"++ Script  ++ " ", Config,
+		     [{statuscode, 200}]),
     
-    ok.
-%%------------------------------------------------------------------------- 
-ip_post_1_0(doc) ->  
-    ["Test HTTP/1.0 POST"];
-ip_post_1_0(suite)->
-    [];
-ip_post_1_0(Config) when is_list(Config) ->
-    Host =  ?config(host, Config),
-    Node =  ?config(node, Config),
-    %% Test the post message formatin 1.0! Real post are testes elsewhere
-    ok = httpd_test_lib:verify_request(ip_comm, Host, ?IP_PORT, Node, 
-			 "POST / HTTP/1.0\r\n\r\n "  
-			 "Content-Length:6 \r\n\r\nfoobar", 
-			 [{statuscode, 500}, {version, "HTTP/1.0"}]),
+    ok = http_status("GET /htbin/"++ Script ++ " ",  Config,
+		     [{statuscode, 200}]),
     
-    ok.
-%%------------------------------------------------------------------------- 
-ip_mod_cgi_chunked_encoding_test(doc) ->  
-    ["Test the trace module "];
-ip_mod_cgi_chunked_encoding_test(suite)->
-    [];
-ip_mod_cgi_chunked_encoding_test(Config) when is_list(Config) ->
-    Host = ?config(host, Config),
+    ok = http_status("GET /htbin/not_there ", Config,
+		     [{statuscode, 404},{statuscode, 500}]),
+    
+    ok = http_status("GET /htbin/"++ Script ++ "?Nisse:kkk?sss/lll ", Config, 
+     		     [{statuscode, 200}]),
+    
+    ok = http_status("POST /htbin/"++ Script ++ " ",   Config,
+		     [{statuscode, 200}]),
+    
+    ok = http_status("POST /htbin/"++ Script ++ " ",  Config,
+		     [{statuscode, 200}]),
+    
+    %% Execute an existing, but bad CGI script..
+    ok = http_status("POST /htbin/"++ Script2 ++ " ",  Config, 
+		     [{statuscode, 404}]),
+    
+    ok = http_status("POST /cgi-bin/"++ Script2 ++ " ", Config,
+		     [{statuscode, 404}]),
+    
+    %% Check "ScriptNoCache" directive (default: false)
+    ok = http_status("GET /cgi-bin/" ++ Script ++ " ", Config,
+		     [{statuscode, 200},
+		      {no_header, "cache-control"}]).
+%%-------------------------------------------------------------------------
+cgi_chunked_encoding_test() ->  
+    [{doc, "Test chunked encoding together with mod_cgi "}].
+cgi_chunked_encoding_test(Config) when is_list(Config) ->
+    Host = proplists:get_value(host, Config),
     Script =
 	case test_server:os_type() of
 	    {win32, _} ->
@@ -2135,429 +1137,1140 @@ ip_mod_cgi_chunked_encoding_test(Config) when is_list(Config) ->
 	["GET " ++ Script ++ " HTTP/1.1\r\nHost:"++ Host ++"\r\n\r\n",
 	 "GET /cgi-bin/erl/httpd_example/newformat  HTTP/1.1\r\nHost:"
 	 ++ Host ++"\r\n\r\n"],
-    httpd_1_1:mod_cgi_chunked_encoding_test(ip_comm, ?IP_PORT,
+    httpd_1_1:mod_cgi_chunked_encoding_test(proplists:get_value(type, Config), proplists:get_value(port, Config),
 					    Host,
-					    ?config(node, Config),
-					    Requests),
-    ok.
+					    proplists:get_value(node, Config),
+					    Requests).
+%%-------------------------------------------------------------------------
+alias_1_1() ->
+    [{doc, "Test mod_alias"}].
 
-%------------------------------------------------------------------------- 
+alias_1_1(Config) when is_list(Config) ->
+    alias([{http_version, "HTTP/1.1"} | Config]).
 
-ipv6_hostname_ipcomm() ->
-    [{require, ipv6_hosts}].
-ipv6_hostname_ipcomm(X) -> 
-    SocketType = ip_comm,
-    Port       = ?IP_PORT, 
-    ipv6_hostname(SocketType, Port, X).
+alias_1_0() ->
+    [{doc, "Test mod_alias"}].
+  
+alias_1_0(Config) when is_list(Config) ->
+    alias([{http_version, "HTTP/1.0"} | Config]).
 
-ipv6_hostname_essl() ->
-    [{require, ipv6_hosts}].
-ipv6_hostname_essl(X) -> 
-    SocketType = essl, 
-    Port       = ?SSL_PORT, 
-    ipv6_hostname(SocketType, Port, X).
+alias_0_9() ->
+    [{doc, "Test mod_alias"}].
+  
+alias_0_9(Config) when is_list(Config) ->
+    alias([{http_version, "HTTP/0.9"} | Config]).
 
-ipv6_hostname(_SocketType, _Port, doc) ->  
-    ["Test standard ipv6 address"];
-ipv6_hostname(_SocketType, _Port, suite)->
-    [];
-ipv6_hostname(SocketType, Port, Config) when is_list(Config) -> 
-    tsp("ipv6_hostname -> entry with"
-	"~n   SocketType: ~p"
-	"~n   Port:       ~p"
-	"~n   Config:     ~p", [SocketType, Port, Config]),
-    Host = ?config(host, Config),
-    URI  = "GET HTTP://" ++ 
-	Host ++ ":" ++ integer_to_list(Port) ++ "/ HTTP/1.1\r\n\r\n", 
-    tsp("ipv6_hostname -> Host: ~p", [Host]),
-    httpd_test_lib:verify_request(SocketType, Host, Port, [inet6], 
-				  node(), 
-				  URI, 
-				  [{statuscode, 200}, {version, "HTTP/1.1"}]),
-    ok.
+alias() ->
+    [{doc, "Test mod_alias"}].
 
-%%------------------------------------------------------------------------- 
+alias(Config) when is_list(Config) -> 
+    ok = http_status("GET /pics/icon.sheet.gif ", Config,
+		     [{statuscode, 200},
+		      {header, "Content-Type","image/gif"},
+		      {header, "Server"},
+		      {header, "Date"}]),
+    
+    ok = http_status("GET / ", Config,
+		     [{statuscode, 200},
+		      {header, "Content-Type","text/html"},
+		      {header, "Server"},
+		      {header, "Date"}]),
+    
+    ok = http_status("GET /misc/ ", Config,
+		     [{statuscode, 200},
+		      {header, "Content-Type","text/html"},
+		      {header, "Server"},
+		      {header, "Date"}]),
 
-ipv6_address_ipcomm() ->
-    [{require, ipv6_hosts}].
-ipv6_address_ipcomm(X) ->
-    SocketType = ip_comm,
-    Port       = ?IP_PORT, 
-    ipv6_address(SocketType, Port, X).
+    %% Check redirection if trailing slash is missing.
+    ok = http_status("GET /misc ", Config,
+		     [{statuscode, 301},
+		      {header, "Location"},
+		      {header, "Content-Type","text/html"}]).
+%%-------------------------------------------------------------------------
+actions() ->
+    [{doc, "Test mod_actions"}].
 
-ipv6_address_essl() ->
-    [{require, ipv6_hosts}].
-ipv6_address_essl(X) ->
-    SocketType = essl,
-    Port       = ?SSL_PORT, 
-    ipv6_address(SocketType, Port, X).
+actions(Config) when is_list(Config) -> 
+    ok = http_status("GET /", Config, [{statuscode, 200}]).
 
-ipv6_address(_SocketType, _Port, doc) ->
-    ["Test standard ipv6 address"];
-ipv6_address(_SocketType, _Port, suite)->
-    [];
-ipv6_address(SocketType, Port, Config) when is_list(Config) ->   
-    tsp("ipv6_address -> entry with"
-	"~n   SocketType: ~p"
-	"~n   Port:       ~p"
-	"~n   Config:     ~p", [SocketType, Port, Config]),
-    Host = ?config(host, Config),
-    tsp("ipv6_address -> Host: ~p", [Host]),
-    URI = "GET HTTP://" ++ 
-	Host ++ ":" ++ integer_to_list(Port) ++ "/ HTTP/1.1\r\n\r\n", 
-    httpd_test_lib:verify_request(SocketType, Host, Port, [inet6], 
-				  node(), 
-				  URI, 
-				  [{statuscode, 200}, {version, "HTTP/1.1"}]),
-    ok.
+%%-------------------------------------------------------------------------
+range() ->
+    [{doc, "Test Range header"}].
 
+range(Config) when is_list(Config) -> 
+    httpd_1_1:range(proplists:get_value(type, Config), proplists:get_value(port, Config), 
+		    proplists:get_value(host, Config), proplists:get_value(node, Config)).
 
-%%--------------------------------------------------------------------
-ticket_5775(doc) ->
-    ["Tests that content-length is correct"];
-ticket_5775(suite) ->
-    [];
-ticket_5775(Config) ->
-    ok=httpd_test_lib:verify_request(ip_comm, ?config(host, Config),
-				     ?IP_PORT, ?config(node, Config),
-				       "GET /cgi-bin/erl/httpd_example:get_bin "
-				       "HTTP/1.0\r\n\r\n", 
+%%-------------------------------------------------------------------------
+if_modified_since() ->
+    [{doc, "Test If-Modified-Since header"}].
+
+if_modified_since(Config) when is_list(Config) -> 
+    httpd_1_1:if_test(proplists:get_value(type, Config), proplists:get_value(port, Config), 
+		      proplists:get_value(host, Config), proplists:get_value(node, Config),
+		      proplists:get_value(doc_root, Config)).
+%%-------------------------------------------------------------------------
+trace() ->
+    [{doc, "Test TRACE method"}].
+
+trace(Config) when is_list(Config) ->
+    Cb = proplists:get_value(version_cb, Config),
+    Cb:trace(proplists:get_value(type, Config), proplists:get_value(port, Config), 
+	     proplists:get_value(host, Config), proplists:get_value(node, Config)).
+%%-------------------------------------------------------------------------
+light() ->
+    ["Test light load"].
+light(Config) when is_list(Config) ->
+    httpd_load:load_test(proplists:get_value(type, Config), proplists:get_value(port, Config), proplists:get_value(host, Config), 
+			 proplists:get_value(node, Config), 10).
+%%-------------------------------------------------------------------------
+medium() ->
+    ["Test  medium load"].
+medium(Config) when is_list(Config) ->
+    httpd_load:load_test(proplists:get_value(type, Config), proplists:get_value(port, Config), proplists:get_value(host, Config), 
+			 proplists:get_value(node, Config), 100).
+%%-------------------------------------------------------------------------
+heavy() ->
+    ["Test heavy load"].
+heavy(Config) when is_list(Config) ->
+    httpd_load:load_test(proplists:get_value(type, Config), proplists:get_value(port, Config), proplists:get_value(host, Config), 
+			 proplists:get_value(node, Config),
+			 1000).
+%%-------------------------------------------------------------------------
+content_length() ->
+    ["Tests that content-length is correct OTP-5775"].
+content_length(Config) ->
+    Version = proplists:get_value(http_version, Config),
+    Host = proplists:get_value(host, Config),
+    ok = httpd_test_lib:verify_request(proplists:get_value(type, Config), Host,
+				       proplists:get_value(port, Config), proplists:get_value(node, Config),
+				       http_request("GET /cgi-bin/erl/httpd_example:get_bin ", 
+						    Version, Host), 
 				       [{statuscode, 200},
-				       {version, "HTTP/1.0"}]),
-    ok.
-ticket_5865(doc) ->
-    ["Tests that a header without last-modified is handled"];
-ticket_5865(suite) ->
-    [];
-ticket_5865(Config) ->
-    ?SKIP(as_of_r15_behaviour_of_calendar_has_changed),
-    Host = ?config(host,Config),
-    ServerRoot = ?config(server_root, Config), 
-    DocRoot = filename:join([ServerRoot, "htdocs"]),
-    File = filename:join([DocRoot,"last_modified.html"]),
+					{content_length, 274},
+					{version, Version}]).
+%%-------------------------------------------------------------------------
+bad_hex() ->
+    ["Tests that a URI with a bad hexadecimal code is handled OTP-6003"].
+bad_hex(Config) ->
+    Version = proplists:get_value(http_version, Config),
+    Host = proplists:get_value(host, Config),
+    ok = httpd_test_lib:verify_request(proplists:get_value(type, Config), Host,
+				       proplists:get_value(port, Config), proplists:get_value(node, Config),
+				       http_request("GET http://www.erlang.org/%skalle ",
+						    Version, Host),
+				       [{statuscode, 400},
+					{version, Version}]).
+%%-------------------------------------------------------------------------
+missing_CR() ->
+     ["Tests missing CR in delimiter OTP-7304"].
+missing_CR(Config) ->
+    Version = proplists:get_value(http_version, Config),
+    Host =  proplists:get_value(host, Config),
+    ok = httpd_test_lib:verify_request(proplists:get_value(type, Config), Host,
+				       proplists:get_value(port, Config), proplists:get_value(node, Config),
+				       http_request_missing_CR("GET /index.html ", Version, Host),
+				       [{statuscode, 200},
+					{version, Version}]).
 
-    Bad_mtime = case test_server:os_type() of
-		    {win32, _} ->
-			{{1600,12,31},{23,59,59}};
-		    {unix, _} ->
-			{{1969,12,31},{23,59,59}}
-		end,
-    
-    {ok,FI}=file:read_file_info(File),
-    
-    case file:write_file_info(File,FI#file_info{mtime=Bad_mtime}) of
-	ok ->
-	    ok = httpd_test_lib:verify_request(ip_comm, Host,
-					       ?IP_PORT, ?config(node, Config),
-					       "GET /last_modified.html"
-					       " HTTP/1.1\r\nHost:"
-					       ++Host++"\r\n\r\n", 
-					       [{statuscode, 200},
-						{no_last_modified,
-						 "last-modified"}]),
-	    ok;
-	{error, Reason} ->
-	    Fault = 
-		io_lib:format("Attempt to change the file info to set the"
-			      " preconditions of the test case failed ~p~n",
-			      [Reason]),
-	    {skip, Fault}
+%%-------------------------------------------------------------------------
+customize() ->
+    [{doc, "Test filtering of headers with custom callback"}].
+
+customize(Config) when is_list(Config) -> 
+    Version = "HTTP/1.1",
+    Host = proplists:get_value(host, Config),
+    Type = proplists:get_value(type, Config),
+    ok = httpd_test_lib:verify_request(proplists:get_value(type, Config), Host, 
+				       proplists:get_value(port, Config),  
+				       transport_opts(Type, Config),
+				       proplists:get_value(node, Config),
+				       http_request("GET /index.html ", Version, Host),
+				       [{statuscode, 200},
+					{header, "Content-Type", "text/html"},
+					{header, "Date"},
+					{no_header, "Server"},
+					{version, Version}]).
+
+add_default() ->
+    [{doc, "Test adding default header with custom callback"}].
+
+add_default(Config) when is_list(Config) -> 
+    Version = "HTTP/1.1",
+    Host = proplists:get_value(host, Config),
+    Type = proplists:get_value(type, Config),
+    ok = httpd_test_lib:verify_request(proplists:get_value(type, Config), Host, 
+				       proplists:get_value(port, Config),  
+				       transport_opts(Type, Config),
+				       proplists:get_value(node, Config),
+				       http_request("GET /index.html ", Version, Host),
+				       [{statuscode, 200},
+					{header, "Content-Type", "text/html"},
+					{header, "Date", "Override-date"},
+					{header, "X-Frame-Options"},
+					{version, Version}]).
+
+%%-------------------------------------------------------------------------
+max_header() ->
+    ["Denial Of Service (DOS) attack, prevented by max_header"].
+max_header(Config) when is_list(Config) ->
+    Version = proplists:get_value(http_version, Config),
+    Host =  proplists:get_value(host, Config),
+    case Version of
+ 	"HTTP/0.9" ->
+ 	    {skip, not_implemented};
+ 	_ ->
+ 	    dos_hostname(proplists:get_value(type, Config), proplists:get_value(port, Config), Host, 
+ 			 proplists:get_value(node, Config), Version, ?MAX_HEADER_SIZE)
     end.
 
-ticket_5913(doc) ->
-    ["Tests that a header without last-modified is handled"];
-ticket_5913(suite) -> [];
-ticket_5913(Config) ->
-    ok = httpd_test_lib:verify_request(ip_comm, ?config(host, Config),
-				       ?IP_PORT, ?config(node, Config),
-				       "GET /cgi-bin/erl/httpd_example:get_bin "
-				       "HTTP/1.0\r\n\r\n", 
-				       [{statuscode, 200},
-					{version, "HTTP/1.0"}]),
-    ok.
+%%-------------------------------------------------------------------------
+max_content_length() ->
+    ["Denial Of Service (DOS) attack, prevented by max_content_length"].
+max_content_length(Config) when is_list(Config) ->
+    Version = proplists:get_value(http_version, Config),
+    Host =  proplists:get_value(host, Config),
+    garbage_content_length(proplists:get_value(type, Config), proplists:get_value(port, Config), Host, 
+			   proplists:get_value(node, Config), Version).
 
-ticket_6003(doc) ->
-    ["Tests that a URI with a bad hexadecimal code is handled"];
-ticket_6003(suite) -> [];
-ticket_6003(Config) ->
-    ok = httpd_test_lib:verify_request(ip_comm, ?config(host, Config),
-				       ?IP_PORT, ?config(node, Config),
-				       "GET http://www.erlang.org/%skalle "
-				       "HTTP/1.0\r\n\r\n",
-				       [{statuscode, 400},
-					{version, "HTTP/1.0"}]),
-    ok.
+%%-------------------------------------------------------------------------
+security_1_1(Config) when is_list(Config) -> 
+    security([{http_version, "HTTP/1.1"} | Config]).
 
-ticket_7304(doc) ->
-     ["Tests missing CR in delimiter"];
-ticket_7304(suite) -> 
-    [];
-ticket_7304(Config) ->
-    ok = httpd_test_lib:verify_request(ip_comm, ?config(host, Config),
-				       ?IP_PORT, ?config(node, Config),
-				       "GET / HTTP/1.0\r\n\n",
-				       [{statuscode, 200},
-					{version, "HTTP/1.0"}]),
-    ok.
+security_1_0(Config) when is_list(Config) -> 
+    security([{http_version, "HTTP/1.0"} | Config]).
 
-%%--------------------------------------------------------------------
-%% Internal functions
-%%--------------------------------------------------------------------
-dos_hostname(Type, Port, Host, Node, Max) ->
-    H1 = {"", 200},
-    H2 = {"dummy-host.ericsson.se", 200},
-    TooLongHeader = lists:append(lists:duplicate(Max + 1, "a")),
-    H3 = {TooLongHeader, 403},
-    Hosts = [H1,H2,H3],
-    dos_hostname_poll(Type, Host, Port, Node, Hosts).
+security() ->
+    ["Test mod_security"].
+security(Config) ->
+    Version = proplists:get_value(http_version, Config),
+    Host = proplists:get_value(host, Config),
+    Port =  proplists:get_value(port, Config),
+    Node = proplists:get_value(node, Config),
+    ServerRoot = proplists:get_value(server_root, Config),
 
-%% make_ipv6(T) when is_tuple(T) andalso (size(T) =:= 8) ->
-%%     make_ipv6(tuple_to_list(T));
+    global:register_name(mod_security_test, self()),   % Receive events
 
-%% make_ipv6([_, _, _, _, _, _, _, _] = IPV6) ->
-%%     lists:flatten(io_lib:format("~s:~s:~s:~s:~s:~s:~s:~s", IPV6)).
+    ct:sleep(5000),
 
+    OpenDir = filename:join([ServerRoot, "htdocs", "open"]),
 
-%%--------------------------------------------------------------------
-%% Other help functions
-create_config(Config, Access, FileName) ->
-    ServerRoot = ?config(server_root, Config),
-    TcTopDir   = ?config(tc_top_dir,  Config),
-    Port       = ?config(port,        Config),
-    Type       = ?config(sock_type,   Config),
-    Host       = ?config(host,        Config),
-    Mods       = io_lib:format("~p", [httpd_mod]),
-    Funcs      = io_lib:format("~p", [ssl_password_cb]),
-    MaxHdrSz   = io_lib:format("~p", [256]),
-    MaxHdrAct  = io_lib:format("~p", [close]),
+    %% Test blocking / unblocking of users.
 
-    io:format(user, 
-	      "create_config -> "
-	      "~n   ServerRoot: ~p"
-	      "~n   TcTopDir:   ~p"
-	      "~n   Type:       ~p"
-	      "~n   Port:       ~p"
-	      "~n   Host:       ~p"
-	      "~n", [ServerRoot, TcTopDir, Port, Type, Host]),
+    %% /open, require user one Aladdin
+    remove_users(Node, ServerRoot, Host, Port, "", "open"),
 
-    SSL =
-	if
-	    (Type =:= ssl)  orelse 
-	    (Type =:= essl) ->
-		[cline(["SSLCertificateFile ", 
-			filename:join(ServerRoot, "ssl/ssl_server.pem")]),
-		 cline(["SSLCertificateKeyFile ",
-			filename:join(ServerRoot, "ssl/ssl_server.pem")]),
-		 cline(["SSLCACertificateFile ",
-			filename:join(ServerRoot, "ssl/ssl_server.pem")]),
-		 cline(["SSLPasswordCallbackModule ", Mods]),
-		 cline(["SSLPasswordCallbackFunction ", Funcs]),
-		 cline(["SSLVerifyClient 0"]),
-		 cline(["SSLVerifyDepth 1"])];
-	    true ->
-		[]
-	end,
-    ModOrder = 
-	case Access of
-	    mod_htaccess ->
-		"Modules mod_alias mod_htaccess mod_auth "
-		    "mod_security "
-		    "mod_responsecontrol mod_trace mod_esi "
-		    "mod_actions mod_cgi mod_include mod_dir "
-		    "mod_range mod_get "
-		    "mod_head mod_log mod_disk_log";
-	    _ ->
-		"Modules mod_alias mod_auth mod_security "
-		    "mod_responsecontrol mod_trace mod_esi "
-		    "mod_actions mod_cgi mod_include mod_dir "
-			   "mod_range mod_get "
-		    "mod_head mod_log mod_disk_log"
-	end,
+    ok = auth_status(auth_request("/open/",
+     				  "one", "onePassword", Version, Host), Config,
+		     [{statuscode, 401}]),
     
-    %% The test suite currently does not handle an explicit BindAddress.
-    %% They assume any has been used, that is Addr is always set to undefined!
+    receive_security_event({event, auth_fail, Port, OpenDir,
+			    [{user, "one"}, {password, "onePassword"}]},
+			   Node, Port),
+    
+     ok = auth_status(auth_request("/open/",
+				  "two", "twoPassword", Version, Host), Config, 
+		     [{statuscode, 401}]),
+ 
+    receive_security_event({event, auth_fail, Port, OpenDir,
+			    [{user, "two"}, {password, "twoPassword"}]},
+			   Node, Port),
 
-    %%     {ok, Hostname} = inet:gethostname(), 
-    %%     {ok, Addr} = inet:getaddr(Hostname, inet6),
-    %%     AddrStr = make_ipv6(Addr), 
-    %%     BindAddress = lists:flatten(io_lib:format("~s|inet6", [AddrStr])),
+    ok = auth_status(auth_request("/open/", 
+				  "Aladdin", "AladdinPassword", Version, Host),
+		     Config, [{statuscode, 401}]),
+    
+    receive_security_event({event, auth_fail, Port, OpenDir,
+			    [{user, "Aladdin"},
+			     {password, "AladdinPassword"}]},
+			   Node, Port),
 
-    BindAddress = "*|inet", 
-    %% BindAddress = "*", 
+    add_user(Node, ServerRoot, Port, "", "open", "one", "onePassword", []),
+    add_user(Node, ServerRoot, Port, "", "open", "two", "twoPassword", []),
 
-    HttpConfig = [
-		  cline(["Port ", integer_to_list(Port)]),
-		  cline(["ServerName ", Host]),
-		  cline(["SocketType ", atom_to_list(Type)]),
-		  cline([ModOrder]),
-		  %% cline(["LogFormat ", "erlang"]),
-		  cline(["ServerAdmin mattias@erix.ericsson.se"]),
-		  cline(["BindAddress ", BindAddress]),
-		  cline(["ServerRoot ", ServerRoot]),
-		  cline(["ErrorLog ", TcTopDir, 
-		     "/logs/error_log_", integer_to_list(Port)]),
-		  cline(["TransferLog ", TcTopDir, 
-			 "/logs/access_log_", integer_to_list(Port)]),
-		  cline(["SecurityLog ", TcTopDir, 
-			 "/logs/security_log_", integer_to_list(Port)]),
-		  cline(["ErrorDiskLog ", TcTopDir, 
-			 "/logs/error_disk_log_", integer_to_list(Port)]),
-		  cline(["ErrorDiskLogSize ", "190000 ", "11"]),
-		  cline(["TransferDiskLog ", TcTopDir, 
-			 "/logs/access_disk_log_", integer_to_list(Port)]),
-		  cline(["TransferDiskLogSize ", "200000 ", "10"]),
-		  cline(["SecurityDiskLog ", TcTopDir, 
-			 "/logs/security_disk_log_", integer_to_list(Port)]),
-		  cline(["SecurityDiskLogSize ", "210000 ", "9"]),
-		  cline(["MaxClients 10"]),
-		  cline(["MaxHeaderSize ", MaxHdrSz]),
-		  cline(["MaxHeaderAction ", MaxHdrAct]),
-		  cline(["DocumentRoot ", 
-			 filename:join(ServerRoot, "htdocs")]),
-		  cline(["DirectoryIndex ", "index.html ", "welcome.html"]),
-		  cline(["DefaultType ", "text/plain"]),
-		  SSL,
-		  mod_alias_config(ServerRoot),
-		  
-		  config_directory(filename:join([ServerRoot,"htdocs",
-						  "open"]),
-				   "Open Area", 
-				   filename:join(ServerRoot, "auth/passwd"),
-				   filename:join(ServerRoot, "auth/group"),
-				   plain,
-				   "user one Aladdin",
-				   filename:join(ServerRoot, "security_data")),
-		  config_directory(filename:join([ServerRoot,"htdocs", 
-						  "secret"]),
-				   "Secret Area", 
-				   filename:join(ServerRoot, "auth/passwd"),
-				   filename:join(ServerRoot, "auth/group"),
-				   plain,
-				   "group group1 group2",
-				   filename:join(ServerRoot, "security_data")),
-		  config_directory(filename:join([ServerRoot,"htdocs", 
-						  "secret", 
-						  "top_secret"]),
-				   "Top Secret Area", 
-				   filename:join(ServerRoot, "auth/passwd"),
-				   filename:join(ServerRoot, "auth/group"),
-				   plain,
-				   "group group3",
-				   filename:join(ServerRoot, "security_data")),
-		  
-		  config_directory(filename:join([ServerRoot,"htdocs", 
-						  "dets_open"]),
-				   "Dets Open Area", 
-				   filename:join(ServerRoot, "passwd"),
-				   filename:join(ServerRoot, "group"),
-				   dets,
-				   "user one Aladdin",
-				   filename:join(ServerRoot, "security_data")),
-		  config_directory(filename:join([ServerRoot,"htdocs", 
-						  "dets_secret"]),
-			       "Dets Secret Area", 
-				   filename:join(ServerRoot, "passwd"),
-				   filename:join(ServerRoot, "group"),
-				   dets,
-				   "group group1 group2",
-				   filename:join(ServerRoot, "security_data")),
-		  config_directory(filename:join([ServerRoot,"htdocs", 
-						  "dets_secret", 
-						  "top_secret"]),
-				   "Dets Top Secret Area", 
-				   filename:join(ServerRoot, "passwd"),
-				   filename:join(ServerRoot, "group"),
-				   dets,
-				   "group group3",
-				   filename:join(ServerRoot, "security_data")),
-		  
-		  config_directory(filename:join([ServerRoot,"htdocs", 
-						  "mnesia_open"]),
-				   "Mnesia Open Area", 
-				   false,
-				   false,
-				   mnesia,
-				   "user one Aladdin",
-			       filename:join(ServerRoot, "security_data")),
-		  config_directory(filename:join([ServerRoot,"htdocs", 
-						  "mnesia_secret"]),
-				   "Mnesia Secret Area", 
-				   false,
-				   false,
-				   mnesia,
-				   "group group1 group2",
-				   filename:join(ServerRoot, "security_data")),
-		  config_directory(filename:join(
-				     [ServerRoot, "htdocs", "mnesia_secret",
-				      "top_secret"]),
-				   "Mnesia Top Secret Area", 
-				   false,
-				   false,
-				   mnesia,
-				   "group group3",
-				   filename:join(ServerRoot, "security_data"))
-		 ],
-    ConfigFile = filename:join([TcTopDir, FileName]),
-    {ok, Fd} = file:open(ConfigFile, [write]),
-    ok = file:write(Fd, lists:flatten(HttpConfig)),
-    ok = file:close(Fd).
+    ok = auth_status(auth_request("/open/", "one", "WrongPassword",  Version, Host), Config, 
+		     [{statuscode, 401}]),
+    
+    receive_security_event({event, auth_fail, Port, OpenDir,
+			    [{user, "one"}, {password, "WrongPassword"}]},
+			   Node, Port),
 
-config_directory(Dir, AuthName, AuthUserFile, AuthGroupFile, AuthDBType, 
-		 Require, SF) ->
-    file:delete(SF),
+    ok = auth_status(auth_request("/open/", "one", "WrongPassword",  Version, Host), Config, 
+				  [{statuscode, 401}]),
+    
+    receive_security_event({event, auth_fail, Port, OpenDir,
+			    [{user, "one"}, {password, "WrongPassword"}]},
+			   Node, Port),
+    receive_security_event({event, user_block, Port, OpenDir,
+			    [{user, "one"}]}, Node, Port),
+    
+    global:unregister_name(mod_security_test),   % No more events.
+    
+    ok = auth_status(auth_request("/open/", "one", "WrongPassword",  Version, Host), Config, 
+				  [{statuscode, 401}]),
+    
+    %% User "one" should be blocked now..    
+    case list_blocked_users(Node, Port) of
+	[{"one",_, Port, OpenDir,_}] ->
+	    ok;
+	Blocked ->
+	    ct:fail({unexpected_blocked, Blocked})
+    end,
+
+    [{"one",_, Port, OpenDir,_}] = list_blocked_users(Node, Port, OpenDir),
+
+    true = unblock_user(Node, "one", Port, OpenDir),
+    %% User "one" should not be blocked any more.
+
+    [] = list_blocked_users(Node, Port),
+
+    ok = auth_status(auth_request("/open/", "one", "onePassword", Version, Host), Config, 
+		     [{statuscode, 200}]),
+
+    %% Test list_auth_users & auth_timeout
+
+    ["one"] = list_auth_users(Node, Port),
+
+    ok = auth_status(auth_request("/open/", "two", "onePassword", Version, Host), Config, 
+		     [{statuscode, 401}]),
+
+    ["one"] = list_auth_users(Node, Port),
+
+   
+    ["one"] = list_auth_users(Node, Port, OpenDir),
+
+   
+    ok = auth_status(auth_request("/open/", "two", "twoPassword",  Version, Host), Config, 
+				  [{statuscode, 401}]),
+
+    ["one"] = list_auth_users(Node, Port),
+
+  
+    ["one"] = list_auth_users(Node, Port, OpenDir),
+
+    %% Wait for successful auth to timeout.
+    ct:sleep(?AUTH_TIMEOUT*1001),  
+
+    [] = list_auth_users(Node, Port),
+
+    [] = list_auth_users(Node, Port, OpenDir),
+
+    %% "two" is blocked.
+
+    true = unblock_user(Node, "two", Port, OpenDir),
+
+
+    %% Test explicit blocking. Block user 'two'.
+
+    [] = list_blocked_users(Node,Port,OpenDir),
+
+    true = block_user(Node, "two", Port, OpenDir, 10),
+
+    ok = auth_status(auth_request("/open/", "two", "twoPassword",  Version, Host), Config, 
+		     [{statuscode, 401}]),
+    
+    true = unblock_user(Node, "two", Port, OpenDir).
+
+%%-------------------------------------------------------------------------
+
+disk_log_internal() ->
+    ["Test mod_disk_log"].
+
+disk_log_internal(Config) ->
+    Version = proplists:get_value(http_version, Config),
+    Request = "GET /" ++ integer_to_list(rand:uniform(1000000)) ++ " ",
+    ok = http_status(Request, Config, [{statuscode, 404}]),
+    Log = proplists:get_value(transfer_log, Config),
+    Match = list_to_binary(Request ++ Version),
+    disk_log_internal1(Log, Match, disk_log:chunk(Log, start)).
+disk_log_internal1(_, _, eof) ->
+    ct:fail(eof);
+disk_log_internal1(Log, Match, {Cont, [H | T]}) ->
+    case binary:match(H, Match) of
+        nomatch ->
+            disk_log_internal1(Log, Match, {Cont, T});
+        _ ->
+            ok
+    end;
+disk_log_internal1(Log, Match, {Cont, []}) ->
+    disk_log_internal1(Log, Match, disk_log:chunk(Log, Cont)).
+
+disk_log_exists() ->
+    ["Test mod_disk_log with existing logs"].
+
+disk_log_exists(Config) ->
+    Log = proplists:get_value(transfer_log, Config),
+    Self = self(),
+    Node = node(),
+    Log = proplists:get_value(transfer_log, Config),
+    {_, [{bogus, Node, Self} | _]} = disk_log:chunk(Log, start).
+
+disk_log_bad_size() ->
+    ["Test mod_disk_log with existing log, missing .siz"].
+
+disk_log_bad_size(Config) ->
+    Log = proplists:get_value(transfer_log, Config),
+    Self = self(),
+    Node = node(),
+    Log = proplists:get_value(transfer_log, Config),
+    {_, [{bogus, Node, Self} | _]} = disk_log:chunk(Log, start).
+
+disk_log_bad_file() ->
+    ["Test mod_disk_log with bad file"].
+
+disk_log_bad_file(Config) ->
+    Log = proplists:get_value(transfer_log, Config),
+    Version = proplists:get_value(http_version, Config),
+    Request = "GET /" ++ integer_to_list(rand:uniform(1000000)) ++ " ",
+    ok = http_status(Request, Config, [{statuscode, 404}]),
+    Log = proplists:get_value(transfer_log, Config),
+    Match = list_to_binary(Request ++ Version),
+    {_, [H | _]} = disk_log:chunk(Log, start),
+    {_, _} = binary:match(H, Match).
+
+%%-------------------------------------------------------------------------
+non_disturbing_reconfiger_dies(Config) when is_list(Config) -> 
+    do_reconfiger_dies([{http_version, "HTTP/1.1"} | Config], non_disturbing).
+disturbing_reconfiger_dies(Config) when is_list(Config) -> 
+    do_reconfiger_dies([{http_version, "HTTP/1.1"} | Config], disturbing).
+
+do_reconfiger_dies(Config, DisturbingType) ->
+    Server =  proplists:get_value(server_pid, Config),
+    Version = proplists:get_value(http_version, Config),
+    Host = proplists:get_value(host, Config),
+    Port = proplists:get_value(port, Config),
+    Type = proplists:get_value(type, Config),
+
+    HttpdConfig = httpd:info(Server), 
+    BlockRequest = http_request("GET /eval?httpd_example:delay(2000) ", Version, Host),
+    {ok, Socket} = inets_test_lib:connect_bin(Type, Host, Port, transport_opts(Type, Config)),
+    inets_test_lib:send(Type, Socket, BlockRequest),
+    ct:sleep(100), %% Avoid possible timing issues
+    Pid = spawn(fun() -> httpd:reload_config([{server_name, "httpd_kill_" ++ Version}, 
+					      {port, Port}|
+					      proplists:delete(server_name, HttpdConfig)], DisturbingType) 
+	  end),
+    
+    monitor(process, Pid),
+    exit(Pid, kill),
+    receive 
+	{'DOWN', _, _, _, _} ->
+	    ok
+    end,
+    inets_test_lib:close(Type, Socket),
+    [{server_name, "httpd_test"}] =  httpd:info(Server, [server_name]).
+%%-------------------------------------------------------------------------
+disturbing_1_1(Config) when is_list(Config) -> 
+    disturbing([{http_version, "HTTP/1.1"} | Config]).
+
+disturbing_1_0(Config) when is_list(Config) -> 
+    disturbing([{http_version, "HTTP/1.0"} | Config]).
+
+disturbing_0_9(Config) when is_list(Config) -> 
+    disturbing([{http_version, "HTTP/0.9"} | Config]).
+
+disturbing(Config) when is_list(Config)->
+    Server =  proplists:get_value(server_pid, Config),
+    Version = proplists:get_value(http_version, Config),
+    Host = proplists:get_value(host, Config),
+    Port = proplists:get_value(port, Config),
+    Type = proplists:get_value(type, Config),
+    HttpdConfig = httpd:info(Server), 
+    BlockRequest = http_request("GET /eval?httpd_example:delay(2000) ", Version,  Host),
+    {ok, Socket} = inets_test_lib:connect_bin(Type, Host, Port, transport_opts(Type, Config)),
+    inets_test_lib:send(Type, Socket, BlockRequest),
+    ct:sleep(100), %% Avoid possible timing issues
+    ok = httpd:reload_config([{server_name, "httpd_disturbing_" ++ Version}, {port, Port}|
+			      proplists:delete(server_name, HttpdConfig)], disturbing),
+    Close = list_to_atom((typestr(Type)) ++ "_closed"),
+    receive 
+	{Close, Socket} ->
+	    ok;
+	Msg ->
+	    ct:fail({{expected, {Close, Socket}}, {got, Msg}})
+    end,
+    inets_test_lib:close(Type, Socket),
+    [{server_name, "httpd_disturbing_" ++ Version}] =  httpd:info(Server, [server_name]).
+%%-------------------------------------------------------------------------
+non_disturbing_1_1(Config) when is_list(Config) -> 
+    non_disturbing([{http_version, "HTTP/1.1"} | Config]).
+
+non_disturbing_1_0(Config) when is_list(Config) -> 
+    non_disturbing([{http_version, "HTTP/1.0"} | Config]).
+
+non_disturbing_0_9(Config) when is_list(Config) -> 
+    non_disturbing([{http_version, "HTTP/0.9"} | Config]).
+
+non_disturbing(Config) when is_list(Config)->
+    Server =  proplists:get_value(server_pid, Config),
+    Version = proplists:get_value(http_version, Config),
+    Host = proplists:get_value(host, Config),
+    Port = proplists:get_value(port, Config),
+    Type = proplists:get_value(type, Config),
+
+    HttpdConfig = httpd:info(Server), 
+    BlockRequest = http_request("GET /eval?httpd_example:delay(2000) ", Version, Host),
+    {ok, Socket} = inets_test_lib:connect_bin(Type, Host, Port, transport_opts(Type, Config)),
+    inets_test_lib:send(Type, Socket, BlockRequest),
+    ct:sleep(100), %% Avoid possible timing issues
+    ok = httpd:reload_config([{server_name, "httpd_non_disturbing_" ++ Version}, {port, Port}|
+			      proplists:delete(server_name, HttpdConfig)], non_disturbing),
+    Transport = type(Type),
+    receive 
+	{Transport, Socket, Msg} ->
+	    ct:pal("Received message ~p~n", [Msg]),
+	    ok
+    after 2000 ->
+	  ct:fail(timeout)  
+    end,
+    inets_test_lib:close(Type, Socket),
+    [{server_name, "httpd_non_disturbing_" ++ Version}] =  httpd:info(Server, [server_name]).
+%%-------------------------------------------------------------------------
+reload_config_file(Config) when is_list(Config) ->
+    ServerRoot = proplists:get_value(server_root, Config),
+    HttpdConf = filename:join(get_tmp_dir(Config), "inets_httpd_server.conf"),
+    ServerConfig =
+        "[\n" ++
+        "{bind_address, \"localhost\"}," ++
+        "{port,0}," ++
+        "{server_name,\"httpd_test\"}," ++
+        "{server_root,\"" ++ ServerRoot ++  "\"}," ++
+        "{document_root,\"" ++ proplists:get_value(doc_root, Config) ++ "\"}" ++
+        "].",
+    ok = file:write_file(HttpdConf, ServerConfig),
+    {ok, Server} = inets:start(httpd, [{proplist_file, HttpdConf}]),
+    Port = proplists:get_value(port, httpd:info(Server)),
+    NewConfig =
+        "[\n" ++
+        "{bind_address, \"localhost\"}," ++
+        "{port," ++ integer_to_list(Port) ++ "}," ++
+        "{server_name,\"httpd_test_new\"}," ++
+        "{server_root,\"" ++ ServerRoot ++  "\"}," ++
+        "{document_root,\"" ++ proplists:get_value(doc_root, Config) ++ "\"}" ++
+        "].",
+    NewConfigApache =
+        "BindAddress localhost\n" ++
+        "Port " ++ integer_to_list(Port) ++ "\n" ++
+        "ServerName httpd_test_new_apache\n" ++
+        "ServerRoot " ++ ServerRoot ++ "\n" ++
+        "DocumentRoot " ++ proplists:get_value(doc_root, Config) ++ "\n",
+
+    %% Test Erlang term format
+    ok = file:write_file(HttpdConf, NewConfig),
+    ok = httpd:reload_config(HttpdConf, non_disturbing),
+    "httpd_test_new" = proplists:get_value(server_name, httpd:info(Server)),
+
+    %% Test Apache format
+    ok = file:write_file(HttpdConf, NewConfigApache),
+    ok = httpd:reload_config(HttpdConf, non_disturbing),
+    "httpd_test_new_apache" = proplists:get_value(server_name, httpd:info(Server)).
+
+%%-------------------------------------------------------------------------
+mime_types_format(Config) when is_list(Config) -> 
+    DataDir = proplists:get_value(data_dir, Config),
+    MimeTypes = filename:join(DataDir, "mime_types.txt"),
+    {ok,[{"wrl","x-world/x-vrml"},
+     {"vrml","x-world/x-vrml"},
+     {"ice","x-conference/x-cooltalk"},
+     {"movie","video/x-sgi-movie"},
+     {"avi","video/x-msvideo"},
+     {"qt","video/quicktime"},
+     {"mov","video/quicktime"},
+     {"mpeg","video/mpeg"},
+     {"mpg","video/mpeg"},
+     {"mpe","video/mpeg"},
+     {"sgml","text/x-sgml"},
+     {"sgm","text/x-sgml"},
+     {"etx","text/x-setext"},
+     {"tsv","text/tab-separated-values"},
+     {"rtx","text/richtext"},
+     {"txt","text/plain"},
+     {"html","text/html"},
+     {"htm","text/html"},
+     {"css","text/css"},
+     {"xwd","image/x-xwindowdump"},
+     {"xpm","image/x-xpixmap"},
+     {"xbm","image/x-xbitmap"},
+     {"rgb","image/x-rgb"},
+     {"ppm","image/x-portable-pixmap"},
+     {"pgm","image/x-portable-graymap"},
+     {"pbm","image/x-portable-bitmap"},
+     {"pnm","image/x-portable-anymap"},
+     {"ras","image/x-cmu-raster"},
+     {"tiff","image/tiff"},
+     {"tif","image/tiff"},
+     {"png","image/png"},
+     {"jpeg","image/jpeg"},
+     {"jpg","image/jpeg"},
+     {"jpe","image/jpeg"},
+     {"ief","image/ief"},
+     {"gif","image/gif"},
+     {"pdb","chemical/x-pdb"},
+     {"xyz","chemical/x-pdb"},
+     {"wav","audio/x-wav"},
+     {"ra","audio/x-realaudio"},
+     {"rpm","audio/x-pn-realaudio-plugin"},
+     {"ram","audio/x-pn-realaudio"},
+     {"aif","audio/x-aiff"},
+     {"aiff","audio/x-aiff"},
+     {"aifc","audio/x-aiff"},
+     {"mpga","audio/mpeg"},
+     {"mp2","audio/mpeg"},
+     {"au","audio/basic"},
+     {"snd","audio/basic"},
+     {"zip","application/zip"},
+     {"src","application/x-wais-source"},
+     {"ustar","application/x-ustar"},
+     {"ms","application/x-troff-ms"},
+     {"me","application/x-troff-me"},
+     {"man","application/x-troff-man"},
+     {"t","application/x-troff"},
+     {"tr","application/x-troff"},
+     {"roff","application/x-troff"},
+     {"texinfo","application/x-texinfo"},
+     {"texi","application/x-texinfo"},
+     {"tex","application/x-tex"},
+     {"tcl","application/x-tcl"},
+     {"tar","application/x-tar"},
+     {"sv4crc","application/x-sv4crc"},
+     {"sv4cpio","application/x-sv4cpio"},
+     {"sit","application/x-stuffit"},
+     {"shar","application/x-shar"},
+     {"sh","application/x-sh"},
+     {"nc","application/x-netcdf"},
+     {"cdf","application/x-netcdf"},
+     {"mif","application/x-mif"},
+     {"latex","application/x-latex"},
+     {"skp","application/x-koan"},
+     {"skd","application/x-koan"},
+     {"skt","application/x-koan"},
+     {"skm","application/x-koan"},
+     {"cgi","application/x-httpd-cgi"},
+     {"hdf","application/x-hdf"},
+     {"gz","application/x-gzip"},
+     {"gtar","application/x-gtar"},
+     {"dvi","application/x-dvi"},
+     {"dcr","application/x-director"},
+     {"dir","application/x-director"},
+     {"dxr","application/x-director"},
+     {"csh","application/x-csh"},
+     {"cpio","application/x-cpio"},
+     {"Z","application/x-compress"},
+     {"vcd","application/x-cdlink"},
+     {"bcpio","application/x-bcpio"},
+     {"rtf","application/rtf"},
+     {"ppt","application/powerpoint"},
+     {"ai","application/postscript"},
+     {"eps","application/postscript"},
+     {"ps","application/postscript"},
+     {"pdf","application/pdf"},
+     {"oda","application/oda"},
+     {"bin","application/octet-stream"},
+     {"dms","application/octet-stream"},
+     {"lha","application/octet-stream"},
+     {"lzh","application/octet-stream"},
+     {"exe","application/octet-stream"},
+     {"class","application/octet-stream"},
+     {"doc","application/msword"},
+     {"cpt","application/mac-compactpro"},
+     {"hqx","application/mac-binhex40"}]} = httpd_conf:load_mime_types(MimeTypes).
+
+
+%%--------------------------------------------------------------------
+%% Internal functions -----------------------------------
+%%--------------------------------------------------------------------
+url(http, End, Config) ->
+    Port = proplists:get_value(port, Config),
+    {ok,Host} = inet:gethostname(),
+    ?URL_START ++ Host ++ ":" ++ integer_to_list(Port) ++ End.
+
+do_max_clients(Config) ->
+    Version = proplists:get_value(http_version, Config),
+    Host    = proplists:get_value(host, Config),
+    Port    = proplists:get_value(port, Config), 
+    Type    = proplists:get_value(type, Config),
+    
+    Request = http_request("GET /index.html ", Version, Host),
+    BlockRequest = http_request("GET /eval?httpd_example:delay(2000) ", Version, Host),
+    {ok, Socket} = inets_test_lib:connect_bin(Type, Host, Port, transport_opts(Type, Config)),
+    inets_test_lib:send(Type, Socket, BlockRequest),
+    ct:sleep(100), %% Avoid possible timing issues
+    ok = httpd_test_lib:verify_request(Type, Host, 
+				       Port,
+				       transport_opts(Type, Config),
+				       proplists:get_value(node, Config),
+				       Request,
+				       [{statuscode, 503},
+					{version, Version}]),
+    receive 
+	{_, Socket, _Msg} ->
+	    ok
+    end,
+    inets_test_lib:close(Type, Socket),
+    ct:sleep(100), %% Avoid possible timing issues
+    ok = httpd_test_lib:verify_request(Type, Host, 
+				       Port,
+				       transport_opts(Type, Config),
+				       proplists:get_value(node, Config),
+				       Request,
+				       [{statuscode, 200},
+					{version, Version}]).
+
+setup_server_dirs(ServerRoot, DocRoot, DataDir) ->   
+    CgiDir =  filename:join(ServerRoot, "cgi-bin"),
+    AuthDir =  filename:join(ServerRoot, "auth"),
+    PicsDir =  filename:join(ServerRoot, "icons"),
+    ConfigDir =  filename:join(ServerRoot, "config"),
+
+    ok = file:make_dir(ServerRoot),
+    ok = file:make_dir(DocRoot),
+    ok = file:make_dir(CgiDir),
+    ok = file:make_dir(AuthDir),
+    ok = file:make_dir(PicsDir),
+    ok = file:make_dir(ConfigDir),
+
+    DocSrc = filename:join(DataDir, "server_root/htdocs"),    
+    AuthSrc = filename:join(DataDir, "server_root/auth"),    
+    CgiSrc =  filename:join(DataDir, "server_root/cgi-bin"),    
+    PicsSrc =  filename:join(DataDir, "server_root/icons"),    
+    ConfigSrc = filename:join(DataDir, "server_root/config"),
+    
+    inets_test_lib:copy_dirs(DocSrc, DocRoot),
+    inets_test_lib:copy_dirs(AuthSrc, AuthDir),
+    inets_test_lib:copy_dirs(CgiSrc, CgiDir),
+    inets_test_lib:copy_dirs(PicsSrc, PicsDir),
+    inets_test_lib:copy_dirs(ConfigSrc, ConfigDir),
+        
+    Cgi = case test_server:os_type() of
+	      {win32, _} ->
+		  "cgi_echo.exe";
+	      _ ->
+		  "cgi_echo"
+	  end,
+    
+    inets_test_lib:copy_file(Cgi, DataDir, CgiDir),
+    AbsCgi = filename:join([CgiDir, Cgi]),
+    {ok, FileInfo} = file:read_file_info(AbsCgi),
+    ok = file:write_file_info(AbsCgi, FileInfo#file_info{mode = 8#00755}),
+    
+    EnvCGI =  filename:join([ServerRoot, "cgi-bin", "printenv.sh"]),
+    {ok, FileInfo1} = file:read_file_info(EnvCGI),
+    ok = file:write_file_info(EnvCGI, 
+			      FileInfo1#file_info{mode = 8#00755}).
+
+setup_tmp_dir(PrivDir) ->
+    TmpDir =  filename:join(PrivDir, "tmp"),
+    ok = file:make_dir(TmpDir).
+
+get_tmp_dir(Config) ->
+    PrivDir = proplists:get_value(priv_dir, Config),
+    filename:join(PrivDir, "tmp").
+
+start_apps(Group) when  Group == https_basic;
+			Group == https_limit;
+			Group == https_custom;
+			Group == https_basic_auth;
+			Group == https_auth_api;
+			Group == https_auth_api_dets;
+			Group == https_auth_api_mnesia;
+			Group == https_htaccess;
+			Group == https_security;
+			Group == https_reload;
+                        Group == https_not_sup
+			->
+    inets_test_lib:start_apps([inets, asn1, crypto, public_key, ssl]);
+start_apps(Group) when  Group == http_basic;
+			Group == http_limit;
+			Group == http_custom;
+			Group == http_basic_auth;
+			Group == http_auth_api;
+			Group == http_auth_api_dets;
+			Group == http_auth_api_mnesia;			
+			Group == http_htaccess;
+			Group == http_security;
+			Group == http_logging;
+			Group == http_reload;
+                        Group == http_post;
+                        Group == http_mime_types;
+                        Group == http_rel_path_script_alias;
+                        Group == http_not_sup;
+                        Group == http_mime_types->
+    inets_test_lib:start_apps([inets]).
+
+server_start(_, HttpdConfig) ->
+    {ok, Pid} = inets:start(httpd, HttpdConfig),
+    Serv = inets:services_info(),
+    {value, {_, _, Info}} = lists:keysearch(Pid, 2, Serv),
+    {Pid, proplists:get_value(port, Info)}.
+
+init_ssl(Group, Config) ->
+    ClientFileBase = filename:join([proplists:get_value(priv_dir, Config), "client"]),
+    ServerFileBase = filename:join([proplists:get_value(priv_dir, Config), "server"]),
+    GenCertData =
+        public_key:pkix_test_data(#{server_chain => 
+                                        #{root => [{key, inets_test_lib:hardcode_rsa_key(1)}],
+                                          intermediates => [[{key, inets_test_lib:hardcode_rsa_key(2)}]],
+                                          peer => [{key, inets_test_lib:hardcode_rsa_key(3)}
+                                                  ]},
+                                    client_chain => 
+                                        #{root => [{key, inets_test_lib:hardcode_rsa_key(4)}],
+                                          intermediates => [[{key, inets_test_lib:hardcode_rsa_key(5)}]],
+                                          peer => [{key, inets_test_lib:hardcode_rsa_key(6)}]}}),
+
+    Conf = inets_test_lib:gen_pem_config_files(GenCertData, ClientFileBase, ServerFileBase),                               
+    case start_apps(Group) of
+	ok ->
+	    init_httpd(Group, [{type, ssl}, {ssl_conf, Conf} | Config]);
+	_ ->
+	    {skip, "Could not start https apps"}
+    end.
+
+server_config(http_basic, Config) ->
+    basic_conf() ++ server_config(http, Config);
+server_config(https_basic, Config) ->
+    basic_conf() ++ server_config(https, Config);
+server_config(http_not_sup, Config) ->
+    not_sup_conf() ++ server_config(http, Config);
+server_config(https_not_sup, Config) ->
+    not_sup_conf() ++ server_config(https, Config);
+server_config(http_reload, Config) ->
+    [{keep_alive_timeout, 2}]  ++ server_config(http, Config);
+server_config(http_post, Config) ->
+    [{max_client_body_chunk, 10}]  ++ server_config(http, Config);
+server_config(https_reload, Config) ->
+    [{keep_alive_timeout, 2}]  ++ server_config(https, Config);
+server_config(http_limit, Config) ->
+    Conf = [{max_clients, 1},
+	    %% Make sure option checking code is run
+	    {max_content_length, 100000002}]  ++ server_config(http, Config),
+    ct:pal("Received message ~p~n", [Conf]),
+    Conf;
+server_config(http_custom, Config) ->
+    [{customize, ?MODULE}]  ++ server_config(http, Config);
+server_config(https_custom, Config) ->
+    [{customize, ?MODULE}]  ++ server_config(https, Config);
+server_config(https_limit, Config) ->
+    [{max_clients, 1}]  ++ server_config(https, Config);
+server_config(http_basic_auth, Config) ->
+    ServerRoot = proplists:get_value(server_root, Config),
+    auth_conf(ServerRoot)  ++  server_config(http, Config);
+server_config(https_basic_auth, Config) ->
+    ServerRoot = proplists:get_value(server_root, Config),
+    auth_conf(ServerRoot)  ++  server_config(https, Config);
+server_config(http_auth_api, Config) ->
+    ServerRoot = proplists:get_value(server_root, Config),
+    auth_api_conf(ServerRoot, plain)  ++  server_config(http, Config);
+server_config(https_auth_api, Config) ->
+    ServerRoot = proplists:get_value(server_root, Config),
+    auth_api_conf(ServerRoot, plain)  ++  server_config(https, Config);
+server_config(http_auth_api_dets, Config) ->
+    ServerRoot = proplists:get_value(server_root, Config),
+    auth_api_conf(ServerRoot, dets)  ++  server_config(http, Config);
+server_config(https_auth_api_dets, Config) ->
+    ServerRoot = proplists:get_value(server_root, Config),
+    auth_api_conf(ServerRoot, dets)  ++  server_config(https, Config);
+server_config(http_auth_api_mnesia, Config) ->
+    ServerRoot = proplists:get_value(server_root, Config),
+    auth_api_conf(ServerRoot, mnesia)  ++  server_config(http, Config);
+server_config(https_auth_api_mnesia, Config) ->
+    ServerRoot = proplists:get_value(server_root, Config),
+    auth_api_conf(ServerRoot, mnesia)  ++  server_config(https, Config);
+server_config(http_htaccess, Config) ->
+    auth_access_conf() ++ server_config(http, Config);
+server_config(https_htaccess, Config) ->
+    auth_access_conf() ++ server_config(https, Config);
+server_config(http_security, Config) ->
+    ServerRoot = proplists:get_value(server_root, Config),
+    tl(auth_conf(ServerRoot)) ++ security_conf(ServerRoot) ++ server_config(http, Config);
+server_config(https_security, Config) ->
+    ServerRoot = proplists:get_value(server_root, Config),
+    tl(auth_conf(ServerRoot)) ++ security_conf(ServerRoot) ++ server_config(https, Config);
+server_config(http_logging, Config) ->
+    log_conf() ++ server_config(http, Config);
+server_config(http_mime_types, Config0) ->
+    Config1 = basic_conf() ++  server_config(http, Config0),
+    ServerRoot = proplists:get_value(server_root, Config0),
+    MimeTypesFile = filename:join([ServerRoot,"config", "mime.types"]),
+    [{mime_types, MimeTypesFile} | proplists:delete(mime_types, Config1)];
+
+server_config(http, Config) ->
+    ServerRoot = proplists:get_value(server_root, Config),
+    [{port, 0},
+     {socket_type, {ip_comm, [{nodelay, true}]}},
+     {server_name,"httpd_test"},
+     {server_root, ServerRoot},
+     {document_root, proplists:get_value(doc_root, Config)},
+     {bind_address, any},
+     {ipfamily, proplists:get_value(ipfamily, Config)},
+     {max_header_size, 256},
+     {max_header_action, close},
+     {directory_index, ["index.html", "welcome.html"]},
+     {mime_types, [{"html","text/html"},{"htm","text/html"}, {"shtml","text/html"},
+		   {"gif", "image/gif"}]},
+     {alias, {"/icons/", filename:join(ServerRoot,"icons") ++ "/"}},
+     {alias, {"/pics/",  filename:join(ServerRoot,"icons") ++ "/"}},
+     {script_alias, {"/cgi-bin/", filename:join(ServerRoot, "cgi-bin") ++ "/"}},
+     {script_alias, {"/htbin/", filename:join(ServerRoot, "cgi-bin") ++ "/"}},
+     {erl_script_alias, {"/cgi-bin/erl", [httpd_example, io]}},
+     {eval_script_alias, {"/eval", [httpd_example, io]}}
+    ];
+server_config(http_rel_path_script_alias, Config) ->
+    ServerRoot = proplists:get_value(server_root, Config),
+    [{port, 0},
+     {socket_type, {ip_comm, [{nodelay, true}]}},
+     {server_name,"httpd_test"},
+     {server_root, ServerRoot},
+     {document_root, proplists:get_value(doc_root, Config)},
+     {bind_address, any},
+     {ipfamily, proplists:get_value(ipfamily, Config)},
+     {max_header_size, 256},
+     {max_header_action, close},
+     {directory_index, ["index.html", "welcome.html"]},
+     {mime_types, [{"html","text/html"},{"htm","text/html"}, {"shtml","text/html"},
+		   {"gif", "image/gif"}]},
+     {alias, {"/icons/", filename:join(ServerRoot,"icons") ++ "/"}},
+     {alias, {"/pics/",  filename:join(ServerRoot,"icons") ++ "/"}},
+     {script_alias, {"/cgi-bin/", "./cgi-bin/"}},
+     {script_alias, {"/htbin/", "./cgi-bin/"}},
+     {erl_script_alias, {"/cgi-bin/erl", [httpd_example, io]}},
+     {eval_script_alias, {"/eval", [httpd_example, io]}}
+    ];
+server_config(https, Config) ->
+    SSLConf = proplists:get_value(ssl_conf, Config),
+    ServerConf = proplists:get_value(server_config, SSLConf),
+    [{socket_type, {essl,
+		    [{nodelay, true} | ServerConf]}}]
+        ++ proplists:delete(socket_type, server_config(http, Config)).
+
+init_httpd(Group, Config0) ->
+    Config1 = proplists:delete(port, Config0),
+    Config = proplists:delete(server_pid, Config1),
+    {Pid, Port} = server_start(Group, server_config(Group, Config)),
+    [{server_pid, Pid}, {port, Port} | Config].
+
+http_request(Request, "HTTP/1.1" = Version, Host, {Headers, Body}) ->
+    Request ++ Version ++ "\r\nhost:" ++ Host ++ "\r\n" ++ Headers ++ "\r\n" ++ Body;
+http_request(Request, Version, _, {Headers, Body}) ->
+    Request ++ Version ++ "\r\n" ++ Headers  ++ "\r\n" ++ Body.
+
+http_request(Request, "HTTP/1.1" = Version, Host) ->
+    Request ++ Version ++ "\r\nhost:" ++ Host  ++ "\r\n\r\n";
+http_request(Request, Version, _) ->
+    Request ++ Version ++ "\r\n\r\n".
+
+auth_request(Path, User, Passwd, "HTTP/1.1" = Version, Host) ->
+    "GET " ++ Path ++ " " ++ Version ++  "\r\nhost:" ++ Host  ++
+	"\r\nAuthorization: Basic " ++  
+	base64:encode_to_string(User++":"++Passwd) ++
+	"\r\n\r\n";
+auth_request(Path, User, Passwd, Version, _Host) ->
+    "GET " ++ Path ++ " " ++ Version ++  
+	"\r\nAuthorization: Basic " ++  
+	base64:encode_to_string(User++":"++Passwd) ++
+	"\r\n\r\n".
+
+http_request_missing_CR(Request, "HTTP/1.1" = Version, Host) ->
+    Request ++ Version ++ "\r\nhost:" ++ Host  ++ "\r\n\r\n\n";
+http_request_missing_CR(Request, Version, _) ->
+    Request ++ Version ++ "\r\n\n".
+
+head_status("HTTP/0.9") ->
+    501; %% Not implemented in HTTP/0.9
+head_status(_) ->
+    200.
+
+basic_conf() ->
+    [{modules, [mod_alias, mod_range, mod_responsecontrol,
+		mod_trace, mod_esi, mod_cgi, mod_get, mod_head]}].
+
+not_sup_conf() ->
+     [{modules, [mod_get]}].
+
+auth_access_conf() ->
+    [{modules, [mod_alias, mod_htaccess, mod_dir, mod_get, mod_head]},
+     {access_files, [".htaccess"]}].
+
+auth_conf(Root) ->
+    [{modules, [mod_alias, mod_auth, mod_dir, mod_get, mod_head]},
+     {directory, {filename:join(Root, "htdocs/open"), 
+		  [{auth_type, plain},
+		   {auth_name, "Open Area"},
+		   {auth_user_file, filename:join(Root, "auth/passwd")},
+		   {auth_group_file, filename:join(Root, "auth/group")},
+		   {require_user, ["one", "Aladdin"]}]}},
+     {directory, {filename:join(Root, "htdocs/secret"), 
+		  [{auth_type, plain},
+		   {auth_name, "Secret Area"},
+		   {auth_user_file, filename:join(Root, "auth/passwd")},
+		   {auth_group_file, filename:join(Root, "auth/group")},
+		   {require_group, ["group1", "group2"]}]}},
+     {directory, {filename:join(Root, "htdocs/secret/top_secret"), 
+		  [{auth_type, plain},
+		   {auth_name, "Top Secret Area"},
+		   {auth_user_file, filename:join(Root, "auth/passwd")},
+		   {auth_group_file, filename:join(Root, "auth/group")},
+		   {require_group, ["group3"]}]}}].     
+
+auth_api_conf(Root, plain) ->
+    [{modules, [mod_alias, mod_auth, mod_dir, mod_get, mod_head]},
+     {directory, {filename:join(Root, "htdocs/open"), 
+		  [{auth_type, plain},
+		   {auth_name, "Open Area"},
+		   {auth_user_file, filename:join(Root, "auth/passwd")},
+		   {auth_group_file, filename:join(Root, "auth/group")},
+		   {require_user, ["one", "Aladdin"]}]}},
+     {directory, {filename:join(Root, "htdocs/secret"), 
+		  [{auth_type, plain},
+		   {auth_name, "Secret Area"},
+		   {auth_user_file, filename:join(Root, "auth/passwd")},
+		   {auth_group_file, filename:join(Root, "auth/group")},
+		   {require_group, ["group1", "group2"]}]}},
+     {directory, {filename:join(Root, "htdocs/secret/top_secret"), 
+		  [{auth_type, plain},
+		   {auth_name, "Top Secret Area"},
+		   {auth_user_file, filename:join(Root, "auth/passwd")},
+		   {auth_group_file, filename:join(Root, "auth/group")},
+		   {require_group, ["group3"]}]}}];
+
+auth_api_conf(Root, dets) ->
     [
-     cline(["<Directory ", Dir, ">"]),
-     cline(["SecurityDataFile ", SF]),
-     cline(["SecurityMaxRetries 3"]),
-     cline(["SecurityFailExpireTime ", integer_to_list(?FAIL_EXPIRE_TIME)]),
-     cline(["SecurityBlockTime 1"]),
-     cline(["SecurityAuthTimeout ", integer_to_list(?AUTH_TIMEOUT)]),
-     cline(["SecurityCallbackModule ", "httpd_mod"]),
-     cline_if_set("AuthUserFile", AuthUserFile),
-     cline_if_set("AuthGroupFile", AuthGroupFile),
-     cline_if_set("AuthName", AuthName),
-     cline_if_set("AuthDBType", AuthDBType),
-     cline(["require ", Require]),
-     cline(["</Directory>\r\n"])
+     {modules, [mod_alias, mod_auth, mod_dir, mod_get, mod_head]},
+     {directory, {filename:join(Root, "htdocs/dets_open"), 
+		  [{auth_type, dets},
+		   {auth_name, "Dets Open Area"},
+		   {auth_user_file, filename:join(Root, "passwd")},
+		   {auth_group_file, filename:join(Root, "group")},
+		   {require_user, ["one", "Aladdin"]}]}},
+     {directory, {filename:join(Root, "htdocs/dets_secret"), 
+		  [{auth_type, dets},
+		   {auth_name, "Dests Secret Area"},
+		   {auth_user_file, filename:join(Root, "passwd")},
+		   {auth_group_file, filename:join(Root, "group")},
+		  {require_group, ["group1", "group2"]}]}},
+     {directory, {filename:join(Root, "htdocs/dets_secret/top_secret"), 
+		  [{auth_type, dets},
+		   {auth_name, "Dets Top Secret Area"},
+		   {auth_user_file, filename:join(Root, "passwd")},
+		   {auth_group_file, filename:join(Root, "group")},
+		   {require_group, ["group3"]}]}} 
+    ];
+
+auth_api_conf(Root, mnesia) ->
+    [{modules, [mod_alias, mod_auth, mod_dir, mod_get, mod_head]},
+     {directory, {filename:join(Root, "htdocs/mnesia_open"), 
+		  [{auth_type, mnesia},
+		   {auth_name, "Mnesia Open Area"},
+		   {require_user, ["one", "Aladdin"]}]}},
+     {directory, {filename:join(Root, "htdocs/mnesia_secret"), 
+		  [{auth_type, mnesia},
+		   {auth_name, "Mnesia Secret Area"},
+		   {require_group, ["group1", "group2"]}]}},
+     {directory, {filename:join(Root, "htdocs/mnesia_secret/top_secret"), 
+		  [{auth_type, mnesia},
+		   {auth_name, "Mnesia Top Secret Area"},
+		   {require_group, ["group3"]}]}}].
+
+security_conf(Root) ->
+    SecFile = filename:join(Root, "security_data"),
+    Open = filename:join(Root, "htdocs/open"),
+    Secret = filename:join(Root, "htdocs/secret"),
+    TopSecret = filename:join(Root, "htdocs/secret/top_secret"), 
+	
+    [{modules, [mod_alias, mod_auth, mod_security, mod_dir, mod_get, mod_head]},
+     {security_directory, {Open, 
+			   [{auth_name, "Open Area"},
+			    {auth_user_file, filename:join(Root, "auth/passwd")},
+			    {auth_group_file, filename:join(Root, "auth/group")},
+			    {require_user, ["one", "Aladdin"]} | 
+			    mod_security_conf(SecFile, Open)]}},
+     {security_directory, {Secret, 
+			   [{auth_name, "Secret Area"},
+			    {auth_user_file, filename:join(Root, "auth/passwd")},
+			    {auth_group_file, filename:join(Root, "auth/group")},
+			    {require_group, ["group1", "group2"]} |
+			    mod_security_conf(SecFile, Secret)]}},
+     {security_directory, {TopSecret,
+			   [{auth_name, "Top Secret Area"},
+			    {auth_user_file, filename:join(Root, "auth/passwd")},
+			    {auth_group_file, filename:join(Root, "auth/group")},
+			    {require_group, ["group3"]} |
+			    mod_security_conf(SecFile, TopSecret)]}}].     
+
+mod_security_conf(SecFile, Dir) ->
+    [{data_file, SecFile},
+     {max_retries, 3},
+     {fail_expire_time, ?FAIL_EXPIRE_TIME},
+     {block_time, 1},
+     {auth_timeout, ?AUTH_TIMEOUT},
+     {callback_module, ?MODULE},
+     {path, Dir} %% This is should not be needed, but is atm, awful design! 
     ].
+    
+log_conf() ->
+    [{modules, [mod_alias, mod_dir, mod_get, mod_head, mod_disk_log]},
+     {transfer_disk_log, "httpd_log_transfer"},
+     {security_disk_log, "httpd_log_security"},
+     {error_disk_log, "httpd_log_error"},
+     {transfer_disk_log_size, {1048576, 5}},
+     {error_disk_log_size, {1048576, 5}},
+     {error_disk_log_size, {1048576, 5}},
+     {security_disk_log_size, {1048576, 5}},
+     {disk_log_format, internal}].
 
-mod_alias_config(Root) ->
-    [
-     cline(["Alias /icons/ ", filename:join(Root,"icons"), "/"]),
-     cline(["Alias /pics/ ", filename:join(Root, "icons"), "/"]),
-     cline(["ScriptAlias /cgi-bin/ ", filename:join(Root, "cgi-bin"), "/"]),
-     cline(["ScriptAlias /htbin/ ", filename:join(Root, "cgi-bin"), "/"]),
-     cline(["ErlScriptAlias /cgi-bin/erl httpd_example io"]),
-     cline(["EvalScriptAlias /eval httpd_example io"])
-    ].
+http_status(Request, Config, Expected) ->
+    Version = proplists:get_value(http_version, Config),
+    Host = proplists:get_value(host, Config),    
+    Type = proplists:get_value(type, Config),
+    httpd_test_lib:verify_request(proplists:get_value(type, Config), Host, 
+				  proplists:get_value(port, Config),  
+				  transport_opts(Type, Config),
+				  proplists:get_value(node, Config),
+				  http_request(Request, Version, Host),
+				  Expected ++ [{version, Version}]).
 
-cline(List) ->
-    lists:flatten([List, "\r\n"]).
+http_status(Request, HeadersAndBody, Config, Expected) ->
+    Version = proplists:get_value(http_version, Config),
+    Host = proplists:get_value(host, Config),
+    Type = proplists:get_value(type, Config),
+    httpd_test_lib:verify_request(proplists:get_value(type, Config), Host, 
+				  proplists:get_value(port, Config),  
+				  transport_opts(Type, Config),
+				  proplists:get_value(node, Config),
+				  http_request(Request, Version, Host, HeadersAndBody),
+				  Expected ++ [{version, Version}]).
 
-cline_if_set(_, false) ->
-    [];
-cline_if_set(Name, Var) when is_list(Var) ->
-    cline([Name, " ", Var]);
-cline_if_set(Name, Var) when is_atom(Var) ->
-    cline([Name, " ", atom_to_list(Var)]).
+auth_status(AuthRequest, Config, Expected) ->
+    Version = proplists:get_value(http_version, Config),
+    Host = proplists:get_value(host, Config),    
+    Type = proplists:get_value(type, Config),
+    httpd_test_lib:verify_request(proplists:get_value(type, Config), Host, 
+				  proplists:get_value(port, Config),  
+				  transport_opts(Type, Config),
+				  proplists:get_value(node, Config),
+				  AuthRequest,
+				  Expected ++ [{version, Version}]).
 
-getaddr() ->
-    {ok,HostName} = inet:gethostname(),
-    {ok,{A1,A2,A3,A4}} = inet:getaddr(HostName,inet),
-    lists:flatten(io_lib:format("~p.~p.~p.~p",[A1,A2,A3,A4])).
+basic_auth_requiered(Config) -> 
+    ok = http_status("GET /open/ ", Config,  [{statuscode, 401},
+					      {header, "WWW-Authenticate"}]),
+    ok = http_status("GET /secret/ ", Config,  [{statuscode, 401},
+						{header, "WWW-Authenticate"}]),
+    ok = http_status("GET /secret/top_secret/ ", Config,  [{statuscode, 401},
+						      {header, "WWW-Authenticate"}]).  
 
 start_mnesia(Node) ->
     case rpc:call(Node, ?MODULE, cleanup_mnesia, []) of
 	ok ->
 	    ok;
 	Other ->
-	    tsf({failed_to_cleanup_mnesia, Other})
+	    ct:fail({failed_to_cleanup_mnesia, Other})
     end,
     case rpc:call(Node, ?MODULE, setup_mnesia, []) of
 	{atomic, ok} ->
 	    ok;
 	Other2 ->
-	    tsf({failed_to_setup_mnesia, Other2})
+	    ct:fail({failed_to_setup_mnesia, Other2})
     end,
     ok.
 
@@ -2585,6 +2298,29 @@ cleanup_mnesia() ->
     mnesia:delete_schema([node()]),
     ok.
 
+transport_opts(ssl, Config) ->
+    SSLConf = proplists:get_value(ssl_conf, Config),
+    ClientConf = proplists:get_value(client_config, SSLConf),
+    [proplists:get_value(ipfamily, Config) | ClientConf];
+transport_opts(_, Config) ->
+    [proplists:get_value(ipfamily, Config)].
+
+
+%%% mod_range
+create_range_data(Path) ->
+    PathAndFileName=filename:join([Path,"range.txt"]),
+    case file:read_file(PathAndFileName) of
+	{error, enoent} ->
+	    file:write_file(PathAndFileName,list_to_binary(["12345678901234567890",
+							    "12345678901234567890",
+							    "12345678901234567890",
+							    "12345678901234567890",
+							    "12345678901234567890"]));
+	_ ->
+	    ok
+    end.
+
+%%% mod_htaccess
 create_htaccess_data(Path, IpAddress)->
     create_htaccess_dirs(Path),
     
@@ -2681,103 +2417,193 @@ remove_htaccess(Path)->
     file:delete(filename:join([Path,"ht","groups.file"])),
     remove_htaccess_dirs(Path).
 
-
-dos_hostname_poll(Type, Host, Port, Node, Hosts) ->
-    [dos_hostname_poll1(Type, Host, Port, Node, Host1, Code)
-     || {Host1,Code} <- Hosts].
-
-dos_hostname_poll1(Type, Host, Port, Node, Host1, Code) ->
+dos_hostname(Type, Port, Host, Node, Version, Max) ->    
+    TooLongHeader = lists:append(lists:duplicate(Max + 1, "a")),
+    
     ok = httpd_test_lib:verify_request(Type, Host, Port, Node, 
-				       dos_hostname_request(Host1),
-				       [{statuscode, Code},
-					{version, "HTTP/1.0"}]).
-        
-dos_hostname_request(Host) ->
-    "GET / HTTP/1.0\r\n" ++ Host ++ "\r\n\r\n".
+ 				       dos_hostname_request("", Version),
+ 				       [{statuscode, 200},
+ 					{version, Version}]),
+    
+    ok = httpd_test_lib:verify_request(Type, Host, Port, Node, 
+ 				       dos_hostname_request("dummy-host.ericsson.se", Version),
+ 				       [{statuscode, 200},
+ 					{version, Version}]),
+    
+    ok = httpd_test_lib:verify_request(Type, Host, Port, Node, 
+ 				       dos_hostname_request(TooLongHeader, Version),
+ 				       [{statuscode, request_entity_too_large_code(Version)},
+ 					{version, Version}]).
+dos_hostname_request(Host, Version) ->
+    dos_http_request("GET / ", Version, Host).
 
-get_nof_clients(Mode, Load) ->
-    get_nof_clients(test_server:os_type(), Mode, Load).
+dos_http_request(Request,  "HTTP/1.1" = Version, Host) ->
+    http_request(Request, Version, Host);
+dos_http_request(Request, Version, Host) ->
+    Request ++ Version ++ "\r\nhost:" ++ Host  ++ "\r\n\r\n".
 
-get_nof_clients(vxworks, _,       light)  -> 1;
-get_nof_clients(vxworks, ip_comm, medium) -> 3;
-get_nof_clients(vxworks, ssl,     medium) -> 3;
-get_nof_clients(vxworks, ip_comm, heavy)  -> 5;
-get_nof_clients(vxworks, ssl,     heavy)  -> 5;
-get_nof_clients(_,       ip_comm, light)  -> 5;
-get_nof_clients(_,       ssl,     light)  -> 2;
-get_nof_clients(_,       ip_comm, medium) -> 10;
-get_nof_clients(_,       ssl,     medium) -> 4;
-get_nof_clients(_,       ip_comm, heavy)  -> 20;
-get_nof_clients(_,       ssl,     heavy)  -> 6.
+request_entity_too_large_code("HTTP/1.0") ->
+    403; %% 413 not defined in HTTP/1.0
+request_entity_too_large_code(_) ->
+    413.
 
-%% Make a file 100 bytes long containing 012...9*10
-create_range_data(Path) ->
-    PathAndFileName=filename:join([Path,"range.txt"]),
-    file:write_file(PathAndFileName,list_to_binary(["12345678901234567890",
-						   "12345678901234567890",
-						   "12345678901234567890",
-						   "12345678901234567890",
-						   "12345678901234567890"])).
+length_required_code("HTTP/1.0") ->
+    403; %% 411 not defined in HTTP/1.0
+length_required_code(_) ->
+    411.
 
-create_ipv6_config(Config, FileName, Ipv6Address) ->
-    ServerRoot = ?config(server_root, Config),
-    TcTopDir   = ?config(tc_top_dir,  Config),
-    Port       = ?config(port,        Config),
-    SockType   = ?config(sock_type,   Config),
-    Mods       = io_lib:format("~p",  [httpd_mod]),
-    Funcs      = io_lib:format("~p",  [ssl_password_cb]),
-    Host       = ?config(ipv6_host,   Config),
-
-    MaxHdrSz     = io_lib:format("~p", [256]),
-    MaxHdrAct    = io_lib:format("~p", [close]),
-  
-    Mod_order = "Modules mod_alias mod_auth mod_esi mod_actions mod_cgi" 
-	" mod_include mod_dir mod_get mod_head" 
-	" mod_log mod_disk_log mod_trace",
-	    
-    SSL =
-	if
-	    (SockType =:= ssl)  orelse 
-	    (SockType =:= essl) ->
-		[cline(["SSLCertificateFile ", 
-			filename:join(ServerRoot, "ssl/ssl_server.pem")]),
-		 cline(["SSLCertificateKeyFile ",
-			filename:join(ServerRoot, "ssl/ssl_server.pem")]),
-		 cline(["SSLCACertificateFile ",
-			filename:join(ServerRoot, "ssl/ssl_server.pem")]),
-		 cline(["SSLPasswordCallbackModule ", Mods]),
-		 cline(["SSLPasswordCallbackFunction ", Funcs]),
-		 cline(["SSLVerifyClient 0"]),
-		 cline(["SSLVerifyDepth 1"])];
-	    true ->
-		[]
-	end,
-
-    BindAddress = "[" ++ Ipv6Address ++"]|inet6", 
-
-    HttpConfig = 
-	[cline(["BindAddress ", BindAddress]),
-	 cline(["Port ", integer_to_list(Port)]),
-	 cline(["ServerName ", Host]),
-	 cline(["SocketType ", atom_to_list(SockType)]),
-	 cline([Mod_order]),
-	 cline(["ServerRoot ", ServerRoot]),
-	 cline(["DocumentRoot ", filename:join(ServerRoot, "htdocs")]),
-	 cline(["MaxHeaderSize ",MaxHdrSz]),
-	 cline(["MaxHeaderAction ",MaxHdrAct]),
-	 cline(["DirectoryIndex ", "index.html "]),
-	 cline(["DefaultType ", "text/plain"]), 
-	 SSL],
-    ConfigFile = filename:join([TcTopDir,FileName]),
-    {ok, Fd} = file:open(ConfigFile, [write]),
-    ok = file:write(Fd, lists:flatten(HttpConfig)),
-    ok = file:close(Fd).
+garbage_content_length(Type, Port, Host, Node, Version) ->    
+    ok = httpd_test_lib:verify_request(Type, Host, Port, Node, 
+     				       garbage_content_length_request("GET / ", Version, Host, "aaaa"),	
+     				       [{statuscode, length_required_code(Version)},
+      					{version, Version}]),
+    ok = httpd_test_lib:verify_request(Type, Host, Port, Node, 
+				       garbage_content_length_request("GET / ", Version, Host, 
+								      lists:duplicate($a, 100)),	
+ 				       [{statuscode, request_entity_too_large_code(Version)},
+ 					{version, Version}]).
+ 
+garbage_content_length_request(Request, Version, Host, Garbage) ->	
+    http_request(Request, Version, Host,
+		 {"content-length:" ++ Garbage, "Body with garbage content length indicator"}).
 
 
-tsp(F) ->
-    inets_test_lib:tsp("[~w]" ++ F, [?MODULE]).
-tsp(F, A) ->
-    inets_test_lib:tsp("[~w]" ++ F, [?MODULE|A]).
+update_password(Node, ServerRoot, _Address, Port, AuthPrefix, Dir, Old, New)->
+    Directory = filename:join([ServerRoot, "htdocs", AuthPrefix ++ Dir]),
+    rpc:call(Node, mod_auth, update_password, 
+	     [undefined, Port, Directory, Old, New, New]).
 
-tsf(Reason) ->
-    inets_test_lib:tsf(Reason).
+add_user(Node, Root, Port, AuthPrefix, Dir, User, Password, UserData) ->
+    Addr = undefined, 
+    Directory = filename:join([Root, "htdocs", AuthPrefix ++ Dir]),
+    rpc:call(Node, mod_auth, add_user, 
+	     [User, Password, UserData, Addr, Port, Directory]).
+
+
+delete_user(Node, Root, _Host, Port, AuthPrefix, Dir, User) ->
+    Addr = undefined, 
+    Directory = filename:join([Root, "htdocs", AuthPrefix ++ Dir]),
+    rpc:call(Node, mod_auth, delete_user, [User, Addr, Port, Directory]).
+remove_users(Node, ServerRoot, Host, Port, AuthPrefix, Dir) ->
+    %% List users, delete them, and make sure they are gone.
+    case list_users(Node, ServerRoot, Host, Port, AuthPrefix, Dir) of
+	{ok, Users} ->
+	    lists:foreach(fun(User) -> 
+				  delete_user(Node, ServerRoot, Host, 
+					      Port, AuthPrefix, Dir, User)
+			  end,
+			  Users),
+		  {ok, []} = list_users(Node, ServerRoot, Host, Port, AuthPrefix, Dir);
+	_ ->
+	    ok
+    end.
+
+list_users(Node, Root, _Host, Port, AuthPrefix, Dir) ->
+    Addr = undefined, 
+    Directory = filename:join([Root, "htdocs", AuthPrefix ++ Dir]),
+    rpc:call(Node, mod_auth, list_users, [Addr, Port, Directory]).
+
+remove_groups(Node, ServerRoot, Host, Port,  AuthPrefix, Dir) ->
+    {ok, Groups} = list_groups(Node, ServerRoot, Host, Port, AuthPrefix, Dir),
+    lists:foreach(fun(Group) ->
+			  delete_group(Node, Group, Port, ServerRoot, AuthPrefix, Dir)
+		  end,
+		  Groups),
+    {ok, []} = list_groups(Node, ServerRoot, Host, Port, AuthPrefix, Dir).
+
+delete_group(Node, Group, Port, Root, AuthPrefix, Dir) ->
+    Addr = undefined, 
+    Directory = filename:join([Root, "htdocs", AuthPrefix ++ Dir]),
+    rpc:call(Node, mod_auth, delete_group, [Group, Addr, Port, Directory]).
+
+list_groups(Node, Root, _, Port, AuthPrefix, Dir) ->
+    Addr = undefined, 
+    Directory = filename:join([Root, "htdocs", AuthPrefix ++ Dir]),
+    rpc:call(Node, mod_auth, list_groups, [Addr, Port, Directory]).
+
+add_group_member(Node, Root, Port, AuthPrefix, Dir, User, Group) ->
+    Addr = undefined, 
+    Directory = filename:join([Root, "htdocs", AuthPrefix ++ Dir]),
+    rpc:call(Node, mod_auth, add_group_member, [Group, User, Addr, Port, 
+					  Directory]).
+list_group_members(Node, Root, Port, AuthPrefix, Dir, Group) ->
+    Directory = filename:join([Root, "htdocs", AuthPrefix ++ Dir]),
+    rpc:call(Node, mod_auth, list_group_members, [Group, [{port, Port}, {dir, Directory}]]).
+
+getaddr() ->
+    {ok,HostName} = inet:gethostname(),
+    {ok,{A1,A2,A3,A4}} = inet:getaddr(HostName,inet),
+    lists:flatten(io_lib:format("~p.~p.~p.~p",[A1,A2,A3,A4])).
+
+receive_security_event(Event, Node, Port) ->
+    receive 
+	Event ->
+	    ok;
+	{'EXIT', _, _} ->
+	    receive_security_event(Event, Node, Port)
+    after 5000 ->
+	    %% Flush the message queue, to see if we got something...
+	    inets_test_lib:flush()
+    end.
+
+list_blocked_users(Node,Port) ->
+    Addr = undefined, % Assumed to be on the same host
+    rpc:call(Node, mod_security, list_blocked_users, [Addr,Port]).
+
+list_blocked_users(Node,Port,Dir) ->
+    Addr = undefined, % Assumed to be on the same host
+    rpc:call(Node, mod_security, list_blocked_users, [Addr,Port,Dir]).
+
+block_user(Node,User,Port,Dir,Sec) ->
+    Addr = undefined, % Assumed to be on the same host
+    rpc:call(Node, mod_security, block_user, [User, Addr, Port, Dir, Sec]).
+
+unblock_user(Node,User,Port,Dir) ->
+    Addr = undefined, % Assumed to be on the same host
+    rpc:call(Node, mod_security, unblock_user, [User, Addr, Port, Dir]).
+
+list_auth_users(Node,Port) ->
+    Addr = undefined, % Assumed to be on the same host
+    rpc:call(Node, mod_security, list_auth_users, [Addr,Port]).
+
+list_auth_users(Node,Port,Dir) ->
+    Addr = undefined, % Assumed to be on the same host
+    rpc:call(Node, mod_security, list_auth_users, [Addr,Port,Dir]).
+
+event(What, Port, Dir, Data) ->
+    Msg = {event, What, Port, Dir, Data},
+    case global:whereis_name(mod_security_test) of
+	undefined ->
+	    ok;
+	_Pid ->
+	    global:send(mod_security_test, Msg)
+    end.
+
+type(ip_comm) ->
+    tcp;
+type(_) ->
+    ssl.
+
+typestr(ip_comm) ->
+    "tcp";
+typestr(_) ->
+    "ssl".
+
+response_header({"server", _}) ->
+    false;
+response_header(Header) ->
+    {true, Header}.
+
+response_default_headers() ->
+    [%% Add new header
+     {"X-Frame-Options", "SAMEORIGIN"},
+     %% Override built-in default
+     {"Date", "Override-date"}].
+
+peer(Config) ->
+   case proplists:get_value(type, Config) of
+      ssl ->
+        "true";
+      _ ->
+        "false"
+   end.   

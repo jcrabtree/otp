@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1996-2009. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2017. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -41,7 +42,8 @@ symbols -> symbol symbols : ['$1' | '$2'].
 strings -> string : ['$1'].
 strings -> string strings : ['$1' | '$2'].
 attached_code -> ':' tokens : {erlang_code, '$2'}.
-attached_code -> '$empty' : {erlang_code, [{atom, 0, '$undefined'}]}.
+attached_code -> '$empty' : {erlang_code,
+                             [{atom, erl_anno:new(0), '$undefined'}]}.
 tokens -> token : ['$1'].
 tokens -> token tokens : ['$1' | '$2'].
 symbol -> var : symbol('$1').
@@ -54,21 +56,21 @@ token -> float : '$1'.
 token -> integer : '$1'.
 token -> string : '$1'.
 token -> char : '$1'.
-token -> reserved_symbol : {value_of('$1'), line_of('$1')}.
-token -> reserved_word : {value_of('$1'), line_of('$1')}.
-token -> '->' : {'->', line_of('$1')}. % Have to be treated in this
-token -> ':' : {':', line_of('$1')}.   % manner, because they are also
-				       % special symbols of the metagrammar
+token -> reserved_symbol : {value_of('$1'), anno_of('$1')}.
+token -> reserved_word : {value_of('$1'), anno_of('$1')}.
+token -> '->' : {'->', anno_of('$1')}. % Have to be treated in this
+token -> ':' : {':', anno_of('$1')}.   % manner, because they are also
+                                       % special symbols of the metagrammar
 
 Erlang code.
 
--record(symbol, {line, name}).
+-record(symbol, {anno, name}).
 
 symbol(Symbol) ->
-    #symbol{line = line_of(Symbol), name = value_of(Symbol)}.
+    #symbol{anno = anno_of(Symbol), name = value_of(Symbol)}.
 
 value_of(Token) ->
     element(3, Token).
 
-line_of(Token) ->
+anno_of(Token) ->
     element(2, Token).

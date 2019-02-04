@@ -1,18 +1,19 @@
 #
 # %CopyrightBegin%
 # 
-# Copyright Ericsson AB 1996-2011. All Rights Reserved.
+# Copyright Ericsson AB 1996-2017. All Rights Reserved.
 # 
-# The contents of this file are subject to the Erlang Public License,
-# Version 1.1, (the "License"); you may not use this file except in
-# compliance with the License. You should have received a copy of the
-# Erlang Public License along with this software. If not, it can be
-# retrieved online at http://www.erlang.org/.
-# 
-# Software distributed under the License is distributed on an "AS IS"
-# basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-# the License for the specific language governing rights and limitations
-# under the License.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 # 
 # %CopyrightEnd%
 #
@@ -42,6 +43,8 @@ RELSYSDIR = $(RELEASE_PATH)/lib/mnesia-$(VSN)
 # ----------------------------------------------------
 MODULES= \
 	mnesia \
+	mnesia_app \
+	mnesia_backend_type \
 	mnesia_backup \
 	mnesia_bup \
 	mnesia_checkpoint \
@@ -49,9 +52,9 @@ MODULES= \
 	mnesia_controller \
 	mnesia_dumper\
 	mnesia_event \
+	mnesia_ext_sup \
 	mnesia_frag \
 	mnesia_frag_hash \
-	mnesia_frag_old_hash \
 	mnesia_index \
 	mnesia_kernel_sup \
 	mnesia_late_loader \
@@ -64,7 +67,6 @@ MODULES= \
 	mnesia_registry \
 	mnesia_schema\
 	mnesia_snmp_hook \
-	mnesia_snmp_sup \
 	mnesia_subscr \
 	mnesia_sup \
 	mnesia_sp  \
@@ -93,10 +95,9 @@ APPUP_TARGET= $(EBIN)/$(APPUP_FILE)
 # FLAGS
 # ----------------------------------------------------
 ERL_COMPILE_FLAGS += \
-	+warn_unused_vars \
+	-Werror \
 	+'{parse_transform,sys_pre_attributes}' \
-	+'{attribute,insert,vsn,"mnesia_$(MNESIA_VSN)"}' \
-	-W
+	+'{attribute,insert,vsn,"mnesia_$(MNESIA_VSN)"}'
 
 # ----------------------------------------------------
 # Targets
@@ -120,10 +121,10 @@ $(TARGET_FILES): $(HRL_FILES)
 # ----------------------------------------------------
 
 $(APP_TARGET): $(APP_SRC) ../vsn.mk
-	sed -e 's;%VSN%;$(VSN);' $< > $@
+	$(vsn_verbose)sed -e 's;%VSN%;$(VSN);' $< > $@
 
 $(APPUP_TARGET): $(APPUP_SRC) ../vsn.mk
-	sed -e 's;%VSN%;$(VSN);' $< > $@
+	$(vsn_verbose)sed -e 's;%VSN%;$(VSN);' $< > $@
 
 
 # ----------------------------------------------------

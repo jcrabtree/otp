@@ -1,25 +1,25 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1996-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2018. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
-%%
 
 -module(ordsets).
 
--export([new/0,is_set/1,size/1,to_list/1,from_list/1]).
+-export([new/0,is_set/1,size/1,is_empty/1,to_list/1,from_list/1]).
 -export([is_element/2,add_element/2,del_element/2]).
 -export([union/2,union/1,intersection/2,intersection/1]).
 -export([is_disjoint/2]).
@@ -59,6 +59,13 @@ is_set([], _) -> true.
       Ordset :: ordset(_).
 
 size(S) -> length(S).
+
+%% is_empty(OrdSet) -> boolean().
+%%  Return 'true' if OrdSet is an empty set, otherwise 'false'.
+-spec is_empty(Ordset) -> boolean() when
+      Ordset :: ordset(_).
+
+is_empty(S) -> S=:=[].
 
 %% to_list(OrdSet) -> [Elem].
 %%  Return the elements in OrdSet as a list.

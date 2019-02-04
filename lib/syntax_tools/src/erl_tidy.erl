@@ -1,23 +1,26 @@
 %% =====================================================================
-%% This library is free software; you can redistribute it and/or
-%% modify it under the terms of the GNU Lesser General Public License
-%% as published by the Free Software Foundation; either version 2 of
-%% the License, or (at your option) any later version.
+%% Licensed under the Apache License, Version 2.0 (the "License"); you may
+%% not use this file except in compliance with the License. You may obtain
+%% a copy of the License at <http://www.apache.org/licenses/LICENSE-2.0>
 %%
-%% This library is distributed in the hope that it will be useful, but
-%% WITHOUT ANY WARRANTY; without even the implied warranty of
-%% MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-%% Lesser General Public License for more details.
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
-%% You should have received a copy of the GNU Lesser General Public
-%% License along with this library; if not, write to the Free Software
-%% Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307
-%% USA
+%% Alternatively, you may use this file under the terms of the GNU Lesser
+%% General Public License (the "LGPL") as published by the Free Software
+%% Foundation; either version 2.1, or (at your option) any later version.
+%% If you wish to allow use of your version of this file only under the
+%% terms of the LGPL, you should delete the provisions above and replace
+%% them with the notice and other provisions required by the LGPL; see
+%% <http://www.gnu.org/licenses/>. If you do not delete the provisions
+%% above, a recipient may use your version of this file under the terms of
+%% either the Apache License or the LGPL.
 %%
-%% $Id$
-%%
-%% @copyright 1999-2006 Richard Carlsson
-%% @author Richard Carlsson <richardc@it.uu.se>
+%% @copyright 1999-2014 Richard Carlsson
+%% @author Richard Carlsson <carlsson.richard@gmail.com>
 %% @end
 %% =====================================================================
 
@@ -38,6 +41,11 @@
 %% been reasonably well tested, but the possibility of errors remains.
 %% Keep backups of your original code safely stored, until you feel
 %% confident that the new, modified code can be trusted.
+%%
+%% @type syntaxTree() = erl_syntax:syntaxTree(). An abstract syntax
+%% tree. See the {@link erl_syntax} module for details.
+%%
+%% @type filename() = file:filename().
 
 -module(erl_tidy).
 
@@ -81,7 +89,6 @@ dir(Dir) ->
 
 %% =====================================================================
 %% @spec dir(Directory::filename(), Options::[term()]) -> ok
-%%           filename() = file:filename()
 %%
 %% @doc Tidies Erlang source files in a directory and its
 %% subdirectories.
@@ -153,7 +160,7 @@ dir_1(Dir, Regexp, Env) ->
             lists:foreach(fun (X) -> dir_2(X, Regexp, Dir, Env) end,
                           Files);
         {error, _} ->
-            report_error("error reading directory `~s'",
+            report_error("error reading directory `~ts'",
                          [filename(Dir)]),
             exit(error)
     end.
@@ -182,16 +189,16 @@ dir_2(Name, Regexp, Dir, Env) ->
 
 dir_3(Name, Dir, Regexp, Env) ->
     Dir1 = filename:join(Dir, Name),
-    verbose("tidying directory `~s'.", [Dir1], Env#dir.options),
+    verbose("tidying directory `~ts'.", [Dir1], Env#dir.options),
     dir_1(Dir1, Regexp, Env).
 
 dir_4(File, Regexp, Env) ->
-    case re:run(File, Regexp) of
+    case re:run(File, Regexp, [unicode]) of
         {match, _} ->
             Opts = [{outfile, File}, {dir, ""} | Env#dir.options],
             case catch file(File, Opts) of
                 {'EXIT', Value} ->
-                    warn("error tidying `~s'.~n~p", [File,Value], Opts);
+                    warn("error tidying `~ts'.~n~p", [File,Value], Opts);
                 _ ->
                     ok
             end;
@@ -208,7 +215,7 @@ file__defaults() ->
      {verbose, false}].
 
 default_printer() ->
-    fun (Tree, Options) -> erl_prettypr:format(Tree, Options) end.
+    fun erl_prettypr:format/2.
 
 %% =====================================================================
 %% @spec file(Name) -> ok
@@ -255,7 +262,7 @@ file(Name) ->
 %%
 %%   <dt>{printer, Function}</dt>
 %%       <dd><ul>
-%%         <li>`Function = (syntaxTree()) -> string()'</li>
+%%         <li>`Function = (syntaxTree(), [term()]) -> string()'</li>
 %%       </ul>
 %%
 %%       Specifies a function for prettyprinting Erlang syntax trees.
@@ -271,6 +278,13 @@ file(Name) ->
 %%       is typically most useful if the `verbose' flag is enabled, to
 %%       generate reports about the program files without affecting
 %%       them. The default value is `false'.</dd>
+%%
+%%   <dt>{stdout, boolean()}</dt>
+%%
+%%      <dd>If the value is `true', instead of the file being written
+%%      to disk it will be printed to stdout. The default value is
+%%      `false'.</dd>
+%%
 %% </dl>
 %%
 %% See the function `module/2' for further options.
@@ -287,6 +301,8 @@ file(Name, Opts) ->
         {Child, ok} ->
             ok;
         {Child, {error, Reason}} ->
+            exit(Reason);
+        {'EXIT', Child, Reason} ->
             exit(Reason)
     end.
 
@@ -311,12 +327,18 @@ file_2(Name, Opts) ->
         true ->
             ok;
         false ->
-            write_module(Tree, Name, Opts1),
-            ok
-    end.
+			case proplists:get_bool(stdout, Opts1) of
+				true ->
+					print_module(Tree, Opts1),
+					ok;
+				false ->
+					write_module(Tree, Name, Opts1),
+					ok
+			end
+	end.
 
 read_module(Name, Opts) ->
-    verbose("reading module `~s'.", [filename(Name)], Opts),
+    verbose("reading module `~ts'.", [filename(Name)], Opts),
     case epp_dodger:parse_file(Name, [no_fail]) of
         {ok, Forms} ->
             check_forms(Forms, Name),
@@ -337,7 +359,7 @@ check_forms(Fs, Name) ->
                                       "unknown error"
                               end,
                           report_error({Name, erl_syntax:get_pos(F),
-                                        "\n  ~s"}, [S]),
+                                        "\n  ~ts"}, [S]),
                           exit(error);
                       _ ->
                           ok
@@ -359,24 +381,26 @@ write_module(Tree, Name, Opts) ->
                        {value, directory} ->
                            ok;
                        {value, _} ->
-                           report_error("`~s' is not a directory.",
+                           report_error("`~ts' is not a directory.",
                                         [filename(Dir)]),
                            exit(error);
                        none ->
                            case file:make_dir(Dir) of
                                ok ->
-                                   verbose("created directory `~s'.",
+                                   verbose("created directory `~ts'.",
                                            [filename(Dir)], Opts),
                                    ok;
                                E ->
                                    report_error("failed to create "
-                                                "directory `~s'.",
+                                                "directory `~ts'.",
                                                 [filename(Dir)]),
                                    exit({make_dir, E})
                            end
                    end,
                    filename(filename:join(Dir, Name1))
            end,
+    Encoding = [{encoding,Enc} || Enc <- [epp:read_encoding(Name)],
+                                 Enc =/= none],
     case proplists:get_bool(backups, Opts) of
         true ->
             backup_file(File, Opts);
@@ -384,9 +408,9 @@ write_module(Tree, Name, Opts) ->
             ok
     end,
     Printer = proplists:get_value(printer, Opts),
-    FD = open_output_file(File),
-    verbose("writing to file `~s'.", [File], Opts),
-    V = (catch {ok, output(FD, Printer, Tree, Opts)}),
+    FD = open_output_file(File, Encoding),
+    verbose("writing to file `~ts'.", [File], Opts),
+    V = (catch {ok, output(FD, Printer, Tree, Opts++Encoding)}),
     ok = file:close(FD),
     case V of
         {ok, _} ->
@@ -398,6 +422,10 @@ write_module(Tree, Name, Opts) ->
             error_write_file(File),
             throw(R)
     end.
+
+print_module(Tree, Opts) ->
+	Printer = proplists:get_value(printer, Opts),
+	io:put_chars(Printer(Tree, Opts)).
 
 output(FD, Printer, Tree, Opts) ->
     io:put_chars(FD, Printer(Tree, Opts)),
@@ -434,8 +462,8 @@ file_type(Name, Links) ->
             throw(R)
     end.
 
-open_output_file(FName) ->
-    case catch file:open(FName, [write]) of
+open_output_file(FName, Options) ->
+    case catch file:open(FName, [write]++Options) of
         {ok, FD} ->
             FD;
         {error, R} ->
@@ -471,7 +499,7 @@ backup_file_1(Name, Opts) ->
                          filename:basename(Name) ++ Suffix),
     case catch file:rename(Name, Dest) of
         ok ->
-            verbose("made backup of file `~s'.", [Name], Opts);
+            verbose("made backup of file `~ts'.", [Name], Opts);
         {error, R} ->
             error_backup_file(Name),
             exit({error, R});
@@ -496,7 +524,6 @@ module(Forms) ->
 %% @spec module(Forms, Options::[term()]) -> syntaxTree()
 %%
 %%          Forms = syntaxTree() | [syntaxTree()]
-%%          syntaxTree() = erl_syntax:syntaxTree()
 %%
 %% @doc Tidies a syntax tree representation of a module
 %% definition. The given `Forms' may be either a single
@@ -775,16 +802,11 @@ keep_form(Form, Used, Opts) ->
             N = erl_syntax_lib:analyze_function(Form),
             case sets:is_element(N, Used) of
                 false ->
-                    report_removed_def("function", N, Form, Opts),
-                    false;
-                true ->
-                    true
-            end;
-        rule ->
-            N = erl_syntax_lib:analyze_rule(Form),
-            case sets:is_element(N, Used) of
-                false ->
-                    report_removed_def("rule", N, Form, Opts),
+                    {F, A} = N,
+                    File = proplists:get_value(file, Opts, ""),
+                    report({File, erl_syntax:get_pos(Form),
+                            "removing unused function `~tw/~w'."},
+                           [F, A], Opts),
                     false;
                 true ->
                     true
@@ -806,22 +828,12 @@ keep_form(Form, Used, Opts) ->
             true
     end.
 
-report_removed_def(Type, {N, A}, Form, Opts) ->
-    File = proplists:get_value(file, Opts, ""),
-    report({File, erl_syntax:get_pos(Form),
-	    "removing unused ~s `~w/~w'."},
-	   [Type, N, A], Opts).
-
 collect_functions(Forms) ->
     lists:foldl(
       fun (F, {Names, Defs}) ->
               case erl_syntax:type(F) of
                   function ->
                       N = erl_syntax_lib:analyze_function(F),
-                      {sets:add_element(N, Names),
-                       dict:store(N, {F, []}, Defs)};
-                  rule ->
-                      N = erl_syntax_lib:analyze_rule(F),
                       {sets:add_element(N, Names),
                        dict:store(N, {F, []}, Defs)};
                   _ ->
@@ -835,11 +847,6 @@ update_forms([F | Fs], Defs, Imports, Opts) ->
     case erl_syntax:type(F) of
         function ->
             N = erl_syntax_lib:analyze_function(F),
-            {F1, Fs1} = dict:fetch(N, Defs),
-            [F1 | lists:reverse(Fs1)] ++ update_forms(Fs, Defs, Imports,
-                                                      Opts);
-        rule ->
-            N = erl_syntax_lib:analyze_rule(F),
             {F1, Fs1} = dict:fetch(N, Defs),
             [F1 | lists:reverse(Fs1)] ++ update_forms(Fs, Defs, Imports,
                                                       Opts);
@@ -863,8 +870,8 @@ update_attribute(F, Imports, Opts) ->
                 Names ->
                     File = proplists:get_value(file, Opts, ""),
                     report({File, erl_syntax:get_pos(F),
-			    "removing unused imports:~s"},
-			   [[io_lib:fwrite("\n\t`~w:~w/~w'", [M, N, A])
+			    "removing unused imports:~ts"},
+			   [[io_lib:fwrite("\n\t`~w:~tw/~w'", [M, N, A])
 			     || {N, A} <- Names]], Opts)
             end,
             Is = [make_fname(N) || N <- Ns1],
@@ -940,8 +947,8 @@ hidden_uses_2(Tree, Used) ->
 
 -record(env, {file		       :: file:filename(),
               module                   :: atom(),
-              current                  :: fa(),
-              imports = dict:new()     :: dict(),
+              current                  :: fa() | 'undefined',
+              imports = dict:new()     :: dict:dict(atom(), atom()),
               context = normal	       :: context(),
               verbosity = 1	       :: 0 | 1 | 2,
               quiet = false            :: boolean(),
@@ -952,13 +959,13 @@ hidden_uses_2(Tree, Used) ->
               new_guard_tests = true   :: boolean(),
 	      old_guard_tests = false  :: boolean()}).
 
--record(st, {varc              :: non_neg_integer(),
-	     used = sets:new() :: set(),
-	     imported          :: set(),
-	     vars              :: set(),
-	     functions         :: set(),
+-record(st, {varc              :: non_neg_integer() | 'undefined',
+	     used = sets:new() :: sets:set({atom(), arity()}),
+	     imported          :: sets:set({atom(), arity()}),
+	     vars              :: sets:set(atom()) | 'undefined',
+	     functions         :: sets:set({atom(), arity()}),
 	     new_forms = []    :: [erl_syntax:syntaxTree()],
-	     rename            :: dict()}).
+	     rename            :: dict:dict(mfa(), {atom(), atom()})}).
 
 visit_used(Names, Defs, Roots, Imports, Module, Opts) ->
     File = proplists:get_value(file, Opts, ""),
@@ -1067,13 +1074,13 @@ visit_clause(Tree, Env, St0) ->
 
 visit_infix_expr(Tree, #env{context = guard_test}, St0) ->
     %% Detect transition from guard test to guard expression.
-    visit_other(Tree, #env{context = guard_expr}, St0);
+    visit_other(Tree, #env{context = guard_expr, file = ""}, St0);
 visit_infix_expr(Tree, Env, St0) ->
     visit_other(Tree, Env, St0).
 
 visit_prefix_expr(Tree, #env{context = guard_test}, St0) ->
     %% Detect transition from guard test to guard expression.
-    visit_other(Tree, #env{context = guard_expr}, St0);
+    visit_other(Tree, #env{context = guard_expr, file = ""}, St0);
 visit_prefix_expr(Tree, Env, St0) ->
     visit_other(Tree, Env, St0).
 
@@ -1159,7 +1166,7 @@ visit_import_application({N, A} = Name, F, As, Tree, Env, St0) ->
     case Expand of
         true ->
             report({Env#env.file, erl_syntax:get_pos(F),
-		    "expanding call to imported function `~w:~w/~w'."},
+		    "expanding call to imported function `~w:~tw/~w'."},
 		   [M, N, A], Env#env.verbosity),
             F1 = erl_syntax:module_qualifier(erl_syntax:atom(M),
                                              erl_syntax:atom(N)),
@@ -1213,7 +1220,7 @@ visit_spawn_call({N, A}, F, Ps, [A1, A2, A3] = As, Tree,
     case erl_syntax:is_proper_list(A3) of
         true ->
             report({Env#env.file, erl_syntax:get_pos(F),
-		    "changing use of `~w/~w' to `~w/~w' with a fun."},
+		    "changing use of `~tw/~w' to `~tw/~w' with a fun."},
 		   [N, A, N, 1 + length(Ps)], Env#env.verbosity),
             F1 = case erl_syntax:is_atom(A1, Env#env.module) of
                      true ->
@@ -1397,8 +1404,8 @@ visit_remote_application({M, N, A} = Name, F, As, Tree, Env, St) ->
             case rename_remote_call(Name, St) of
                 {M1, N1} ->
                     report({Env#env.file, erl_syntax:get_pos(F),
-			    "updating obsolete call to `~w:~w/~w' "
-			    "to use `~w:~w/~w' instead."},
+			    "updating obsolete call to `~w:~tw/~w' "
+			    "to use `~w:~tw/~w' instead."},
 			   [M, N, A, M1, N1, A], Env#env.verbosity),
                     M2 = erl_syntax:atom(M1),
                     N2 = erl_syntax:atom(N1),
@@ -1804,7 +1811,7 @@ get_free_vars_1([{free, B} | _Bs]) -> B;
 get_free_vars_1([_ | Bs]) -> get_free_vars_1(Bs);
 get_free_vars_1([]) -> [].
 
-filename([C | T]) when is_integer(C), C > 0, C =< 255 ->
+filename([C | T]) when is_integer(C), C > 0 ->
     [C | filename(T)];
 filename([H|T]) ->
     filename(H) ++ filename(T);
@@ -1813,7 +1820,7 @@ filename([]) ->
 filename(N) when is_atom(N) ->
     atom_to_list(N);
 filename(N) ->
-    report_error("bad filename: `~P'.", [N, 25]),
+    report_error("bad filename: `~tP'.", [N, 25]),
     exit(error).
 
 get_env(Tree) ->
@@ -1839,17 +1846,17 @@ report_export_vars(F, L, Type, Opts) ->
 	   [Type], Opts).
 
 error_read_file(Name) ->
-    report_error("error reading file `~s'.", [filename(Name)]).
+    report_error("error reading file `~ts'.", [filename(Name)]).
 
 error_write_file(Name) ->
-    report_error("error writing to file `~s'.", [filename(Name)]).
+    report_error("error writing to file `~ts'.", [filename(Name)]).
 
 error_backup_file(Name) ->
-    report_error("could not create backup of file `~s'.",
+    report_error("could not create backup of file `~ts'.",
                  [filename(Name)]).
 
 error_open_output(Name) ->
-    report_error("cannot open file `~s' for output.", [filename(Name)]).
+    report_error("cannot open file `~ts' for output.", [filename(Name)]).
 
 verbosity(Opts) ->
     case proplists:get_bool(quiet, Opts) of 
@@ -1904,13 +1911,13 @@ format({warning, D}, Vs) ->
 format({recommend, D}, Vs) ->
     ["recommendation: ", format(D, Vs)];
 format({"", L, D}, Vs) when is_integer(L), L > 0 ->
-    [io_lib:fwrite("~w: ", [L]), format(D, Vs)];
+    [io_lib:fwrite("~tw: ", [L]), format(D, Vs)];
 format({"", _L, D}, Vs) ->
     format(D, Vs);
 format({F, L, D}, Vs) when is_integer(L), L > 0 ->
-    [io_lib:fwrite("~s:~w: ", [filename(F), L]), format(D, Vs)];
+    [io_lib:fwrite("~ts:~tw: ", [filename(F), L]), format(D, Vs)];
 format({F, _L, D}, Vs) ->
-    [io_lib:fwrite("~s: ", [filename(F)]), format(D, Vs)];
+    [io_lib:fwrite("~ts: ", [filename(F)]), format(D, Vs)];
 format(S, Vs) when is_list(S) ->
     [io_lib:fwrite(S, Vs), $\n].
 

@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1996-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2017. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -32,7 +33,6 @@
 %% {load_module, Mod, PrePurge, PostPurge, [Mod]}
 %% {add_module, Mod}
 %% {add_module, Mod, [Mod]}
-%% {remove_module, Mod, PrePurge, PostPurge, [Mod]}
 %% {restart_application, Appl}
 %% {add_application, Appl, Type}
 %% {remove_application, Appl}
@@ -59,7 +59,7 @@
 
 %% High-level instructions that contain dependencies
 %%
--define(DEP_INSTRS, [update, load_module, add_module, remove_module]).
+-define(DEP_INSTRS, [update, load_module, add_module, delete_module]).
 
 %%-----------------------------------------------------------------
 %% translate_scripts(Scripts, Appls, PreAppls) -> Res
@@ -107,9 +107,6 @@ expand_script([I|Script]) ->
 	     {update, Mod, Change, Mods} when Change==soft,
 					      is_list(Mods) ->
 		 {update, Mod, Change, brutal_purge,brutal_purge, Mods};
-	     {delete_module, Mod} ->
-		 [{remove, {Mod, brutal_purge, brutal_purge}},
-		  {purge, [Mod]}];
 	     {add_application, Application} ->
 		 {add_application, Application, permanent};
 	     _ ->
@@ -301,6 +298,8 @@ normalize_instrs(Script) ->
 		       PostPurge, Mods};
 		 ({add_module, Mod}) ->
 		      {add_module, Mod, []};
+		 ({delete_module, Mod}) ->
+		      {delete_module, Mod, []};
 		 (I) ->
 		      I
 	      end, Script).
@@ -326,8 +325,7 @@ translate_application_instrs(Script, Appls, PreAppls) ->
 	  fun({add_application, Appl, Type}) ->
 		  case lists:keysearch(Appl, #application.name, Appls) of
 		      {value, Application} ->
-			  Mods =
-			      remove_vsn(Application#application.modules),
+			  Mods = Application#application.modules,
 			  ApplyL = case Type of
 			      none -> [];
 			      load -> [{apply, {application, load, [Appl]}}];
@@ -349,9 +347,11 @@ translate_application_instrs(Script, Appls, PreAppls) ->
 		  end,
 		  case lists:keysearch(Appl, #application.name, PreAppls) of
 		      {value, RemApplication} ->
-			  Mods = remove_vsn(RemApplication#application.modules),
+			  Mods = RemApplication#application.modules,
+
 			  [{apply, {application, stop, [Appl]}}] ++
-			      [{remove, {M, brutal_purge, brutal_purge}} || M <- Mods] ++
+			      [{remove, {M, brutal_purge, brutal_purge}}
+			       || M <- Mods] ++
 			      [{purge, Mods},
 			       {apply, {application, unload, [Appl]}}];
 		      false ->
@@ -360,20 +360,26 @@ translate_application_instrs(Script, Appls, PreAppls) ->
 	     ({restart_application, Appl}) ->
 		  case lists:keysearch(Appl, #application.name, PreAppls) of
 		      {value, PreApplication} ->
-			  PreMods =
-			      remove_vsn(PreApplication#application.modules),
-
+			  PreMods = PreApplication#application.modules,
 			  case lists:keysearch(Appl, #application.name, Appls) of
 			      {value, PostApplication} ->
-				  PostMods =
-				      remove_vsn(PostApplication#application.modules),
-				  
+				  PostMods = PostApplication#application.modules,
+				  Type = PostApplication#application.type,
+				  Apply =
+				      case Type of
+					  none -> [];
+					  load -> [{apply, {application, load,
+							    [Appl]}}];
+					  _ -> [{apply, {application, start,
+							 [Appl, Type]}}]
+				      end,
+
 				  [{apply, {application, stop, [Appl]}}] ++
-				      [{remove, {M, brutal_purge, brutal_purge}} || M <- PreMods] ++
+				      [{remove, {M, brutal_purge, brutal_purge}}
+				       || M <- PreMods] ++
 				      [{purge, PreMods}] ++
 				      [{add_module, M, []} || M <- PostMods] ++
-				      [{apply, {application, start,
-						[Appl, permanent]}}];
+				      Apply;
 			      false ->
 				  throw({error, {no_such_application, Appl}})
 			  end;
@@ -384,11 +390,6 @@ translate_application_instrs(Script, Appls, PreAppls) ->
 	     (X) -> X
 	  end, Script),
     lists:flatten(L).
-
-remove_vsn(Mods) ->
-    lists:map(fun({Mod, _Vsn}) -> Mod;
-		 (Mod) -> Mod
-	      end, Mods).
 
 %%-----------------------------------------------------------------
 %% Translates add_module into load_module (high-level transformation)
@@ -410,7 +411,7 @@ translate_add_module_instrs(Before, After) ->
 %%-----------------------------------------------------------------
 
 %%-----------------------------------------------------------------
-%% Translates update, load_module and remove_module, and reorder the
+%% Translates update, load_module and delete_module, and reorder the
 %% instructions according to dependencies. Leaves other instructions
 %% unchanged.
 %%-----------------------------------------------------------------
@@ -536,7 +537,7 @@ get_dependent_instructions(G, WCs, Mod) ->
 %% Instructions are in order of dependency.
 %% Appls = [#application]
 %%
-%% Instructions translated are: update, load_module, and remove_module 
+%% Instructions translated are: update, load_module, and delete_module
 %%
 %% Before =	[{load_object_code, ...}]
 %% After = 	[{suspend, ...}] ++ CodeInstrs ++ [{resume, ...}]
@@ -574,17 +575,19 @@ translate_dep_to_low(Mode, Instructions, Appls) ->
 				end, RevUpdateMods)}]
 	end,
 
-    LoadRemoveInstrs = 
+    LoadRemoveInstrs0 =
 	filtermap(fun({update, Mod, _, _, _, PreP, PostP, _}) ->
 			  {true, {load, {Mod, PreP, PostP}}};
 		     ({load_module, Mod, PreP, PostP, _}) ->
 			  {true, {load, {Mod, PreP, PostP}}};
-		     ({remove_module, Mod, PreP, PostP, _}) ->
-			  {true, {remove, {Mod, PreP, PostP}}};
+		     ({delete_module, Mod, _}) ->
+			  {true,[{remove, {Mod, brutal_purge, brutal_purge}},
+				 {purge, [Mod]}]};
 		     (_) -> false
 		  end,
 		  Instructions),
-    RevLoadRemoveInstrs = lists:reverse(LoadRemoveInstrs),
+    LoadRemoveInstrs = lists:flatten(LoadRemoveInstrs0),
+    RevLoadRemoveInstrs = lists:flatten(lists:reverse(LoadRemoveInstrs0)),
 
     %% The order of loading object code is unimportant. The order
     %% chosen is the order of dependency.
@@ -654,15 +657,9 @@ translate_dep_to_low(Mode, Instructions, Appls) ->
     end.
 
 get_lib(Mod, [#application{name = Name, vsn = Vsn, modules = Modules} | T]) ->
-    %% Module = {Mod, Vsn} | Mod
-    case lists:keysearch(Mod, 1, Modules) of
-	{value, _} ->
-	    {Name, Vsn};
-	false ->
-	    case lists:member(Mod, Modules) of
-		true -> {Name, Vsn};
-		false ->   get_lib(Mod, T)
-	    end
+    case lists:member(Mod, Modules) of
+	true -> {Name, Vsn};
+	false ->   get_lib(Mod, T)
     end;
 get_lib(Mod, []) ->
     throw({error, {no_such_module, Mod}}).
@@ -785,10 +782,10 @@ check_op({add_module, Mod, Mods}) ->
     check_mod(Mod),
     check_list(Mods),
     lists:foreach(fun(M) -> check_mod(M) end, Mods);
-check_op({remove_module, Mod, PrePurge, PostPurge, Mods}) ->
+check_op({delete_module, Mod}) ->
+    check_mod(Mod);
+check_op({delete_module, Mod, Mods}) ->
     check_mod(Mod),
-    check_purge(PrePurge),
-    check_purge(PostPurge),
     check_list(Mods),
     lists:foreach(fun(M) -> check_mod(M) end, Mods);
 check_op({remove_application, Appl}) ->
@@ -916,7 +913,7 @@ format_error({bad_op_before_point_of_no_return, Instruction}) ->
     io_lib:format("Bad instruction ~p~nbefore point_of_no_return~n",
 		  [Instruction]);
 format_error({no_object_code, Mod}) ->
-    io_lib:format("No load_object_code found for module: ~p~n", [Mod]);
+    io_lib:format("No load_object_code found for module: ~w~n", [Mod]);
 format_error({suspended_not_resumed, Mods}) ->
     io_lib:format("Suspended but not resumed: ~p~n", [Mods]);
 format_error({resumed_not_suspended, Mods}) ->
@@ -928,58 +925,58 @@ format_error({start_not_stop, Mods}) ->
 format_error({stop_not_start, Mods}) ->
     io_lib:format("Stopped but not started: ~p~n", [Mods]);
 format_error({no_such_application, App}) ->
-    io_lib:format("Started undefined application: ~p~n", [App]);
+    io_lib:format("Started undefined application: ~w~n", [App]);
 format_error({removed_application_present, App}) ->
-    io_lib:format("Removed application present: ~p~n", [App]);
+    io_lib:format("Removed application present: ~w~n", [App]);
 format_error(dup_mnesia_backup) ->
     io_lib:format("Duplicate mnesia_backup~n", []);
 format_error(bad_mnesia_backup) ->
     io_lib:format("mnesia_backup in bad position~n", []);
 format_error({conflicting_versions, Lib, V1, V2}) ->
-    io_lib:format("Conflicting versions for ~p, ~p and ~p~n", [Lib, V1, V2]);
+    io_lib:format("Conflicting versions for ~w, ~ts and ~ts~n", [Lib, V1, V2]);
 format_error({no_appl_vsn, Appl}) ->
-    io_lib:format("No version specified for application: ~p~n", [Appl]);
+    io_lib:format("No version specified for application: ~w~n", [Appl]);
 format_error({no_such_module, Mod}) ->
-    io_lib:format("No such module: ~p~n", [Mod]);
+    io_lib:format("No such module: ~w~n", [Mod]);
 format_error(too_many_point_of_no_return) ->
     io_lib:format("Too many point_of_no_return~n", []);
 
 format_error({bad_instruction, X}) ->
-    io_lib:format("Bad instruction: ~p~n", [X]);
+    io_lib:format("Bad instruction: ~tp~n", [X]);
 format_error({bad_module, X}) ->
-    io_lib:format("Bad module: ~p(should be atom())~n", [X]);
+    io_lib:format("Bad module: ~tp(should be atom())~n", [X]);
 format_error({bad_code_change, X}) ->
-    io_lib:format("Bad code_change: ~p(should be {Mod, Extra})~n", [X]);
+    io_lib:format("Bad code_change: ~tp(should be {Mod, Extra})~n", [X]);
 format_error({bad_change, X}) ->
-    io_lib:format("Bad change spec: ~p(should be soft | {advanced, E})~n", [X]);
+    io_lib:format("Bad change spec: ~tp(should be soft | {advanced, E})~n", [X]);
 format_error({bad_mod_type, X}) ->
-    io_lib:format("Bad module type: ~p(should be static | dynamic)~n", [X]);
+    io_lib:format("Bad module type: ~tp(should be static | dynamic)~n", [X]);
 format_error({bad_purge_method, X}) ->
-    io_lib:format("Bad purge method: ~p(should be soft_purge | brutal_purge)~n",
+    io_lib:format("Bad purge method: ~tp(should be soft_purge | brutal_purge)~n",
 		  [X]);
 format_error({bad_list, X}) ->
-    io_lib:format("Bad list: ~p~n", [X]);
+    io_lib:format("Bad list: ~tp~n", [X]);
 format_error({bad_args_list, X}) ->
-    io_lib:format("Bad argument list: ~p~n", [X]);
+    io_lib:format("Bad argument list: ~tp~n", [X]);
 format_error({bad_node, X}) ->
-    io_lib:format("Bad node: ~p(should be atom())~n", [X]);
+    io_lib:format("Bad node: ~tp(should be atom())~n", [X]);
 format_error({bad_application, X}) ->
-    io_lib:format("Bad application: ~p(should be atom())~n", [X]);
+    io_lib:format("Bad application: ~tp(should be atom())~n", [X]);
 format_error({bad_func, X}) ->
-    io_lib:format("Bad function: ~p(should be atom())~n", [X]);
+    io_lib:format("Bad function: ~tp(should be atom())~n", [X]);
 format_error({bad_lib, X}) ->
-    io_lib:format("Bad library: ~p(should be atom())~n", [X]);
+    io_lib:format("Bad library: ~tp(should be atom())~n", [X]);
 format_error({bad_lib_vsn, X}) ->
-    io_lib:format("Bad library version: ~p(should be string())~n", [X]);
+    io_lib:format("Bad library version: ~tp(should be string())~n", [X]);
 format_error({bad_timeout, X}) ->
-    io_lib:format("Bad timeout: ~p(should be infinity | int() > 0)~n", [X]);
+    io_lib:format("Bad timeout: ~tp(should be infinity | int() > 0)~n", [X]);
 
 format_error({undef_module, Mod}) ->
     io_lib:format("Undefined module: ~p~n", [Mod]);
 format_error({muldef_module, Mod}) ->
     io_lib:format("Multiply defined module: ~p~n", [Mod]);
 format_error(E) ->
-    io_lib:format("~p~n",[E]).
+    io_lib:format("~tp~n",[E]).
 
 
 %%-----------------------------------------------------------------

@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2009-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2009-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -39,6 +40,7 @@
 	 cookie_header/1, cookie_header/2, cookie_header/3, 
 	 which_cookies/0, which_cookies/1, 
 	 reset_cookies/0, reset_cookies/1, 
+	 which_sessions/0, which_sessions/1, 
 	 stream_next/1,
 	 default_profile/0, 
 	 profile_name/1, profile_name/2,
@@ -99,7 +101,8 @@ request(Url, Profile) ->
 %%           {ok, {StatusLine, Headers, Body}} | {ok, {Status, Body}} |
 %%           {ok, RequestId} | {error,Reason} | {ok, {saved_as, FilePath}
 %%
-%%	Method - atom() = head | get | put | post | trace | options| delete 
+%%	Method - atom() = head | get | put | patch | post | trace |
+%%	                  options | delete 
 %%	Request - {Url, Headers} | {Url, Headers, ContentType, Body} 
 %%	Url - string() 
 %%	HTTPOptions - [HttpOption]
@@ -144,50 +147,57 @@ request(Method, Request, HttpOptions, Options) ->
     request(Method, Request, HttpOptions, Options, default_profile()). 
 
 request(Method, 
+	{Url, Headers, ContentType, TupleBody}, 
+	HTTPOptions, Options, Profile) 
+  when ((Method =:= post) orelse (Method =:= patch) orelse (Method =:= put) orelse (Method =:= delete)) 
+       andalso (is_atom(Profile) orelse is_pid(Profile)) andalso
+       is_list(ContentType)  andalso is_tuple(TupleBody)->
+    case check_body_gen(TupleBody) of
+	ok ->
+	    do_request(Method, {Url, Headers, ContentType, TupleBody}, HTTPOptions, Options, Profile);
+	Error ->
+	    Error
+    end;
+request(Method, 
+	{Url, Headers, ContentType, Body}, 
+	HTTPOptions, Options, Profile) 
+  when ((Method =:= post) orelse (Method =:= patch) orelse (Method =:= put) orelse (Method =:= delete)) 
+       andalso (is_atom(Profile) orelse is_pid(Profile)) andalso
+       is_list(ContentType) andalso (is_list(Body) orelse is_binary(Body)) ->
+    do_request(Method, {Url, Headers, ContentType, Body}, HTTPOptions, Options, Profile);
+
+request(Method, 
 	{Url, Headers}, 
 	HTTPOptions, Options, Profile) 
   when (Method =:= options) orelse 
        (Method =:= get) orelse 
+       (Method =:= put) orelse
        (Method =:= head) orelse 
        (Method =:= delete) orelse 
        (Method =:= trace) andalso 
        (is_atom(Profile) orelse is_pid(Profile)) ->
-    ?hcrt("request", [{method,       Method}, 
-		      {url,          Url},
-		      {headers,      Headers}, 
-		      {http_options, HTTPOptions}, 
-		      {options,      Options}, 
-		      {profile,      Profile}]),
-    case uri_parse(Url, Options) of
-	{error, Reason} ->
+    case uri_string:parse(uri_string:normalize(Url)) of
+	{error, Reason, _} ->
 	    {error, Reason};
-	{ok, ParsedUrl} ->
-	    handle_request(Method, Url, ParsedUrl, Headers, [], [], 
-			   HTTPOptions, Options, Profile)
-    end;
-     
-request(Method, 
-	{Url, Headers, ContentType, Body}, 
-	HTTPOptions, Options, Profile) 
-  when ((Method =:= post) orelse (Method =:= put)) andalso 
-       (is_atom(Profile) orelse is_pid(Profile)) ->
-    ?hcrt("request", [{method,       Method}, 
-		      {url,          Url},
-		      {headers,      Headers}, 
-		      {content_type, ContentType}, 
-		      {body,         Body}, 
-		      {http_options, HTTPOptions}, 
-		      {options,      Options}, 
-		      {profile,      Profile}]),
-    case uri_parse(Url, Options) of
-	{error, Reason} ->
+	ParsedUrl ->
+	    case header_parse(Headers) of
+		{error, Reason} ->
+		    {error, Reason};
+		_ ->
+		    handle_request(Method, Url, ParsedUrl, Headers, [], [], 
+				   HTTPOptions, Options, Profile)
+	    end
+    end.
+
+do_request(Method, {Url, Headers, ContentType, Body}, HTTPOptions, Options, Profile) ->
+    case uri_string:parse(uri_string:normalize(Url)) of
+	{error, Reason, _} ->
 	    {error, Reason};
-	{ok, ParsedUrl} ->
+	ParsedUrl ->
 	    handle_request(Method, Url, 
 			   ParsedUrl, Headers, ContentType, Body, 
 			   HTTPOptions, Options, Profile)
     end.
-
 
 %%--------------------------------------------------------------------------
 %% cancel_request(RequestId) -> ok
@@ -201,17 +211,8 @@ cancel_request(RequestId) ->
 
 cancel_request(RequestId, Profile) 
   when is_atom(Profile) orelse is_pid(Profile) ->
-    ?hcrt("cancel request", [{request_id, RequestId}, {profile, Profile}]),
-    ok = httpc_manager:cancel_request(RequestId, profile_name(Profile)), 
-    receive  
-	%% If the request was already fulfilled throw away the 
-	%% answer as the request has been canceled.
-	{http, {RequestId, _}} ->
-	    ok 
-    after 0 ->
-	    ok
-    end.
-
+    httpc_manager:cancel_request(RequestId, profile_name(Profile)).
+   
 
 %%--------------------------------------------------------------------------
 %% set_options(Options) -> ok | {error, Reason}
@@ -232,17 +233,9 @@ cancel_request(RequestId, Profile)
 set_options(Options) ->
     set_options(Options, default_profile()).
 set_options(Options, Profile) when is_atom(Profile) orelse is_pid(Profile) ->
-    ?hcrt("set options", [{options, Options}, {profile, Profile}]),
     case validate_options(Options) of
 	{ok, Opts} ->
-	    try 
-		begin
-		    httpc_manager:set_options(Opts, profile_name(Profile))
-		end
-	    catch
-		exit:{noproc, _} ->
-		    {error, inets_not_started}
-	    end;
+	    httpc_manager:set_options(Opts, profile_name(Profile));
 	{error, Reason} ->
 	    {error, Reason}
     end.
@@ -267,6 +260,7 @@ set_option(Key, Value, Profile) ->
 %%   Reason - term()
 %% Description: Retrieves the current options. 
 %%-------------------------------------------------------------------------
+
 get_options() ->
     record_info(fields, options).
 
@@ -278,7 +272,6 @@ get_options(all = _Options, Profile) ->
 get_options(Options, Profile) 
   when (is_list(Options) andalso 
 	(is_atom(Profile) orelse is_pid(Profile))) ->
-    ?hcrt("get options", [{options, Options}, {profile, Profile}]),
     case Options -- get_options() of
 	[] ->
 	    try 
@@ -320,28 +313,28 @@ store_cookies(SetCookieHeaders, Url) ->
 
 store_cookies(SetCookieHeaders, Url, Profile) 
   when is_atom(Profile) orelse is_pid(Profile) ->
-    ?hcrt("store cookies", [{set_cookie_headers, SetCookieHeaders}, 
-			    {url,                Url},
-			    {profile,            Profile}]),
-    try 
-	begin
+    case uri_string:parse(uri_string:normalize(Url)) of
+        {error, Bad, _} ->
+            {error, {parse_failed, Bad}};
+        URI ->
+            Scheme = scheme_to_atom(maps:get(scheme, URI, '')),
+            Host = maps:get(host, URI, ""),
+            Port = maps:get(port, URI, default_port(Scheme)),
+            Path = uri_string:recompose(#{path => maps:get(path, URI, "")}),
 	    %% Since the Address part is not actually used
 	    %% by the manager when storing cookies, we dont
 	    %% care about ipv6-host-with-brackets.
-	    {ok, {_, _, Host, Port, Path, _}} = uri_parse(Url),
 	    Address     = {Host, Port}, 
 	    ProfileName = profile_name(Profile),
 	    Cookies     = httpc_cookie:cookies(SetCookieHeaders, Path, Host),
 	    httpc_manager:store_cookies(Cookies, Address, ProfileName), 
 	    ok
-	end
-    catch 
-	exit:{noproc, _} ->
-	    {error, {not_started, Profile}};
-	error:{badmatch, Bad} ->
-	    {error, {parse_failed, Bad}}
     end.
 
+default_port(http) ->
+    80;
+default_port(https) ->
+    443.
 
 %%--------------------------------------------------------------------------
 %% cookie_header(Url) -> Header | {error, Reason}
@@ -361,9 +354,6 @@ cookie_header(Url, Opts) when is_list(Opts) ->
 
 cookie_header(Url, Opts, Profile) 
   when (is_list(Opts) andalso (is_atom(Profile) orelse is_pid(Profile))) ->
-    ?hcrt("cookie header", [{url,     Url},
-			    {opts,    Opts}, 
-			    {profile, Profile}]),
     try 
 	begin
 	    httpc_manager:which_cookies(Url, Opts, profile_name(Profile))
@@ -373,8 +363,6 @@ cookie_header(Url, Opts, Profile)
 	    {error, {not_started, Profile}}
     end.
     
-    
-
 
 %%--------------------------------------------------------------------------
 %% which_cookies() -> [cookie()]
@@ -398,6 +386,27 @@ which_cookies(Profile) ->
 
 
 %%--------------------------------------------------------------------------
+%% which_sessions() -> {GoodSession, BadSessions, NonSessions}
+%% which_sessions(Profile) -> {GoodSession, BadSessions, NonSessions}
+%%               
+%% Description: Debug function, dumping the sessions database, sorted 
+%%              into three groups (Good-, Bad- and Non-sessions).
+%%-------------------------------------------------------------------------
+which_sessions() ->
+    which_sessions(default_profile()).
+
+which_sessions(Profile) ->
+    try 
+	begin
+	    httpc_manager:which_sessions(profile_name(Profile))
+	end
+    catch 
+	exit:{noproc, _} ->
+	    {[], [], []}
+    end.
+
+
+%%--------------------------------------------------------------------------
 %% info() -> list()
 %% info(Profile) -> list()
 %%               
@@ -407,7 +416,6 @@ info() ->
     info(default_profile()).
 
 info(Profile) ->
-    ?hcrt("info", [{profile, Profile}]),
     try 
 	begin
 	    httpc_manager:info(profile_name(Profile))
@@ -428,7 +436,6 @@ reset_cookies() ->
     reset_cookies(default_profile()).
 
 reset_cookies(Profile) ->
-    ?hcrt("reset cookies", [{profile, Profile}]),
     try 
 	begin
 	    httpc_manager:reset_cookies(profile_name(Profile))
@@ -446,7 +453,6 @@ reset_cookies(Profile) ->
 %%              same behavior as active once for sockets.
 %%-------------------------------------------------------------------------
 stream_next(Pid) ->
-    ?hcrt("stream next", [{handler, Pid}]),
     httpc_handler:stream_next(Pid).
 
 
@@ -454,7 +460,6 @@ stream_next(Pid) ->
 %%% Behaviour callbacks
 %%%========================================================================
 start_standalone(PropList) ->
-    ?hcrt("start standalone", [{proplist, PropList}]),
     case proplists:get_value(profile, PropList) of
 	undefined ->
 	    {error, no_profile};
@@ -465,14 +470,11 @@ start_standalone(PropList) ->
     end.
 
 start_service(Config) ->
-    ?hcrt("start service", [{config, Config}]),
     httpc_profile_sup:start_child(Config).
 
 stop_service(Profile) when is_atom(Profile) ->
-    ?hcrt("stop service", [{profile, Profile}]),
     httpc_profile_sup:stop_child(Profile);
 stop_service(Pid) when is_pid(Pid) ->
-    ?hcrt("stop service", [{pid, Pid}]),
     case service_info(Pid) of
 	{ok, [{profile, Profile}]} ->
 	    stop_service(Profile);
@@ -498,9 +500,8 @@ service_info(Pid) ->
 %%%========================================================================
 %%% Internal functions
 %%%========================================================================
-
 handle_request(Method, Url, 
-	       {Scheme, UserInfo, Host, Port, Path, Query}, 
+               URI,
 	       Headers0, ContentType, Body0,
 	       HTTPOptions0, Options0, Profile) ->
 
@@ -509,9 +510,6 @@ handle_request(Method, Url,
 
     try
 	begin
-	    ?hcrt("begin processing", [{started,     Started}, 
-				       {new_headers, NewHeaders0}]),
-
 	    {NewHeaders, Body} = 
 		case Body0 of
 		    {chunkify, ProcessBody, Acc} 
@@ -528,62 +526,81 @@ handle_request(Method, Url,
 			throw({error, {bad_body, Body0}})
 		end,
 
-	    HTTPOptions   = http_options(HTTPOptions0),
-	    Options       = request_options(Options0), 
-	    Sync          = proplists:get_value(sync,   Options),
-	    Stream        = proplists:get_value(stream, Options),
-	    Host2         = header_host(Scheme, Host, Port), 
-	    HeadersRecord = header_record(NewHeaders, Host2, HTTPOptions),
-	    Receiver      = proplists:get_value(receiver, Options),
-	    SocketOpts    = proplists:get_value(socket_opts, Options),
-	    BracketedHost = proplists:get_value(ipv6_host_with_brackets, 
-						Options),
-	    MaybeEscPath  = maybe_encode_uri(HTTPOptions, Path),
-	    MaybeEscQuery = maybe_encode_uri(HTTPOptions, Query),
-	    AbsUri        = maybe_encode_uri(HTTPOptions, Url),
+            HTTPOptions   = http_options(HTTPOptions0),
+            Options       = request_options(Options0),
+            Sync          = proplists:get_value(sync,   Options),
+            Stream        = proplists:get_value(stream, Options),
+            Receiver      = proplists:get_value(receiver, Options),
+            SocketOpts    = proplists:get_value(socket_opts, Options),
+	    UnixSocket    = proplists:get_value(unix_socket, Options),
+            BracketedHost = proplists:get_value(ipv6_host_with_brackets,
+                                                Options),
+
+            Scheme        = scheme_to_atom(maps:get(scheme, URI, '')),
+            Userinfo      = maps:get(userinfo, URI, ""),
+            Host          = http_util:maybe_add_brackets(maps:get(host, URI, ""), BracketedHost),
+            Port          = maps:get(port, URI, default_port(Scheme)),
+            Host2         = http_request:normalize_host(Scheme, Host, Port),
+            Path          = uri_string:recompose(#{path => maps:get(path, URI, "")}),
+            Query         = add_question_mark(maps:get(query, URI, "")),
+            HeadersRecord = header_record(NewHeaders, Host2, HTTPOptions),
 
 	    Request = #request{from          = Receiver,
-			       scheme        = Scheme, 
+			       scheme        = Scheme,
 			       address       = {Host, Port},
-			       path          = MaybeEscPath,
-			       pquery        = MaybeEscQuery,
+			       path          = Path,
+			       pquery        = Query,
 			       method        = Method,
 			       headers       = HeadersRecord, 
 			       content       = {ContentType, Body},
 			       settings      = HTTPOptions, 
-			       abs_uri       = AbsUri,
-			       userinfo      = UserInfo, 
+			       abs_uri       = Url,
+			       userinfo      = Userinfo,
 			       stream        = Stream, 
 			       headers_as_is = headers_as_is(Headers0, Options),
 			       socket_opts   = SocketOpts, 
 			       started       = Started,
+			       unix_socket   = UnixSocket,
 			       ipv6_host_with_brackets = BracketedHost},
-
 	    case httpc_manager:request(Request, profile_name(Profile)) of
 		{ok, RequestId} ->
 		    handle_answer(RequestId, Sync, Options);
 		{error, Reason} ->
-		    ?hcrd("request failed", [{reason, Reason}]),
 		    {error, Reason}
 	    end
 	end
     catch
 	error:{noproc, _} ->
-	    ?hcrv("noproc", [{profile, Profile}]),
 	    {error, {not_started, Profile}};
 	throw:Error ->
-	    ?hcrv("throw", [{error, Error}]),
 	    Error
     end.
+
+
+add_question_mark(<<>>) ->
+    <<>>;
+add_question_mark([]) ->
+    [];
+add_question_mark(Comp) when is_binary(Comp) ->
+    <<$?, Comp/binary>>;
+add_question_mark(Comp) when is_list(Comp) ->
+    [$?|Comp].
+
+
+scheme_to_atom("http") ->
+    http;
+scheme_to_atom("https") ->
+    https;
+scheme_to_atom('') ->
+    '';
+scheme_to_atom(Scheme) ->
+    throw({error, {bad_scheme, Scheme}}).
+
 
 ensure_chunked_encoding(Hdrs) ->
     Key = "transfer-encoding",
     lists:keystore(Key, 1, Hdrs, {Key, "chunked"}).
 
-maybe_encode_uri(#http_options{url_encode = true}, URI) ->
-    http_uri:encode(URI);
-maybe_encode_uri(_, URI) ->
-    URI.
 
 mk_chunkify_fun(ProcessBody) ->
     fun(eof_body) ->
@@ -608,15 +625,10 @@ handle_answer(RequestId, false, _) ->
 handle_answer(RequestId, true, Options) ->
     receive
 	{http, {RequestId, saved_to_file}} ->
-	    ?hcrt("received saved-to-file", [{request_id, RequestId}]),
 	    {ok, saved_to_file};
 	{http, {RequestId, {_,_,_} = Result}} ->
-	    ?hcrt("received answer", [{request_id, RequestId}, 
-				      {result,     Result}]),
 	    return_answer(Options, Result);
 	{http, {RequestId, {error, Reason}}} ->
-	    ?hcrt("received error", [{request_id, RequestId}, 
-				     {reason,     Reason}]),
 	    {error, Reason}
     end.
 
@@ -814,7 +826,7 @@ request_options_defaults() ->
 		error
 	end,
 
-    VerifyBrackets = VerifyBoolean, 
+    VerifyBrackets = VerifyBoolean,
 
     [
      {sync,                    true,      VerifySync}, 
@@ -885,14 +897,43 @@ request_options_sanity_check(Opts) ->
     end,
     ok.
 
-validate_options(Options) ->
-    (catch validate_options(Options, [])).
+validate_ipfamily_unix_socket(Options0) ->
+    IpFamily = proplists:get_value(ipfamily, Options0, inet),
+    UnixSocket = proplists:get_value(unix_socket, Options0, undefined),
+    Options1 = proplists:delete(ipfamily, Options0),
+    Options2 = proplists:delete(ipfamily, Options1),
+    validate_ipfamily_unix_socket(IpFamily, UnixSocket, Options2,
+                                  [{ipfamily, IpFamily}, {unix_socket, UnixSocket}]).
+%%
+validate_ipfamily_unix_socket(local, undefined, _Options, _Acc) ->
+    bad_option(unix_socket, undefined);
+validate_ipfamily_unix_socket(IpFamily, UnixSocket, _Options, _Acc)
+  when IpFamily =/= local, UnixSocket =/= undefined ->
+    bad_option(ipfamily, IpFamily);
+validate_ipfamily_unix_socket(IpFamily, UnixSocket, Options, Acc) ->
+    validate_ipfamily(IpFamily),
+    validate_unix_socket(UnixSocket),
+    {Options, Acc}.
 
-validate_options([], ValidateOptions) ->
-    {ok, lists:reverse(ValidateOptions)};
+
+validate_options(Options0) ->
+    try
+        {Options, Acc} = validate_ipfamily_unix_socket(Options0),
+        validate_options(Options, Acc)
+    catch
+        error:Reason ->
+            {error, Reason}
+    end.
+%%
+validate_options([], ValidOptions) ->
+    {ok, lists:reverse(ValidOptions)};
 
 validate_options([{proxy, Proxy} = Opt| Tail], Acc) ->
     validate_proxy(Proxy),
+    validate_options(Tail, [Opt | Acc]);
+
+validate_options([{https_proxy, Proxy} = Opt| Tail], Acc) ->
+    validate_https_proxy(Proxy),
     validate_options(Tail, [Opt | Acc]);
 
 validate_options([{max_sessions, Value} = Opt| Tail], Acc) ->
@@ -945,6 +986,10 @@ validate_options([{verbose, Value} = Opt| Tail], Acc) ->
     validate_verbose(Value), 
     validate_options(Tail, [Opt | Acc]);
 
+validate_options([{unix_socket, Value} = Opt| Tail], Acc) ->
+    validate_unix_socket(Value),
+    validate_options(Tail, [Opt | Acc]);
+
 validate_options([{_, _} = Opt| _], _Acc) ->
     {error, {not_an_option, Opt}}.
 
@@ -956,6 +1001,14 @@ validate_proxy({{ProxyHost, ProxyPort}, NoProxy} = Proxy)
     Proxy;
 validate_proxy(BadProxy) ->
     bad_option(proxy, BadProxy).
+
+validate_https_proxy({{ProxyHost, ProxyPort}, NoProxy} = Proxy) 
+  when is_list(ProxyHost) andalso 
+       is_integer(ProxyPort) andalso 
+       is_list(NoProxy) ->
+    Proxy;
+validate_https_proxy(BadProxy) ->
+    bad_option(https_proxy, BadProxy).
 
 validate_max_sessions(Value) when is_integer(Value) andalso (Value >= 0) ->
     Value;
@@ -1005,7 +1058,8 @@ validate_ipv6(BadValue) ->
     bad_option(ipv6, BadValue).
 
 validate_ipfamily(Value) 
-  when (Value =:= inet) orelse (Value =:= inet6) orelse (Value =:= inet6fb4) ->
+  when (Value =:= inet) orelse (Value =:= inet6) orelse
+       (Value =:= inet6fb4) orelse (Value =:= local) ->
     Value;
 validate_ipfamily(BadValue) ->
     bad_option(ipfamily, BadValue).
@@ -1035,16 +1089,17 @@ validate_verbose(Value)
 validate_verbose(BadValue) ->
     bad_option(verbose, BadValue).
 
+validate_unix_socket(Value)
+  when (Value =:= undefined) ->
+    Value;
+validate_unix_socket(Value)
+  when is_list(Value) andalso length(Value) > 0 ->
+    Value;
+validate_unix_socket(BadValue) ->
+    bad_option(unix_socket, BadValue).
+
 bad_option(Option, BadValue) ->
     throw({error, {bad_option, Option, BadValue}}).
-
-
-header_host(https, Host, 443 = _Port) ->
-    Host;
-header_host(http, Host, 80 = _Port) ->
-    Host;
-header_host(_Scheme, Host, Port) ->
-    Host ++ ":" ++ integer_to_list(Port).
 
 
 header_record(NewHeaders, Host, #http_options{version = Version}) ->
@@ -1202,18 +1257,12 @@ validate_headers(RequestHeaders, _, _) ->
 %% These functions is just simple wrappers to parse specifically HTTP URIs
 %%--------------------------------------------------------------------------
 
-scheme_defaults() ->
-    [{http, 80}, {https, 443}].
-
-uri_parse(URI) ->
-    http_uri:parse(URI, [{scheme_defaults, scheme_defaults()}]).
-
-uri_parse(URI, Opts) ->
-    http_uri:parse(URI, [{scheme_defaults, scheme_defaults()} | Opts]).
-
-
-%%--------------------------------------------------------------------------
-    
+header_parse([]) ->
+    ok;
+header_parse([{Field, Value}|T]) when is_list(Field), is_list(Value) ->    
+    header_parse(T);
+header_parse(_) -> 
+    {error, {headers_error, not_strings}}.
 child_name2info(undefined) ->
     {error, no_such_service};
 child_name2info(httpc_manager) ->
@@ -1228,14 +1277,10 @@ child_name(Pid, [{Name, Pid} | _]) ->
 child_name(Pid, [_ | Children]) ->
     child_name(Pid, Children).
 
-%% d(F) ->
-%%    d(F, []).
 
-%% d(F, A) -> 
-%%     d(get(dbg), F, A).
-
-%% d(true, F, A) ->
-%%     io:format(user, "~w:~w:" ++ F ++ "~n", [self(), ?MODULE | A]);
-%% d(_, _, _) ->
-%%     ok.
-
+check_body_gen({Fun, _}) when is_function(Fun) -> 
+    ok;
+check_body_gen({chunkify, Fun, _}) when is_function(Fun) -> 
+    ok;
+check_body_gen(Gen) -> 
+    {error, {bad_body_generator, Gen}}.

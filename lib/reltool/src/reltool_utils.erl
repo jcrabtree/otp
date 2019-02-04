@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2009-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2009-2017. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 
@@ -46,6 +47,9 @@
 
 	 call/2, cast/2, reply/3]).
 
+%% For testing
+-export([erl_libs/2]).
+
 -include_lib("kernel/include/file.hrl").
 -include_lib("wx/include/wx.hrl").
 -include("reltool.hrl").
@@ -54,12 +58,15 @@ root_dir() ->
     code:root_dir().
 
 erl_libs() ->
-    case os:getenv("ERL_LIBS") of
-	false ->
-	    [];
-	LibStr ->
-	    string:tokens(LibStr, ":;")
-    end.
+    erl_libs(os:getenv("ERL_LIBS", ""), os:type()).
+
+erl_libs(ErlLibs, OsType) when is_list(ErlLibs) ->
+  Sep =
+    case OsType of
+      {win32, _} -> ";";
+      _          -> ":"
+    end,
+  string:lexemes(ErlLibs, Sep).
 
 lib_dirs(Dir) ->
     case erl_prim_loader:list_dir(Dir) of
@@ -106,7 +113,7 @@ normalize_dir([], Path) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 prim_consult(Bin) when is_binary(Bin) ->
-    case erl_scan:string(binary_to_list(Bin)) of
+    case erl_scan:string(unicode:characters_to_list(Bin,encoding(Bin))) of
 	{ok, Tokens, _EndLine} ->
 	    prim_parse(Tokens, []);
 	{error, {_ErrorLine, Module, Reason}, _EndLine} ->
@@ -118,6 +125,14 @@ prim_consult(FullName) when is_list(FullName) ->
 	    prim_consult(Bin);
         error ->
             {error, file:format_error(enoent)}
+    end.
+
+encoding(Bin) when is_binary(Bin) ->
+    case epp:read_encoding_from_binary(Bin) of
+	none ->
+	    epp:default_encoding();
+	E ->
+	    E
     end.
 
 prim_parse(Tokens, Acc) ->
@@ -150,7 +165,12 @@ default_rels() ->
 	  rel_apps = []},
      #rel{name = "start_sasl",
 	  vsn = "1.0",
-	  rel_apps = [#rel_app{name = sasl}]}
+          rel_apps = [#rel_app{name = sasl}]},
+     #rel{name = "no_dot_erlang", %% Needed by escript and erlc
+          vsn = "1.0",
+          rel_apps = [],
+          load_dot_erlang = false
+         }
     ].
 
 choose_default(Tag, Profile, InclDefs)
@@ -282,7 +302,7 @@ split_app_dir(Dir) ->
     {Name, Vsn} = split_app_name(Base),
     Vsn2 =
 	try
-	    [list_to_integer(N) || N <- string:tokens(Vsn, ".")]
+	    [list_to_integer(N) || N <- string:lexemes(Vsn, ".")]
 	catch
 	    _:_ ->
 		Vsn
@@ -423,7 +443,7 @@ scroll_size(ObjRef) ->
 safe_keysearch(Key, Pos, List, Mod, Line) ->
     case lists:keysearch(Key, Pos, List) of
         false ->
-            io:format("~p(~p): lists:keysearch(~p, ~p, ~p) -> false\n",
+            io:format("~w(~w): lists:keysearch(~tp, ~w, ~tp) -> false\n",
                       [Mod, Line, Key, Pos, List]),
             erlang:error({Mod, Line, lists, keysearch, [Key, Pos, List]});
         {value, Val} ->
@@ -455,7 +475,7 @@ create_dir(Dir) ->
             ok;
         {error, Reason} ->
             Text = file:format_error(Reason),
-            throw_error("create dir ~s: ~s", [Dir, Text])
+            throw_error("create dir ~ts: ~ts", [Dir, Text])
     end.
 
 list_dir(Dir) ->
@@ -464,7 +484,7 @@ list_dir(Dir) ->
 	    Files;
         error ->
             Text = file:format_error(enoent),
-            throw_error("list dir ~s: ~s", [Dir, Text])
+            throw_error("list dir ~ts: ~ts", [Dir, Text])
     end.
 
 read_file_info(File) ->
@@ -473,7 +493,7 @@ read_file_info(File) ->
 	    Info;
         {error, Reason} ->
             Text = file:format_error(Reason),
-            throw_error("read file info ~s: ~s", [File, Text])
+            throw_error("read file info ~ts: ~ts", [File, Text])
     end.
 
 write_file_info(File, Info) ->
@@ -482,7 +502,7 @@ write_file_info(File, Info) ->
 	    ok;
         {error, Reason} ->
             Text = file:format_error(Reason),
-            throw_error("write file info ~s: ~s", [File, Text])
+            throw_error("write file info ~ts: ~ts", [File, Text])
     end.
 
 read_file(File) ->
@@ -491,16 +511,16 @@ read_file(File) ->
 	    Bin;
         {error, Reason} ->
             Text = file:format_error(Reason),
-            throw_error("read file ~s: ~s", [File, Text])
+            throw_error("read file ~ts: ~ts", [File, Text])
     end.
 
-write_file(File, IoList) ->
-    case file:write_file(File, IoList) of
+write_file(File, Bin) ->
+    case file:write_file(File, Bin) of
         ok ->
 	    ok;
         {error, Reason} ->
             Text = file:format_error(Reason),
-            throw_error("write file ~s: ~s", [File, Text])
+            throw_error("write file ~ts: ~ts", [File, Text])
     end.
 
 recursive_delete(Dir) ->
@@ -516,7 +536,7 @@ recursive_delete(Dir) ->
 		    ok;
 		{error, Reason} ->
 		    Text = file:format_error(Reason),
-		    throw_error("delete file ~s: ~s\n", [Dir, Text])
+		    throw_error("delete file ~ts: ~ts\n", [Dir, Text])
 	    end;
 	false ->
             delete(Dir, regular)
@@ -530,7 +550,7 @@ delete(File, Type) ->
             ok;
         {error, Reason} ->
             Text = file:format_error(Reason),
-            throw_error("delete file ~s: ~s\n", [File, Text])
+            throw_error("delete file ~ts: ~ts\n", [File, Text])
     end.
 
 do_delete(File, regular) ->
@@ -564,16 +584,16 @@ copy_file(From, To) ->
 		    FromMode = FromInfo#file_info.mode,
 		    ToMode = ToInfo#file_info.mode,
 		    ToMode2 = FromMode bor ToMode,
-		    FileInfo = FromInfo#file_info{mode = ToMode2},
+		    FileInfo = ToInfo#file_info{mode = ToMode2},
 		    write_file_info(To, FileInfo),
 		    ok;
 		{error, Reason} ->
 		    Text = file:format_error(Reason),
-		    throw_error("copy file ~s -> ~s: ~s\n", [From, To, Text])
+		    throw_error("copy file ~ts -> ~ts: ~ts\n", [From, To, Text])
 	    end;
 	error ->
 	    Text = file:format_error(enoent),
-	    throw_error("copy file ~s -> ~s: ~s\n", [From, To, Text])
+	    throw_error("copy file ~ts -> ~ts: ~ts\n", [From, To, Text])
     end.
 
 throw_error(Format, Args) ->
@@ -581,24 +601,23 @@ throw_error(Format, Args) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+decode_regexps(Key, Regexps, undefined) ->
+    decode_regexps(Key, Regexps, []);
 decode_regexps(Key, {add, Regexps}, Old) when is_list(Regexps) ->
     do_decode_regexps(Key, Regexps, Old);
 decode_regexps(_Key, {del, Regexps}, Old)  when is_list(Regexps) ->
     [Re || Re <- Old, not lists:member(Re#regexp.source, Regexps)];
 decode_regexps(Key, Regexps, _Old) when is_list(Regexps) ->
-    do_decode_regexps(Key, Regexps, []);
-decode_regexps(Key, Regexps, _Old) when is_list(Regexps) ->
-    Text = lists:flatten(io_lib:format("~p", [{Key, Regexps}])),
-    throw({error, "Illegal option: " ++ Text}).
+    do_decode_regexps(Key, Regexps, []).
 
 do_decode_regexps(Key, [Regexp | Regexps], Acc) ->
-    case catch re:compile(Regexp, []) of
+    case catch re:compile(Regexp, [unicode]) of
         {ok, MP} ->
             do_decode_regexps(Key,
 			      Regexps,
 			      [#regexp{source = Regexp, compiled = MP} | Acc]);
         _ ->
-            Text = lists:flatten(io_lib:format("~p", [{Key, Regexp}])),
+            Text = lists:flatten(io_lib:format("~tp", [{Key, Regexp}])),
             throw({error, "Illegal option: " ++ Text})
     end;
 do_decode_regexps(_Key, [], Acc) ->

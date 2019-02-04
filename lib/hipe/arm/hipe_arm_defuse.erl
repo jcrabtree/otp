@@ -1,26 +1,21 @@
 %% -*- erlang-indent-level: 2 -*-
 %%
-%% %CopyrightBegin%
-%% 
-%% Copyright Ericsson AB 2005-2009. All Rights Reserved.
-%% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
-%% 
-%% %CopyrightEnd%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
 -module(hipe_arm_defuse).
 -export([insn_def_all/1, insn_use_all/1]).
 -export([insn_def_gpr/1, insn_use_gpr/1]).
+-export([insn_defs_all_gpr/1]).
 -include("hipe_arm.hrl").
 
 %%%
@@ -45,6 +40,7 @@ insn_def_gpr(I) ->
     #pseudo_call{} -> call_clobbered_gpr();
     #pseudo_li{dst=Dst} -> [Dst];
     #pseudo_move{dst=Dst} -> [Dst];
+    #pseudo_spill_move{dst=Dst, temp=Temp} -> [Dst, Temp];
     #pseudo_tailcall_prepare{} -> tailcall_clobbered_gpr();
     #smull{dstlo=DstLo,dsthi=DstHi,src1=Src1} ->
       %% ARM requires DstLo, DstHi, and Src1 to be distinct.
@@ -52,6 +48,12 @@ insn_def_gpr(I) ->
       %% it as DstLo or DstHi.
       [DstLo, DstHi, Src1];
     _ -> []
+  end.
+
+insn_defs_all_gpr(I) ->
+  case I of
+    #pseudo_call{} -> true;
+    _ -> false
   end.
 
 call_clobbered_gpr() ->
@@ -82,6 +84,7 @@ insn_use_gpr(I) ->
     #pseudo_call{funv=FunV,sdesc=#arm_sdesc{arity=Arity}} ->
       funv_use(FunV, arity_use_gpr(Arity));
     #pseudo_move{src=Src} -> [Src];
+    #pseudo_spill_move{src=Src} -> [Src];
     #pseudo_switch{jtab=JTabR,index=IndexR} -> addtemp(JTabR, [IndexR]);
     #pseudo_tailcall{funv=FunV,arity=Arity,stkargs=StkArgs} ->
       addargs(StkArgs, addtemps(tailcall_clobbered_gpr(), funv_use(FunV, arity_use_gpr(Arity))));

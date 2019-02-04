@@ -23,18 +23,20 @@ MODULES= \
 	dummy_via \
 	edlin_expand_SUITE \
 	epp_SUITE \
-	erl_eval_helper \
+	erl_anno_SUITE \
 	erl_eval_SUITE \
 	erl_expand_records_SUITE \
 	erl_internal_SUITE \
 	erl_lint_SUITE \
 	erl_pp_SUITE \
 	erl_scan_SUITE \
+	error_logger_h_SUITE \
 	escript_SUITE \
 	ets_SUITE \
 	ets_tough_SUITE \
 	expand_test \
 	expand_test1 \
+	unicode_expand \
 	ExpandTestCaps \
 	ExpandTestCaps1 \
 	filelib_SUITE \
@@ -45,15 +47,18 @@ MODULES= \
 	gen_event_SUITE \
 	gen_fsm_SUITE \
 	gen_server_SUITE \
+	gen_statem_SUITE \
 	id_transform_SUITE \
 	io_SUITE \
 	io_proto_SUITE \
 	lists_SUITE \
 	log_mf_h_SUITE \
+	math_SUITE \
 	ms_transform_SUITE \
 	proc_lib_SUITE \
 	qlc_SUITE \
 	queue_SUITE \
+	rand_SUITE \
 	random_SUITE \
 	re_SUITE \
 	run_pcre_tests \
@@ -64,26 +69,35 @@ MODULES= \
 	sets_test_lib \
 	sofs_SUITE \
 	stdlib_SUITE \
+	stdlib_bench_SUITE \
 	string_SUITE \
 	supervisor_1 \
 	supervisor_2 \
+	supervisor_3 \
 	supervisor_deadlock \
 	naughty_child \
 	shell_SUITE \
 	supervisor_SUITE \
 	supervisor_bridge_SUITE \
 	sys_SUITE \
+	sys_sp1 \
+	sys_sp2 \
 	tar_SUITE \
 	timer_SUITE \
 	timer_simple_SUITE \
 	unicode_SUITE \
+	unicode_util_SUITE \
+	uri_string_SUITE \
+	uri_string_property_test_SUITE \
 	win32reg_SUITE \
 	y2k_SUITE \
 	select_SUITE \
 	zip_SUITE \
 	random_unicode_list \
 	random_iolist \
-	error_logger_forwarder
+	error_logger_forwarder \
+	maps_SUITE \
+	zzz_SUITE
 
 ERL_FILES= $(MODULES:%=%.erl)
 
@@ -101,8 +115,8 @@ RELSYSDIR = $(RELEASE_PATH)/stdlib_test
 # ----------------------------------------------------
 
 ERL_MAKE_FLAGS +=
-ERL_COMPILE_FLAGS += -I$(ERL_TOP)/lib/test_server/include \
-		-I$(ERL_TOP)/lib/kernel/include
+ERL_COMPILE_FLAGS += -I$(ERL_TOP)/lib/kernel/include \
+		-I$(ERL_TOP)/lib/stdlib/include
 
 EBIN = .
 
@@ -136,9 +150,9 @@ release_spec: opt
 
 release_tests_spec: make_emakefile
 	$(INSTALL_DIR) "$(RELSYSDIR)"
-	$(INSTALL_DATA) stdlib.spec $(EMAKEFILE) \
+	$(INSTALL_DATA) stdlib.spec stdlib_bench.spec $(EMAKEFILE) \
 		$(ERL_FILES) $(COVERFILE) "$(RELSYSDIR)"
 	chmod -R u+w "$(RELSYSDIR)"
-	@tar cf - *_SUITE_data | (cd "$(RELSYSDIR)"; tar xf -)
+	@tar cf - *_SUITE_data property_test | (cd "$(RELSYSDIR)"; tar xf -)
 
 release_docs_spec:

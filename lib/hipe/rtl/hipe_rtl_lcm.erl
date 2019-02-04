@@ -1,21 +1,16 @@
 %% -*- erlang-indent-level: 2 -*-
 %%
-%% %CopyrightBegin%
-%% 
-%% Copyright Ericsson AB 2004-2011. All Rights Reserved.
-%% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
-%% 
-%% %CopyrightEnd%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% File        : hipe_rtl_lcm.erl
@@ -62,10 +57,10 @@ rtl_lcm(CFG, Options) ->
   
   pp_debug("-------------------------------------------------~n",[]),
   %% pp_debug( "~w~n", [MFA]),
-  
+
   %% A check if we should pretty print the result.
   case proplists:get_bool(pp_rtl_lcm, Options) of
-    true->
+    true ->
       pp_debug("-------------------------------------------------~n",[]),
       %% pp_debug("AllExpr:  ~w~n", [AllExpr]),
       pp_debug("AllExpr:~n", []),
@@ -75,21 +70,21 @@ rtl_lcm(CFG, Options) ->
     _ ->
       ok
   end,
-  
+
   pp_debug("-------------------------------------------------~n",[]),
-  ?option_time({CFG1, MoveSet} = perform_lcm(CFG, NodeInfo, EdgeInfo, ExprMap, 
-					     IdMap, AllExpr, mk_edge_bb_map(), 
+  {CFG1, MoveSet} = ?option_time(perform_lcm(CFG, NodeInfo, EdgeInfo, ExprMap,
+					     IdMap, AllExpr, mk_edge_bb_map(),
 					     ?SETS:new(), Labels),
-	       "RTL LCM perform_lcm", Options),
+				 "RTL LCM perform_lcm", Options),
 
   %% Scan through list of moved expressions and replace their 
   %% assignments with the new temporary created for that expression
   MoveList = ?SETS:to_list(MoveSet),
-  ?option_time(CFG2 = moved_expr_replace_assignments(CFG1, ExprMap, IdMap, 
+  CFG2 = ?option_time(moved_expr_replace_assignments(CFG1, ExprMap, IdMap,
 						     MoveList),
-	       "RTL LCM moved_expr_replace_assignments", Options),
+		      "RTL LCM moved_expr_replace_assignments", Options),
   pp_debug("-------------------------------------------------~n~n",[]),
-  
+
   CFG2.
 
 %%=============================================================================
@@ -187,41 +182,40 @@ delete_exprs(Code, _, _, []) ->
   Code;
 delete_exprs(Code, ExprMap, IdMap, [ExprId|Exprs]) ->
   Expr = expr_id_map_get_expr(IdMap, ExprId),
-  %% Perform a foldl that goes through the code and deletes all
-  %% occurences of the expression.
-  NewCode =
-    lists:reverse
-      (lists:foldl(fun(CodeExpr, Acc) ->
-                     case is_expr(CodeExpr) of
-                       true ->
-                         case expr_clear_dst(CodeExpr) =:= Expr of
-                           true ->
-                             pp_debug("  Deleting:         ", []),
-                             pp_debug_instr(CodeExpr),
-                             %% Lookup expression entry.
-                             Defines = 
-                               case expr_map_lookup(ExprMap, Expr) of
-                                 {value, {_, _, Defs}} -> 
-				   Defs;
-                                 none -> 
-                                   exit({?MODULE, expr_map_lookup,
-                                         "expression missing"})
-                               end,
-                             MoveCode = 
-                               mk_expr_move_instr(hipe_rtl:defines(CodeExpr),
-						  Defines),
-                             pp_debug("    Replacing with: ", []),
-                             pp_debug_instr(MoveCode),
-                             [MoveCode|Acc];
-                           false ->
-                             [CodeExpr|Acc]
-                         end;
-		       false ->
-                             [CodeExpr|Acc]
-                     end
-                   end, 
-		   [], Code)),
+  %% Lookup expression entry.
+  {value, {_, _, Defines}} = expr_map_lookup(ExprMap, Expr),
+  %% Go through the code and deletes all occurences of the expression.
+  NewCode = delete_expr(Code, Expr, Defines, []),
   delete_exprs(NewCode, ExprMap, IdMap, Exprs).
+
+delete_expr([], _Expr, _Defines, Acc) -> lists:reverse(Acc);
+delete_expr([CodeExpr|Code], Expr, Defines, Acc) ->
+  case exp_kill_expr(CodeExpr, [Expr]) of
+    [] -> % Expr was killed; deleting stops here
+      pp_debug("  Stopping before:  ", []),
+      pp_debug_instr(CodeExpr),
+      lists:reverse(Acc, [CodeExpr|Code]);
+    [Expr] ->
+      NewCodeExpr =
+        case is_expr(CodeExpr) of
+          true ->
+            case expr_clear_dst(CodeExpr) =:= Expr of
+              true ->
+                pp_debug("  Deleting:         ", []),
+                pp_debug_instr(CodeExpr),
+                MoveCode = mk_expr_move_instr(hipe_rtl:defines(CodeExpr),
+                                              Defines),
+                pp_debug("    Replacing with: ", []),
+                pp_debug_instr(MoveCode),
+                MoveCode;
+              false ->
+                CodeExpr
+            end;
+          false ->
+            CodeExpr
+        end,
+      delete_expr(Code, Expr, Defines, [NewCodeExpr|Acc])
+  end.
 
 %%=============================================================================
 %% Goes through the given list of expressions and inserts them at 
@@ -231,13 +225,12 @@ insert_exprs(CFG, _, _, _, _, BetweenMap, []) ->
 insert_exprs(CFG, Pred, Succ, ExprMap, IdMap, BetweenMap, [ExprId|Exprs]) ->
   Expr = expr_id_map_get_expr(IdMap, ExprId),
   Instr = expr_map_get_instr(ExprMap, Expr),
-  case hipe_rtl_cfg:succ(CFG, Pred) of
-    [_] ->
+  case try_insert_expr_last(CFG, Pred, Instr) of
+    {ok, NewCFG} ->
       pp_debug("  Inserted last: ", []),
       pp_debug_instr(Instr),
-      NewCFG = insert_expr_last(CFG, Pred, Instr),
       insert_exprs(NewCFG, Pred, Succ, ExprMap, IdMap, BetweenMap, Exprs);
-    _ ->
+    not_safe ->
       case hipe_rtl_cfg:pred(CFG, Succ) of
         [_] ->
 	  pp_debug("  Inserted first: ", []),
@@ -257,25 +250,34 @@ insert_exprs(CFG, Pred, Succ, ExprMap, IdMap, BetweenMap, [ExprId|Exprs]) ->
 %% Recursively goes through the code in a block and returns a new block
 %% with the new code inserted second to last (assuming the last expression
 %% is a branch operation).
-insert_expr_last(CFG0, Label, Instr) ->
-  Code0 = hipe_bb:code(hipe_rtl_cfg:bb(CFG0, Label)),
-  %% FIXME: Use hipe_bb:butlast() instead?
-  Code1 = insert_expr_last_work(Label, Instr, Code0),
-  hipe_rtl_cfg:bb_add(CFG0, Label, hipe_bb:mk_bb(Code1)).
+try_insert_expr_last(CFG0, Label, Instr) ->
+  case hipe_rtl_cfg:succ(CFG0, Label) of
+    [_] ->
+      Code0 = hipe_bb:code(hipe_rtl_cfg:bb(CFG0, Label)),
+      case insert_expr_last_work(Instr, Code0) of
+        not_safe -> not_safe;
+        Code1 ->
+          {ok, hipe_rtl_cfg:bb_add(CFG0, Label, hipe_bb:mk_bb(Code1))}
+      end;
+    _ -> not_safe
+  end.
 
 %%=============================================================================
 %% Recursively goes through the code in a block and returns a new block
 %% with the new code inserted second to last (assuming the last expression
 %% is a branch operation).
-insert_expr_last_work(_, Instr, []) ->
-  %% This case should not happen since this means that block was completely 
-  %% empty when the function was called. For compatibility we insert it last.
-  [Instr];
-insert_expr_last_work(_, Instr, [Code1]) ->
+insert_expr_last_work(_Instr, [#call{}]) ->
+  %% Call instructions clobber all expressions; we must not insert the
+  %% expression before it
+  not_safe;
+insert_expr_last_work(Instr, [Code1]) ->
   %% We insert the code next to last.
   [Instr, Code1];
-insert_expr_last_work(Label, Instr, [Code|Codes]) ->
-  [Code|insert_expr_last_work(Label, Instr, Codes)].
+insert_expr_last_work(Instr, [Code|Codes]) ->
+  case insert_expr_last_work(Instr, Codes) of
+    not_safe -> not_safe;
+    NewCodes -> [Code|NewCodes]
+  end.
 
 %%=============================================================================
 %% Inserts expression first in the block for the given label.
@@ -310,7 +312,8 @@ insert_expr_between(CFG0, BetweenMap, Pred, Succ, Instr) ->
     {value, Label} ->
       pp_debug("    Using existing new bb for edge (~w,~w) with label ~w~n", 
 	       [Pred, Succ, Label]),
-      {insert_expr_last(CFG0, Label, Instr), BetweenMap}
+      {ok, NewCfg} = try_insert_expr_last(CFG0, Label, Instr),
+      {NewCfg, BetweenMap}
   end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -377,7 +380,6 @@ is_expr(I) ->
 %% 	  end;
 	       
         #alub{} -> false; %% TODO: Split instruction to consider alu expression?
-        #branch{} -> false;
         #call{} -> false; %% We cannot prove that a call has no side-effects
         #comment{} -> false;
         #enter{} -> false;
@@ -465,10 +467,10 @@ expr_clear_dst(I) ->
 %% easy access later.
 lcm_precalc(CFG, Options) ->
   %% Calculate use map and expression map.
-  ?option_time({ExprMap, IdMap} = mk_expr_map(CFG), 
-	       "RTL LCM mk_expr_map", Options),
-  ?option_time(UseMap = mk_use_map(CFG, ExprMap), 
-	       "RTL LCM mk_use_map", Options),
+  {ExprMap, IdMap} = ?option_time(mk_expr_map(CFG),
+				  "RTL LCM mk_expr_map", Options),
+  UseMap = ?option_time(mk_use_map(CFG, ExprMap),
+			"RTL LCM mk_use_map", Options),
   %% Labels = hipe_rtl_cfg:reverse_postorder(CFG),
   Labels = hipe_rtl_cfg:labels(CFG),
   %% StartLabel = hipe_rtl_cfg:start_label(CFG),
@@ -476,28 +478,28 @@ lcm_precalc(CFG, Options) ->
   AllExpr = ?SETS:from_list(gb_trees:keys(IdMap)),
 
   %% Calculate the data sets.
-  ?option_time(NodeInfo0 = mk_node_info(Labels), "RTL LCM mk_node_info", 
-	       Options),
+  NodeInfo0 = ?option_time(mk_node_info(Labels),
+			   "RTL LCM mk_node_info", Options),
   %% ?option_time(EdgeInfo0 = mk_edge_info(), "RTL LCM mk_edge_info", 
   %%  	          Options),
   EdgeInfo0 = mk_edge_info(),
-  ?option_time(NodeInfo1 = calc_up_exp(CFG, ExprMap, NodeInfo0, Labels), 
-	       "RTL LCM calc_up_exp", Options),
-  ?option_time(NodeInfo2 = calc_down_exp(CFG, ExprMap, NodeInfo1, Labels), 
-	       "RTL LCM calc_down_exp", Options),
-  ?option_time(NodeInfo3 = calc_killed_expr(CFG, NodeInfo2, UseMap, AllExpr, 
+  NodeInfo1 = ?option_time(calc_up_exp(CFG, ExprMap, NodeInfo0, Labels),
+			   "RTL LCM calc_up_exp", Options),
+  NodeInfo2 = ?option_time(calc_down_exp(CFG, ExprMap, NodeInfo1, Labels),
+			   "RTL LCM calc_down_exp", Options),
+  NodeInfo3 = ?option_time(calc_killed_expr(CFG, NodeInfo2, UseMap, AllExpr,
 					    IdMap, Labels), 
-	       "RTL LCM calc_killed_exp", Options),
-  ?option_time(NodeInfo4 = calc_avail(CFG, NodeInfo3), 
-	       "RTL LCM calc_avail", Options),
-  ?option_time(NodeInfo5 = calc_antic(CFG, NodeInfo4, AllExpr), 
-	       "RTL LCM calc_antic", Options),
-  ?option_time(EdgeInfo1 = calc_earliest(CFG, NodeInfo5, EdgeInfo0, Labels), 
-  	       "RTL LCM calc_earliest", Options),
-  ?option_time({NodeInfo6, EdgeInfo2} = calc_later(CFG, NodeInfo5, EdgeInfo1),
-	       "RTL LCM calc_later", Options),
-  ?option_time(NodeInfo7 = calc_delete(CFG, NodeInfo6, Labels), 
-	       "RTL LCM calc_delete", Options),
+			   "RTL LCM calc_killed_exp", Options),
+  NodeInfo4 = ?option_time(calc_avail(CFG, NodeInfo3),
+			   "RTL LCM calc_avail", Options),
+  NodeInfo5 = ?option_time(calc_antic(CFG, NodeInfo4, AllExpr),
+			   "RTL LCM calc_antic", Options),
+  EdgeInfo1 = ?option_time(calc_earliest(CFG, NodeInfo5, EdgeInfo0, Labels),
+			   "RTL LCM calc_earliest", Options),
+  {NodeInfo6, EdgeInfo2} = ?option_time(calc_later(CFG, NodeInfo5, EdgeInfo1),
+					"RTL LCM calc_later", Options),
+  NodeInfo7 = ?option_time(calc_delete(CFG, NodeInfo6, Labels),
+			   "RTL LCM calc_delete", Options),
   {NodeInfo7, EdgeInfo2, AllExpr, ExprMap, IdMap, Labels}.
 
 %%%%%%%%%%%%%%%%%%% AVAILABLE IN/OUT FLOW ANALYSIS %%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -940,15 +942,16 @@ calc_insert_edge(NodeInfo, EdgeInfo, From, To) ->
 calc_delete(_, NodeInfo, []) ->
   NodeInfo;
 calc_delete(CFG, NodeInfo, [Label|Labels]) ->
-  case Label =:= hipe_rtl_cfg:start_label(CFG) of
-    true -> 
-      NewNodeInfo = set_delete(NodeInfo, Label, ?SETS:new());
-    false ->
-      UpExp = up_exp(NodeInfo, Label),
-      LaterIn = later_in(NodeInfo, Label),
-      Delete = ?SETS:subtract(UpExp, LaterIn),
-      NewNodeInfo = set_delete(NodeInfo, Label, Delete)
-  end,
+  NewNodeInfo =
+    case Label =:= hipe_rtl_cfg:start_label(CFG) of
+      true ->
+	set_delete(NodeInfo, Label, ?SETS:new());
+      false ->
+	UpExp = up_exp(NodeInfo, Label),
+	LaterIn = later_in(NodeInfo, Label),
+	Delete = ?SETS:subtract(UpExp, LaterIn),
+	set_delete(NodeInfo, Label, Delete)
+    end,
   calc_delete(CFG, NewNodeInfo, Labels).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

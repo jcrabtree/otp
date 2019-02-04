@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2003-2011. All Rights Reserved.
+ * Copyright Ericsson AB 2003-2018. All Rights Reserved.
  *
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  * %CopyrightEnd%
  */
@@ -222,6 +223,8 @@ static byte *tracep;
 static byte *endp;
 static SysTimeval last_tv;
 
+static ErtsAllocatorWrapper_t mtrace_wrapper;
+
 #if ERTS_MTRACE_SEGMENT_ID >= ERTS_ALC_A_MIN || ERTS_MTRACE_SEGMENT_ID < 0
 #error ERTS_MTRACE_SEGMENT_ID >= ERTS_ALC_A_MIN || ERTS_MTRACE_SEGMENT_ID < 0
 #endif
@@ -311,7 +314,7 @@ disable_trace(int error, char *reason, int eno)
 	erts_fprintf(stderr, "%s: %s\n", mt_dis, reason);
     else {
 	eno_str = erl_errno_id(eno);
-	if (strcmp(eno_str, "unknown") == 0)
+	if (sys_strcmp(eno_str, "unknown") == 0)
 	    erts_fprintf(stderr, "%s: %s: %d\n", mt_dis, reason, eno);
 	else
 	    erts_fprintf(stderr, "%s: %s: %s\n", mt_dis, reason, eno_str);
@@ -398,9 +401,9 @@ write_trace_header(char *nodename, char *pid, char *hostname)
     PUT_UI32(tracep, ERTS_MT_MAJOR_VSN);
     PUT_UI32(tracep, ERTS_MT_MINOR_VSN);
 
-    n_len = strlen(nodename);
-    h_len = strlen(hostname);
-    p_len = strlen(pid);
+    n_len = sys_strlen(nodename);
+    h_len = sys_strlen(hostname);
+    p_len = sys_strlen(pid);
     hdr_prolog_len = (2*UI32_SZ
 		      + 3*UI16_SZ
 		      + 3*UI32_SZ
@@ -433,15 +436,15 @@ write_trace_header(char *nodename, char *pid, char *hostname)
     PUT_UI32(tracep, start_time.usec);
 
     PUT_UI8(tracep, (byte) n_len);
-    memcpy((void *) tracep, (void *) nodename, n_len);
+    sys_memcpy((void *) tracep, (void *) nodename, n_len);
     tracep += n_len;
 
     PUT_UI8(tracep, (byte) h_len);
-    memcpy((void *) tracep, (void *) hostname, h_len);
+    sys_memcpy((void *) tracep, (void *) hostname, h_len);
     tracep += h_len;
 
     PUT_UI8(tracep, (byte) p_len);
-    memcpy((void *) tracep, (void *) pid, p_len);
+    sys_memcpy((void *) tracep, (void *) pid, p_len);
     tracep += p_len;
 
     ASSERT(startp + hdr_prolog_len == tracep);
@@ -469,7 +472,7 @@ write_trace_header(char *nodename, char *pid, char *hostname)
 
 	str = ERTS_ALC_A2AD(i);
 	ASSERT(str);
-	str_len = strlen(str);
+	str_len = sys_strlen(str);
 	if (str_len >= (1 << 8)) {
 	    disable_trace(1, "Excessively large allocator string", 0);
 	    return 0;
@@ -490,7 +493,7 @@ write_trace_header(char *nodename, char *pid, char *hostname)
 	PUT_UI16(tracep, aflags);
 	PUT_UI16(tracep, (Uint16) i);
 	PUT_UI8( tracep, (byte) str_len);
-	memcpy((void *) tracep, (void *) str, str_len);
+	sys_memcpy((void *) tracep, (void *) str, str_len);
 	tracep += str_len;
 	if (erts_allctrs_info[i].alloc_util) {
 	    PUT_UI8(tracep, 2);
@@ -516,7 +519,7 @@ write_trace_header(char *nodename, char *pid, char *hostname)
 	str = ERTS_ALC_N2TD(i);
 	ASSERT(str);
 
-	str_len = strlen(str);
+	str_len = sys_strlen(str);
 	if (str_len >= (1 << 8)) {
 	    disable_trace(1, "Excessively large type string", 0);
 	    return 0;
@@ -540,7 +543,7 @@ write_trace_header(char *nodename, char *pid, char *hostname)
 	PUT_UI16(tracep, nflags);
 	PUT_UI16(tracep, (Uint16) i);
 	PUT_UI8(tracep, (byte) str_len);
-	memcpy((void *) tracep, (void *) str, str_len);
+	sys_memcpy((void *) tracep, (void *) str, str_len);
 	tracep += str_len;
 	PUT_UI16(tracep, no);
 	ASSERT(startp + entry_sz == tracep);
@@ -555,6 +558,8 @@ write_trace_header(char *nodename, char *pid, char *hostname)
     return 1;
 }
 
+static void mtrace_pre_lock(void);
+static void mtrace_pre_unlock(void);
 static void *mtrace_alloc(ErtsAlcType_t, void *, Uint);
 static void *mtrace_realloc(ErtsAlcType_t, void *, void *, Uint);
 static void mtrace_free(ErtsAlcType_t, void *, void *);
@@ -567,7 +572,7 @@ void erts_mtrace_pre_init(void)
 
 void erts_mtrace_init(char *receiver, char *nodename)
 {
-    char hostname[MAXHOSTNAMELEN];
+    char hostname[MAXHOSTNAMELEN + 1];
     char pid[21]; /* enough for a 64 bit number */
 
     socket_desc = ERTS_SOCK_INVALID_SOCKET;
@@ -578,8 +583,10 @@ void erts_mtrace_init(char *receiver, char *nodename)
 	byte ip_addr[4];
 	Uint16 port;
 
-	erts_mtx_init(&mtrace_buf_mutex, "mtrace_buf");
-	erts_mtx_init(&mtrace_op_mutex, "mtrace_op");
+        erts_mtx_init(&mtrace_buf_mutex, "mtrace_buf", NIL,
+            ERTS_LOCK_FLAGS_PROPERTY_STATIC | ERTS_LOCK_FLAGS_CATEGORY_DEBUG);
+        erts_mtx_init(&mtrace_op_mutex, "mtrace_op", NIL,
+            ERTS_LOCK_FLAGS_PROPERTY_STATIC | ERTS_LOCK_FLAGS_CATEGORY_DEBUG);
 
 	socket_desc = erts_sock_open();
 	if (socket_desc == ERTS_SOCK_INVALID_SOCKET) {
@@ -608,10 +615,11 @@ void erts_mtrace_init(char *receiver, char *nodename)
 	}
 	tracep = trace_buffer;
 	endp = trace_buffer + TRACE_BUF_SZ;
-	if (erts_sock_gethostname(hostname, MAXHOSTNAMELEN) != 0)
+        /* gethostname requires that the len is max(hostname) + 1 */
+	if (erts_sock_gethostname(hostname, MAXHOSTNAMELEN + 1) != 0)
 	    hostname[0] = '\0';
-	hostname[MAXHOSTNAMELEN-1] = '\0';
-	sys_get_pid(pid);
+	hostname[MAXHOSTNAMELEN] = '\0';
+	sys_get_pid(pid, sizeof(pid));
 	write_trace_header(nodename ? nodename : "", pid, hostname);
 	erts_mtrace_update_heap_size();
     }
@@ -623,7 +631,7 @@ erts_mtrace_install_wrapper_functions(void)
     if (erts_mtrace_enabled) {
 	int i;
 	/* Install trace functions */
-	ASSERT(sizeof(erts_allctrs) == sizeof(real_allctrs));
+	ERTS_CT_ASSERT(sizeof(erts_allctrs) == sizeof(real_allctrs));
 
 	sys_memcpy((void *) real_allctrs,
 		   (void *) erts_allctrs,
@@ -635,12 +643,16 @@ erts_mtrace_install_wrapper_functions(void)
 	    erts_allctrs[i].free	= mtrace_free;
 	    erts_allctrs[i].extra	= (void *) &real_allctrs[i];
 	}
+	mtrace_wrapper.lock = mtrace_pre_lock;
+	mtrace_wrapper.unlock = mtrace_pre_unlock;
+	erts_allctr_wrapper_prelock_init(&mtrace_wrapper);
     }
 }
 
 void
 erts_mtrace_stop(void)
 {
+    ASSERT(!erts_is_allctr_wrapper_prelocked());
     erts_mtx_lock(&mtrace_op_mutex);
     erts_mtx_lock(&mtrace_buf_mutex);
     if (erts_mtrace_enabled) {
@@ -677,6 +689,7 @@ erts_mtrace_stop(void)
 void
 erts_mtrace_exit(Uint32 exit_value)
 {
+    ASSERT(!erts_is_allctr_wrapper_prelocked());
     erts_mtx_lock(&mtrace_op_mutex);
     erts_mtx_lock(&mtrace_buf_mutex);
     if (erts_mtrace_enabled) {
@@ -935,18 +948,33 @@ write_free_entry(byte tag,
     erts_mtx_unlock(&mtrace_buf_mutex);
 }
 
+static void mtrace_pre_lock(void)
+{
+    erts_mtx_lock(&mtrace_op_mutex);
+}
+
+static void mtrace_pre_unlock(void)
+{
+    erts_mtx_unlock(&mtrace_op_mutex);
+}
+
+
 static void *
 mtrace_alloc(ErtsAlcType_t n, void *extra, Uint size)
 {
     ErtsAllocatorFunctions_t *real_af = (ErtsAllocatorFunctions_t *) extra;
     void *res;
 
-    erts_mtx_lock(&mtrace_op_mutex);
+    if (!erts_is_allctr_wrapper_prelocked()) {
+	erts_mtx_lock(&mtrace_op_mutex);
+    }
 
     res = (*real_af->alloc)(n, real_af->extra, size);
     write_alloc_entry(ERTS_MT_ALLOC_BDY_TAG, res, n, 0, size);
 
-    erts_mtx_unlock(&mtrace_op_mutex);
+    if (!erts_is_allctr_wrapper_prelocked()) {
+	erts_mtx_unlock(&mtrace_op_mutex);
+    }
 
     return res;
 }
@@ -957,12 +985,16 @@ mtrace_realloc(ErtsAlcType_t n, void *extra, void *ptr, Uint size)
     ErtsAllocatorFunctions_t *real_af = (ErtsAllocatorFunctions_t *) extra;
     void *res;
 
-    erts_mtx_lock(&mtrace_op_mutex);
+    if (!erts_is_allctr_wrapper_prelocked()) {
+	erts_mtx_lock(&mtrace_op_mutex);
+    }
 
     res = (*real_af->realloc)(n, real_af->extra, ptr, size);
     write_realloc_entry(ERTS_MT_REALLOC_BDY_TAG, res, n, 0, ptr, size);
 
-    erts_mtx_unlock(&mtrace_op_mutex);
+    if (!erts_is_allctr_wrapper_prelocked()) {
+	erts_mtx_unlock(&mtrace_op_mutex);
+    }
 
     return res;
 
@@ -973,10 +1005,14 @@ mtrace_free(ErtsAlcType_t n, void *extra, void *ptr)
 {
     ErtsAllocatorFunctions_t *real_af = (ErtsAllocatorFunctions_t *) extra;
 
-    erts_mtx_lock(&mtrace_op_mutex);
+    if (!erts_is_allctr_wrapper_prelocked()) {
+	erts_mtx_lock(&mtrace_op_mutex);
+    }
 
     (*real_af->free)(n, real_af->extra, ptr);
-    write_free_entry(ERTS_MT_FREE_BDY_TAG, n, 0, ptr);
+    if (!erts_is_allctr_wrapper_prelocked()) {
+	write_free_entry(ERTS_MT_FREE_BDY_TAG, n, 0, ptr);
+    }
 
     erts_mtx_unlock(&mtrace_op_mutex);
 }

@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2011. All Rights Reserved.
+%% Copyright Ericsson AB 2011-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -35,6 +36,7 @@ no_group_cases() ->
 
 groups() ->
     [{running_error_logger,[shuffle],[show,
+                                      show_other,
 				      list,
 				      rescan,
 				      start_stop_log,
@@ -66,23 +68,31 @@ init_per_group(running_error_logger,Config) ->
     restart_sasl(),
     Config.
 
-end_per_group(running_error_logger,Config) ->
+end_per_group(running_error_logger,_Config) ->
     %% Remove log_mf_h???
     ok.
 
 
 init_per_testcase(_Case,Config) ->
     case whereis(?SUP) of
-	undefined -> ok;
-	Pid -> kill(Pid)
+	undefined ->
+	    ok;
+	Sup ->
+	    Server = whereis(?MODULE),
+	    exit(Sup,kill),
+	    wait_for_down([Server,Sup])
     end,
     empty_error_logs(Config),
     Config.
 
-kill(Pid) ->
+wait_for_down([]) ->
+    ok;
+wait_for_down([undefined|Rest]) ->
+    wait_for_down(Rest);
+wait_for_down([Pid|Rest]) ->
     Ref = erlang:monitor(process,Pid),
-    exit(Pid,kill),
-    receive {'DOWN', Ref, process, Pid, _Info} -> ok end.
+    receive {'DOWN', Ref, process, Pid, _Info} -> ok end,
+    wait_for_down(Rest).
 
 end_per_testcase(Case,Config) ->
     try apply(?MODULE,Case,[cleanup,Config])
@@ -96,8 +106,9 @@ end_per_testcase(Case,Config) ->
 
 help(_Config) ->
     Help = capture(fun() -> rb:h() end),
-    "Report Browser Tool - usage" = hd(Help),
-    "rb:stop            - stop the rb_server" = lists:last(Help),
+    %% Check that first and last line is there
+    true = lists:member("Report Browser Tool - usage", Help),
+    true = lists:member("rb:stop            - stop the rb_server", Help),
     ok.
 
 %% Test that all three sasl env vars must be set for a successful start of rb
@@ -152,6 +163,23 @@ show(Config) ->
 			    OutFile),
     true = contains(SR,"child_terminated"),
     true = contains(SR,"{rb_SUITE,rb_test_crash}"),
+
+    ok.
+
+show_other(Config) ->
+    PrivDir = ?config(priv_dir,Config),
+    OutFile = filename:join(PrivDir,"rb_SUITE_log.txt"),
+
+    %% Insert some reports in the error log and start rb
+    error_logger:info_report([rb_test_term_in_list]),
+    error_logger:info_report(rb_test_term_no_list),
+    ok = start_rb(OutFile),
+
+    %% Show by type and check content
+    [{_,I1},{_,I2}] = check_report(fun() -> rb:show(info_report) end,OutFile),
+
+    true = contains(I1,"rb_test_term_no_list"),
+    true = contains(I2,"rb_test_term_in_list"),
 
     ok.
 
@@ -353,11 +381,28 @@ start_stop_log(Config) ->
     StdioResult = [_|_] = capture(fun() -> rb:show(1) end),
     {ok,<<>>} = file:read_file(OutFile),
 
-    %% Start log and check that show is printed to log and not to standad_io
+    %% Start log and check that show is printed to log and not to standard_io
     ok = rb:start_log(OutFile),
     [] = capture(fun() -> rb:show(1) end),
     {ok,Bin} = file:read_file(OutFile),
     true = (Bin =/= <<>>),
+
+    %% Start log with atom standard_io and check that show is printed to standard_io
+    ok = rb:stop_log(),
+    ok = file:write_file(OutFile,[]),
+    ok = rb:start_log(standard_io),
+    StdioResult = [_|_] = capture(fun() -> rb:show(1) end),
+    {ok,<<>>} = file:read_file(OutFile),
+
+    %% Start log and check that show is printed to iodevice log and not to standard_io
+    ok = rb:stop_log(),
+    ok = file:write_file(OutFile,[]),
+    {ok, IoOutFile} = file:open(OutFile,[write]),
+    ok = rb:start_log(IoOutFile),
+    [] = capture(fun() -> rb:show(1) end),
+    {ok,Bin} = file:read_file(OutFile),
+    true = (Bin =/= <<>>),
+    ok = file:close(IoOutFile),
 
     %% Stop log and check that show is printed to standard_io and not to log
     ok = rb:stop_log(),
@@ -365,6 +410,19 @@ start_stop_log(Config) ->
     StdioResult = capture(fun() -> rb:show(1) end),
     {ok,<<>>} = file:read_file(OutFile),
 
+    %% Start log and check that list is printed to log and not to standard_io
+    ok = file:write_file(OutFile,[]),
+    ok = rb:start_log(OutFile),
+    [] = capture(fun() -> rb:log_list() end),
+    {ok,Bin2} = file:read_file(OutFile),
+    true = (Bin2 =/= <<>>),
+
+    %% Stop log and check that list is printed to standard_io and not to log
+    ok = rb:stop_log(),
+    ok = file:write_file(OutFile,[]),
+    StdioResult2 = capture(fun() -> rb:log_list() end),
+    {ok,<<>>} = file:read_file(OutFile),
+    
     %% Test that standard_io is used if log file can not be opened
     ok = rb:start_log(filename:join(nonexistingdir,"newfile.txt")),
     StdioResult = capture(fun() -> rb:show(1) end),

@@ -3,18 +3,19 @@
      #
      # %CopyrightBegin%
      #
-     # Copyright Ericsson AB 2009-2012. All Rights Reserved.
+     # Copyright Ericsson AB 2009-2018. All Rights Reserved.
      #
-     # The contents of this file are subject to the Erlang Public License,
-     # Version 1.1, (the "License"); you may not use this file except in
-     # compliance with the License. You should have received a copy of the
-     # Erlang Public License along with this software. If not, it can be
-     # retrieved online at http://www.erlang.org/.
+     # Licensed under the Apache License, Version 2.0 (the "License");
+     # you may not use this file except in compliance with the License.
+     # You may obtain a copy of the License at
      #
-     # Software distributed under the License is distributed on an "AS IS"
-     # basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-     # the License for the specific language governing rights and limitations
-     # under the License.
+     #     http://www.apache.org/licenses/LICENSE-2.0
+     #
+     # Unless required by applicable law or agreed to in writing, software
+     # distributed under the License is distributed on an "AS IS" BASIS,
+     # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+     # See the License for the specific language governing permissions and
+     # limitations under the License.
      #
      # %CopyrightEnd%
 
@@ -22,12 +23,16 @@
 <xsl:stylesheet version="1.0"
   xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
   xmlns:exsl="http://exslt.org/common"
-  extension-element-prefixes="exsl"
-  xmlns:fo="http://www.w3.org/1999/XSL/Format">
+  xmlns:func="http://exslt.org/functions"
+  xmlns:erl="http://erlang.org"
+  extension-element-prefixes="exsl func"
+  xmlns:fo="http://www.w3.org/1999/XSL/Format"
+  xmlns:fn="http://www.w3.org/2005/02/xpath-functions">
 
   <xsl:output method="xml" indent="yes"/>
 
   <xsl:include href="db_pdf_params.xsl"/>
+  <xsl:include href="db_funcs.xsl"/>
 
   <!-- Start of Dialyzer type/spec tags.
        See also the templates matching "name" and "seealso" as well as
@@ -292,6 +297,13 @@
       <xsl:text>Data Types</xsl:text>
     </fo:block>
     <xsl:apply-templates/>
+  </xsl:template>
+
+  <!-- Datatype Title-->
+  <xsl:template match="datatype_title">
+     <fo:block  xsl:use-attribute-sets="h4">
+       <xsl:apply-templates/>
+    </fo:block>
   </xsl:template>
 
   <!-- Datatype -->
@@ -650,7 +662,7 @@
 
       <fo:flow flow-name="xsl-region-body">
         <fo:block xsl:use-attribute-sets="cover.logo">
-          <fo:external-graphic src="{$docgen}/priv/images/erlang-logo.gif"/>
+          <fo:external-graphic src="{$logo}"/>
         </fo:block>
         <fo:block xsl:use-attribute-sets="cover.title" id="cover-page">
           <xsl:apply-templates/>
@@ -671,6 +683,10 @@
         <fo:block xsl:use-attribute-sets="cover.version">
           <xsl:value-of select="$gendate"/>
         </fo:block>
+        <fo:block xsl:use-attribute-sets="cover.extrainfo">
+          <xsl:value-of select="$extra_front_page_info"/>
+        </fo:block>
+
 
         <!-- Inner cover (copyright notice) -->
         <fo:block break-before="page"
@@ -682,16 +698,18 @@
         <fo:block xsl:use-attribute-sets="cover.inner.copyrightnotice">
           <xsl:value-of select="/book/header/legalnotice"/>
 
-        <!--   The contents of this file are subject to the Erlang Public License,
-  Version 1.1, (the "License"); you may not use this file except in
-  compliance with the License. You should have received a copy of the
-  Erlang Public License along with this software. If not, it can be
-  retrieved online at http://www.erlang.org/.
+        <!--
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
 
-  Software distributed under the License is distributed on an "AS IS"
-  basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-  the License for the specific language governing rights and limitations
-  under the License.
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
 
   The Initial Developer of the Original Code is
 -->
@@ -737,12 +755,12 @@
         <fo:bookmark internal-destination="{generate-id(header/title)}"
           starting-state="hide">
           <fo:bookmark-title><xsl:value-of select="header/title"/></fo:bookmark-title>
-          
+
           <xsl:call-template name="bookmarks2">
             <xsl:with-param name="entries"
               select="chapter[header/title]"/>
           </xsl:call-template>
-          
+
         </fo:bookmark>
       </xsl:for-each>
     </xsl:if>
@@ -1102,40 +1120,85 @@
 
   <xsl:template match="taglist/item">
     <xsl:param name="partnum"/>
-    <fo:block xsl:use-attribute-sets="tagitem">
-      <xsl:apply-templates>
-        <xsl:with-param name="partnum" select="$partnum"/>
-      </xsl:apply-templates>
-    </fo:block>
+    <fo:block-container>
+      <fo:block xsl:use-attribute-sets="tagitem">
+	<xsl:apply-templates>
+	  <xsl:with-param name="partnum" select="$partnum"/>
+	</xsl:apply-templates>
+      </fo:block>
+    </fo:block-container>
   </xsl:template>
 
 
   <!-- Note -->
   <xsl:template match="note">
     <xsl:param name="partnum"/>
-    <fo:block xsl:use-attribute-sets="note">
-        <fo:block xsl:use-attribute-sets="note-warning-title">
-            <xsl:text>Note:</xsl:text>
-        </fo:block>
-      <xsl:apply-templates>
-        <xsl:with-param name="partnum" select="$partnum"/>
-      </xsl:apply-templates>
+    <fo:block xsl:use-attribute-sets="note-warning">
+      <fo:block xsl:use-attribute-sets="note-title">
+	<xsl:text>Note:</xsl:text>
+      </fo:block>
+      <fo:block xsl:use-attribute-sets="note-warning-content">
+	<xsl:apply-templates>
+          <xsl:with-param name="partnum" select="$partnum"/>
+	</xsl:apply-templates>
+      </fo:block>
     </fo:block>
   </xsl:template>
 
   <!-- Warning -->
   <xsl:template match="warning">
     <xsl:param name="partnum"/>
-    <fo:block xsl:use-attribute-sets="warning">
-        <fo:block xsl:use-attribute-sets="note-warning-title">
-            <xsl:text>Warning:</xsl:text>
-        </fo:block>
-      <xsl:apply-templates>
-        <xsl:with-param name="partnum" select="$partnum"/>
-      </xsl:apply-templates>
+    <fo:block xsl:use-attribute-sets="note-warning">
+      <fo:block xsl:use-attribute-sets="warning-title">
+	<xsl:text>Warning:</xsl:text>
+      </fo:block>
+      <fo:block xsl:use-attribute-sets="note-warning-content">
+	<xsl:apply-templates>
+          <xsl:with-param name="partnum" select="$partnum"/>
+	</xsl:apply-templates>
+      </fo:block>
     </fo:block>
   </xsl:template>
 
+  <!-- Do -->
+  <xsl:template match="do">
+    <xsl:param name="partnum"/>
+    <fo:block xsl:use-attribute-sets="note-warning">
+      <fo:block xsl:use-attribute-sets="note-title">
+	<xsl:text>Do:</xsl:text>
+      </fo:block>
+      <fo:block xsl:use-attribute-sets="note-warning-content">
+	<xsl:apply-templates>
+          <xsl:with-param name="partnum" select="$partnum"/>
+	</xsl:apply-templates>
+      </fo:block>
+    </fo:block>
+  </xsl:template>
+
+  <!-- Dont -->
+  <xsl:template match="dont">
+    <xsl:param name="partnum"/>
+    <fo:block xsl:use-attribute-sets="note-warning">
+      <fo:block xsl:use-attribute-sets="warning-title">
+	<xsl:text>Don't:</xsl:text>
+      </fo:block>
+      <fo:block xsl:use-attribute-sets="note-warning-content">
+	<xsl:apply-templates>
+          <xsl:with-param name="partnum" select="$partnum"/>
+	</xsl:apply-templates>
+      </fo:block>
+    </fo:block>
+  </xsl:template>
+
+  <!-- Quote -->
+  <xsl:template match="quote">
+    <xsl:param name="chapnum"/>
+    <fo:block font-style="italic">
+      <xsl:apply-templates>
+        <xsl:with-param name="chapnum" select="$chapnum"/>
+      </xsl:apply-templates>
+    </fo:block>
+  </xsl:template>
 
  <!-- Paragraph -->
   <xsl:template match="p">
@@ -1146,8 +1209,8 @@
 
 
   <!-- Inline elements -->
-  <xsl:template match="b">
-    <fo:inline font-weight="bold">
+  <xsl:template match="i">
+    <fo:inline font-style="italic">
       <xsl:apply-templates/>
     </fo:inline>
   </xsl:template>
@@ -1163,7 +1226,13 @@
   </xsl:template>
 
   <xsl:template match="em">
-    <fo:inline font-style="italic">
+    <fo:inline font-weight="bold">
+      <xsl:apply-templates/>
+    </fo:inline>
+  </xsl:template>
+
+  <xsl:template match="strong">
+    <fo:inline font-weight="bold">
       <xsl:apply-templates/>
     </fo:inline>
   </xsl:template>
@@ -1176,7 +1245,14 @@
     </xsl:variable>
 
     <fo:block xsl:use-attribute-sets="code">
-      <xsl:apply-templates select="text()"/>
+      <xsl:choose> 
+	<xsl:when test="not(descendant::anno)">
+	  <xsl:value-of select="erl:code_trim(text())"/>
+	</xsl:when>
+	<xsl:otherwise>
+	  <xsl:apply-templates/>
+	</xsl:otherwise>
+      </xsl:choose>	
     </fo:block>
 
     <xsl:if test="@caption">
@@ -1580,8 +1656,14 @@
     </xsl:variable>
 
     <fo:block xsl:use-attribute-sets="image">
-      <fo:external-graphic content-width="scale-down-to-fit" inline-progression-dimension.maximum="100%" src="{@file}"/>
-
+      <xsl:choose>
+	<xsl:when test="@width">
+	  <fo:external-graphic content-width="scale-to-fit" width="{@width}" inline-progression-dimension.maximum="100%" src="{@file}"/>
+	</xsl:when>
+	<xsl:otherwise>
+	   <fo:external-graphic content-width="scale-down-to-fit" inline-progression-dimension.maximum="100%" src="{@file}"/>
+	</xsl:otherwise>
+      </xsl:choose>
       <xsl:apply-templates>
         <xsl:with-param name="chapnum" select="$chapnum"/>
         <xsl:with-param name="fignum" select="$fignum"/>

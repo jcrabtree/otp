@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  * 
- * Copyright Ericsson AB 2001-2009. All Rights Reserved.
+ * Copyright Ericsson AB 2001-2018. All Rights Reserved.
  * 
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
- * 
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  * 
  * %CopyrightEnd%
  */
@@ -42,6 +43,7 @@
 #include "ei_runner.h"
 
 static void cmd_ei_connect_init(char* buf, int len);
+static void cmd_ei_publish(char* buf, int len);
 static void cmd_ei_accept(char* buf, int len);
 static void cmd_ei_receive(char* buf, int len);
 static void cmd_ei_unpublish(char* buf, int len);
@@ -57,6 +59,7 @@ static struct {
     void (*func)(char* buf, int len);
 } commands[] = {
     "ei_connect_init",  3, cmd_ei_connect_init,
+    "ei_publish", 	1, cmd_ei_publish,
     "ei_accept", 	1, cmd_ei_accept,
     "ei_receive",  	1, cmd_ei_receive,
     "ei_unpublish",     0, cmd_ei_unpublish
@@ -72,11 +75,7 @@ TESTCASE(interpret)
     ei_term term;
 
     ei_x_new(&x);
-    for (;;) {
-	if (get_bin_term(&x, &term)) {
-	    report(1);
-	    return;
-	} else {
+    while (get_bin_term(&x, &term) == 0) {
 	    char* buf = x.buff, func[MAXATOMLEN];
 	    int index = x.index, arity;
 	    if (term.ei_type != ERL_SMALL_TUPLE_EXT || term.arity != 2)
@@ -97,8 +96,9 @@ TESTCASE(interpret)
 		message("\"%d\" \n", func);
 		fail("bad command");
 	    }
-	}
-    }	
+    }
+    report(1);
+    ei_x_free(&x);
 }
 
 static void cmd_ei_connect_init(char* buf, int len)
@@ -125,50 +125,53 @@ static void cmd_ei_connect_init(char* buf, int len)
     ei_x_free(&res);
 }
 
-static int my_listen(int port)
+static void cmd_ei_publish(char* buf, int len)
 {
-    int listen_fd;
-    struct sockaddr_in addr;
-    const char *on = "1";
-    
-    if ((listen_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
-	return -1;
-    
-    setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, on, sizeof(on));
-    
-    memset((void*) &addr, 0, (size_t) sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    
-    if (bind(listen_fd, (struct sockaddr*) &addr, sizeof(addr)) < 0)
-	return -1;
+    int index = 0;
+    int iport, lfd, r;
+    long lport;
+    ei_x_buff x;
+    int i;
 
-    listen(listen_fd, 5);
-    return listen_fd;
+    /* get port */
+    if (ei_decode_long(buf, &index, &lport) < 0)
+	fail("expected int (port)");
+    /* Make a listen socket */
+
+    iport = (int) lport;
+    lfd = ei_listen(&ec, &iport, 5);
+    if (lfd < 0)
+	fail("listen");
+    lport = (long) iport;
+    
+    if ((i = ei_publish(&ec, lport)) == -1)
+	fail("ei_publish");
+#ifdef VXWORKS
+    save_fd(i);
+#endif
+    /* send listen-fd, result and errno */
+    ei_x_new_with_version(&x);
+    ei_x_encode_tuple_header(&x, 3);
+    ei_x_encode_long(&x, (long) lfd);
+    ei_x_encode_long(&x, i);
+    ei_x_encode_long(&x, erl_errno);
+    send_bin_term(&x);
+    ei_x_free(&x);
 }
 
 static void cmd_ei_accept(char* buf, int len)
 {
     int index = 0;
-    int listen, r;
+    int r;
     ErlConnect conn;
-    long port;
+    long listen;
     ei_x_buff x;
     int i;
 
     /* get port */
-    if (ei_decode_long(buf, &index, &port) < 0)
-	fail("expected int (port)");
-    /* Make a listen socket */
-    if ((listen = my_listen(port)) <= 0)
-	fail("listen");
-    
-    if ((i = ei_publish(&ec, port)) == -1)
-	fail("ei_publish");
-#ifdef VXWORKS
-    save_fd(i);
-#endif
+    if (ei_decode_long(buf, &index, &listen) < 0)
+	fail("expected int (listen fd)");
+
     r = ei_accept(&ec, listen, &conn);
 #ifdef VXWORKS
     save_fd(r);
@@ -199,7 +202,7 @@ static void cmd_ei_receive(char* buf, int len)
 	if (got == ERL_TICK)
 	    continue;
 	if (got == ERL_ERROR)
-	    fail("ei_xreceive_msg");
+	    fail1("ei_xreceive_msg, got==%d", got);
 	break;
     }
     index = 1;

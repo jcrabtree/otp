@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2010-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2010-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -37,16 +38,29 @@
          code_change/3,
          terminate/2]).
 
+-export([listener/1,%% diameter_sync callback
+         info/1]).  %% service_info callback
+
 -export([ports/0,
          ports/1]).
 
+-export_type([connect_option/0,
+              listen_option/0]).
+
 -include_lib("diameter/include/diameter.hrl").
+
+%% Keys into process dictionary.
+-define(INFO_KEY, info).
+-define(REF_KEY,  ref).
+-define(TRANSPORT_KEY, transport).
 
 -define(ERROR(T), erlang:error({T, ?MODULE, ?LINE})).
 
 -define(DEFAULT_PORT, 3868).  %% RFC 3588, ch 2.1
--define(LISTENER_TIMEOUT, 30000).
--define(FRAGMENT_TIMEOUT, 1000).
+-define(DEFAULT_FRAGMENT_TIMEOUT, 1000).
+
+-define(IS_UINT32(N), (is_integer(N) andalso 0 =< N andalso 0 == N bsr 32)).
+-define(IS_TIMEOUT(N), (infinity == N orelse ?IS_UINT32(N))).
 
 %% cb_info passed to ssl.
 -define(TCP_CB(Mod), {Mod, tcp, tcp_closed, tcp_error}).
@@ -54,31 +68,66 @@
 %% The same gen_server implementation supports three different kinds
 %% of processes: an actual transport process, one that will club it to
 %% death should the parent die before a connection is established, and
-%% a process owning the listening port.
+%% a process owning the listening port. The monitor process
+%% historically died after connection establishment, but can now live
+%% on as the sender of outgoing messages, so that a blocking send
+%% doesn't prevent messages from being received.
 
 %% Listener process state.
--record(listener, {socket    :: inet:socket(),
-                   count = 1 :: non_neg_integer(),
-                   tref      :: reference()}).
+-record(listener, {socket :: inet:socket(),
+                   module :: module(),
+                   service = false :: false | pid()}). %% service process
 
 %% Monitor process state.
 -record(monitor,
-        {parent             :: pid(),
-         transport = self() :: pid()}).
+        {parent :: reference() | false | pid(),
+         transport = self() :: pid(),
+         ack = false :: boolean(),
+         socket :: inet:socket() | ssl:sslsocket() | undefined,
+         module :: module() | undefined}).
 
--type tref()   :: reference().  %% timer reference
 -type length() :: 0..16#FFFFFF. %% message length from Diameter header
--type size()   :: non_neg_integer().  %% accumulated binary size
--type frag()   :: {length(), size(), binary(), list(binary())}
+-type frag()   :: maybe_improper_list(length(), binary())
                 | binary().
+
+-type connect_option() :: {raddr, inet:ip_address()}
+                        | {rport, pos_integer()}
+                        | {ssl_options, true | [ssl:connect_option()]}
+                        | option()
+                        | ssl:connect_option()
+                        | gen_tcp:connect_option().
+
+-type match() :: inet:ip_address()
+               | string()
+               | [match()].
+
+-type listen_option() :: {accept, match()}
+                       | {ssl_options, true | [ssl:listen_option()]}
+                       | option()
+                       | ssl:listen_option()
+                       | gen_tcp:listen_option().
+
+-type option() :: {port, non_neg_integer()}
+                | {sender, boolean()}
+                | sender
+                | {message_cb, false | diameter:eval()}
+                | {fragment_timer, 0..16#FFFFFFFF}.
 
 %% Accepting/connecting transport process state.
 -record(transport,
-        {socket  :: inet:socket(),  %% accept or connect socket
+        {socket  :: inet:socket() | ssl:sslsocket(), %% accept/connect socket
+         active = false :: boolean(),           %% is socket active?
+         recv   = true  :: boolean(),           %% should it be active?
          parent  :: pid(),          %% of process that started us
          module  :: module(),       %% gen_tcp-like module
-         frag = <<>> :: binary() | {tref(), frag()},  %% message fragment
-         ssl     :: boolean() | [term()]}). %% ssl options
+         ssl     :: [term()] | boolean(),       %% ssl options, ssl or not
+         frag = <<>> :: frag(),                 %% message fragment
+         timeout :: infinity | 0..16#FFFFFFFF,  %% fragment timeout
+         tref = false  :: false | reference(),  %% fragment timer reference
+         flush = false :: boolean(),            %% flush fragment at timeout?
+         message_cb  :: false | diameter:eval(),
+         send        :: pid() | false}).         %% sending process
+
 %% The usual transport using gen_tcp can be replaced by anything
 %% sufficiently gen_tcp-like by passing a 'module' option as the first
 %% (for simplicity) transport option. The transport_module diameter_etcp
@@ -89,11 +138,22 @@
 %% # start/3
 %% ---------------------------------------------------------------------------
 
-start({T, Ref}, #diameter_service{capabilities = Caps}, Opts) ->
+-spec start({accept, Ref}, #diameter_service{}, [listen_option()])
+   -> {ok, pid(), [inet:ip_address()]}
+ when Ref :: diameter:transport_ref();
+           ({connect, Ref}, #diameter_service{}, [connect_option()])
+   -> {ok, pid()}
+ when Ref :: diameter:transport_ref().
+
+start({T, Ref}, Svc, Opts) ->
+    #diameter_service{capabilities = Caps,
+                      pid = SvcPid}
+        = Svc,
+
     diameter_tcp_sup:start(),  %% start tcp supervisors on demand
     {Mod, Rest} = split(Opts),
     Addrs = Caps#diameter_caps.host_ip_address,
-    Arg = {T, Ref, Mod, self(), Rest, Addrs},
+    Arg = {T, Ref, Mod, self(), Rest, Addrs, SvcPid},
     diameter_tcp_sup:start_child(Arg).
 
 split([{module, M} | Opts]) ->
@@ -111,6 +171,33 @@ start_link(T) ->
                         diameter_lib:spawn_opts(server, [])).
 
 %% ---------------------------------------------------------------------------
+%% # info/1
+%% ---------------------------------------------------------------------------
+
+info({Mod, Sock}) ->
+    lists:flatmap(fun(K) -> info(Mod, K, Sock) end,
+                  [{socket, fun sockname/2},
+                   {peer, fun peername/2},
+                   {statistics, fun getstat/2}
+                   | ssl_info(Mod, Sock)]).
+
+info(Mod, {K,F}, Sock) ->
+    case F(Mod, Sock) of
+        {ok, V} ->
+            [{K,V}];
+        _ ->
+            []
+    end.
+
+ssl_info(ssl = M, Sock) ->
+    [{M, ssl_info(Sock)}];
+ssl_info(_, _) ->
+    [].
+
+ssl_info(Sock) ->
+    [{peercert, C} || {ok, C} <- [ssl:peercert(Sock)]].
+
+%% ---------------------------------------------------------------------------
 %% # init/1
 %% ---------------------------------------------------------------------------
 
@@ -120,52 +207,63 @@ init(T) ->
 %% i/1
 
 %% A transport process.
-i({T, Ref, Mod, Pid, Opts, Addrs})
+i({T, Ref, Mod, Pid, Opts, Addrs, SvcPid})
   when T == accept;
        T == connect ->
-    erlang:monitor(process, Pid),
+    monitor(process, Pid),
     %% Since accept/connect might block indefinitely, spawn a process
-    %% that does nothing but kill us with the parent until call
-    %% returns.
+    %% that kills us with the parent until call returns, and then
+    %% sends outgoing messages.
+    {[SO|TO], Rest} = proplists:split(Opts, [ssl_options,
+                                             sender,
+                                             message_cb,
+                                             fragment_timer]),
+    SslOpts = ssl_opts(SO),
+    OwnOpts = lists:append(TO),
+    Tmo = proplists:get_value(fragment_timer,
+                              OwnOpts,
+                              ?DEFAULT_FRAGMENT_TIMEOUT),
+    [CB, Sender] = [proplists:get_value(K, OwnOpts, false)
+                    || K <- [message_cb, sender]],
+    ?IS_TIMEOUT(Tmo) orelse ?ERROR({fragment_timer, Tmo}),
     {ok, MPid} = diameter_tcp_sup:start_child(#monitor{parent = Pid}),
-    {SslOpts, Rest} = ssl(Opts),
-    Sock = i(T, Ref, Mod, Pid, SslOpts, Rest, Addrs),
-    MPid ! {stop, self()},  %% tell the monitor to die
+    Sock = init(T, Ref, Mod, Pid, SslOpts, Rest, Addrs, SvcPid),
     M = if SslOpts -> ssl; true -> Mod end,
-    setopts(M, Sock),
-    putr(ref, Ref),
-    #transport{parent = Pid,
-               module = M,
-               socket = Sock,
-               ssl = SslOpts};
+    Sender andalso monitor(process, MPid),
+    false == CB orelse (Pid ! {diameter, ack}),
+    MPid ! {start, self(), Sender andalso {Sock, M}, false /= CB},
+    putr(?REF_KEY, Ref),
+    setopts(#transport{parent = Pid,
+                       module = M,
+                       socket = Sock,
+                       ssl = SslOpts,
+                       message_cb = CB,
+                       timeout = Tmo,
+                       send = Sender andalso MPid});
 %% Put the reference in the process dictionary since we now use it
 %% advertise the ssl socket after TLS upgrade.
 
 %% A monitor process to kill the transport if the parent dies.
 i(#monitor{parent = Pid, transport = TPid} = S) ->
+    putr(?TRANSPORT_KEY, TPid),
     proc_lib:init_ack({ok, self()}),
-    erlang:monitor(process, Pid),
-    erlang:monitor(process, TPid),
-    S;
+    monitor(process, TPid),
+    S#monitor{parent = monitor(process, Pid)};
 %% In principle a link between the transport and killer processes
 %% could do the same thing: have the accepting/connecting process be
 %% killed when the killer process dies as a consequence of parent
 %% death. However, a link can be unlinked and this is exactly what
-%% gen_tcp seems to so. Links should be left to supervisors.
+%% gen_tcp seems to do. Links should be left to supervisors.
 
-i({listen, LRef, APid, {Mod, Opts, Addrs}}) ->
-    {[LA, LP], Rest} = proplists:split(Opts, [ip, port]),
-    LAddr = get_addr(LA, Addrs),
-    LPort = get_port(LP),
-    {ok, LSock} = Mod:listen(LPort, gen_opts(LAddr, Rest)),
-    true = diameter_reg:add_new({?MODULE, listener, {LRef, {LAddr, LSock}}}),
+i({listen, Ref, {Mod, Opts, Addrs}}) ->
+    [_] = diameter_config:subscribe(Ref, transport), %% assert existence
+    {[LP], Rest} = proplists:split(Opts, [port]),
+    {ok, LSock} = Mod:listen(get_port(LP), gen_opts(Addrs, Rest)),
+    {ok, {LAddr, _}} = sockname(Mod, LSock),
+    true = diameter_reg:add_new({?MODULE, listener, {Ref, {LAddr, LSock}}}),
     proc_lib:init_ack({ok, self(), {LAddr, LSock}}),
-    erlang:monitor(process, APid),
-    start_timer(#listener{socket = LSock}).
-
-ssl(Opts) ->
-    {[SslOpts], Rest} = proplists:split(Opts, [ssl_options]),
-    {ssl_opts(SslOpts), Rest}.
+    #listener{socket = LSock,
+              module = Mod}.
 
 ssl_opts([]) ->
     false;
@@ -174,37 +272,49 @@ ssl_opts([{ssl_options, true}]) ->
 ssl_opts([{ssl_options, Opts}])
   when is_list(Opts) ->
     Opts;
-ssl_opts(L) ->
-    ?ERROR({ssl_options, L}).
+ssl_opts(T) ->
+    ?ERROR({ssl_options, T}).
 
-%% i/7
+%% init/8
 
 %% Establish a TLS connection before capabilities exchange ...
-i(Type, Ref, Mod, Pid, true, Opts, Addrs) ->
-    i(Type, Ref, ssl, Pid, [{cb_info, ?TCP_CB(Mod)} | Opts], Addrs);
+init(Type, Ref, Mod, Pid, true, Opts, Addrs, SvcPid) ->
+    init(Type, Ref, ssl, Pid, [{cb_info, ?TCP_CB(Mod)} | Opts], Addrs, SvcPid);
 
 %% ... or not.
-i(Type, Ref, Mod, Pid, _, Opts, Addrs) ->
-    i(Type, Ref, Mod, Pid, Opts, Addrs).
+init(Type, Ref, Mod, Pid, _, Opts, Addrs, SvcPid) ->
+    init(Type, Ref, Mod, Pid, Opts, Addrs, SvcPid).
 
-i(accept = T, Ref, Mod, Pid, Opts, Addrs) ->
-    {LAddr, LSock} = listener(Ref, {Mod, Opts, Addrs}),
+%% init/7
+
+init(accept = T, Ref, Mod, Pid, Opts, Addrs, SvcPid) ->
+    {[Matches], Rest} = proplists:split(Opts, [accept]),
+    {ok, LPid, {LAddr, LSock}} = listener(Ref, {Mod, Rest, Addrs}),
+    ok = gen_server:call(LPid, {accept, SvcPid}, infinity),
     proc_lib:init_ack({ok, self(), [LAddr]}),
     Sock = ok(accept(Mod, LSock)),
-    true = diameter_reg:add_new({?MODULE, T, {Ref, Sock}}),
+    ok = accept_peer(Mod, Sock, accept(Matches)),
+    publish(Mod, T, Ref, Sock),
     diameter_peer:up(Pid),
     Sock;
 
-i(connect = T, Ref, Mod, Pid, Opts, Addrs) ->
-    {[LA, RA, RP], Rest} = proplists:split(Opts, [ip, raddr, rport]),
-    LAddr = get_addr(LA, Addrs),
-    RAddr = get_addr(RA, []),
+init(connect = T, Ref, Mod, Pid, Opts, Addrs, _SvcPid) ->
+    {[RA, RP], Rest} = proplists:split(Opts, [raddr, rport]),
+    RAddr = get_addr(RA),
     RPort = get_port(RP),
-    proc_lib:init_ack({ok, self(), [LAddr]}),
-    Sock = ok(connect(Mod, RAddr, RPort, gen_opts(LAddr, Rest))),
-    true = diameter_reg:add_new({?MODULE, T, {Ref, Sock}}),
-    diameter_peer:up(Pid, {RAddr, RPort}),
+    proc_lib:init_ack({ok, self()}),
+    Sock = ok(connect(Mod, RAddr, RPort, gen_opts(Addrs, Rest))),
+    publish(Mod, T, Ref, Sock),
+    up(Pid, {RAddr, RPort}, Mod, Sock),
     Sock.
+
+up(Pid, Remote, Mod, Sock) ->
+    {Addr, _Port} = ok(sockname(Mod, Sock)),
+    diameter_peer:up(Pid, Remote, [Addr]).
+
+publish(Mod, T, Ref, Sock) ->
+    true = diameter_reg:add_new({?MODULE, T, {Ref, Sock}}),
+    putr(?INFO_KEY, {Mod, Sock}).  %% for info/1
 
 ok({ok, T}) ->
     T;
@@ -214,33 +324,82 @@ ok(No) ->
 x(Reason) ->
     exit({shutdown, Reason}).
 
+%% accept_peer/3
+
+accept_peer(_Mod, _Sock, []) ->
+    ok;
+
+accept_peer(Mod, Sock, Matches) ->
+    {RAddr, _} = ok(peername(Mod, Sock)),
+    diameter_peer:match([RAddr], Matches)
+        orelse x({accept, RAddr, Matches}),
+    ok.
+
+%% accept/1
+
+accept(Opts) ->
+    [[M] || {accept, M} <- Opts].
+
 %% listener/2
 
-listener(LRef, T) ->
-    l(diameter_reg:match({?MODULE, listener, {LRef, '_'}}), LRef, T).
+%% Accepting processes can be started concurrently: ensure only one
+%% listener is started.
+listener(Ref, T) ->
+    diameter_sync:call({?MODULE, listener, Ref},
+                       {?MODULE, listener, [{Ref, T, self()}]},
+                       infinity,
+                       infinity).
 
-%% Existing process with the listening socket ...
+%% listener/1
+
+listener({Ref, T, _TPid}) ->
+    l(diameter_reg:match({?MODULE, listener, {Ref, '_'}}), Ref, T).
+
+%% l/3
+
+%% Existing listening process ...
 l([{{?MODULE, listener, {_, AS}}, LPid}], _, _) ->
-    LPid ! {accept, self()},
-    AS;
+    {ok, LPid, AS};
 
-%% ... or not: start one.
-l([], LRef, T) ->
-    {ok, _, AS} = diameter_tcp_sup:start_child({listen, LRef, self(), T}),
-    AS.
+%% ... or not.
+l([], Ref, T) ->
+    diameter_tcp_sup:start_child({listen, Ref, T}).
 
-%% get_addr/2
+%% addrs/2
+%%
+%% Take the first address from the service if several are specified
+%% and not address is configured.
 
-get_addr(As, Def) ->
-    diameter_lib:ipaddr(addr(As, Def)).
+addrs(Addrs, Opts) ->
+    case lists:mapfoldr(fun ipaddr/2, [], Opts) of
+        {Os, [_]} ->
+            Os;
+        {_, []} ->
+            Opts ++ [{ip, A} || [A|_] <- [Addrs]];
+        {_, As} ->
+            ?ERROR({invalid_addrs, As, Addrs})
+    end.
 
-%% Take the first address from the service if several are unspecified.
-addr([], [Addr | _]) ->
-    Addr;
-addr([{_, Addr}], _) ->
-    Addr;
-addr(As, Addrs) ->
-    ?ERROR({invalid_addrs, As, Addrs}).
+ipaddr({K,A}, As)
+  when K == ifaddr;
+       K == ip ->
+    {{ip, ipaddr(A)}, [A | As]};
+ipaddr(T, B) ->
+    {T, B}.
+
+ipaddr(A)
+  when A == loopback;
+       A == any ->
+    A;
+ipaddr(A) ->
+    diameter_lib:ipaddr(A).
+
+%% get_addr/1
+
+get_addr([{_, Addr}]) ->
+    diameter_lib:ipaddr(Addr);
+get_addr(Addrs) ->
+    ?ERROR({invalid_addrs, Addrs}).
 
 %% get_port/1
 
@@ -253,14 +412,15 @@ get_port(Ps) ->
 
 %% gen_opts/2
 
-gen_opts(LAddr, Opts) ->
+gen_opts(Addrs, Opts) ->
+    gen_opts(addrs(Addrs, Opts)).
+
+%% gen_opts/1
+
+gen_opts(Opts) ->
     {L,_} = proplists:split(Opts, [binary, packet, active]),
     [[],[],[]] == L orelse ?ERROR({reserved_options, Opts}),
-    [binary,
-     {packet, 0},
-     {active, once},
-     {ip, LAddr}
-     | Opts].
+    [binary, {packet, 0}, {active, false} | Opts].
 
 %% ---------------------------------------------------------------------------
 %% # ports/1
@@ -303,6 +463,18 @@ portnr(Sock) ->
 %% # handle_call/3
 %% ---------------------------------------------------------------------------
 
+handle_call({accept, SvcPid}, _From, #listener{service = P} = S) ->
+    {reply, ok, if not is_pid(P), is_pid(SvcPid) ->
+                        monitor(process, SvcPid),
+                        S#listener{service = SvcPid};
+                   true ->
+                        S
+                end};
+
+%% Transport is telling us of parent death.
+handle_call({stop, _Pid} = Reason, _From, #monitor{} = S) ->
+    {stop, {shutdown, Reason}, ok, S};
+
 handle_call(_, _, State) ->
     {reply, nok, State}.
 
@@ -324,15 +496,12 @@ handle_info(T, #listener{} = S) ->
     {noreply, #listener{} = l(T,S)};
 
 handle_info(T, #monitor{} = S) ->
-    m(T,S),
-    x(T).
+    {noreply, #monitor{} = m(T,S)}.
 
 %% ---------------------------------------------------------------------------
 %% # code_change/3
 %% ---------------------------------------------------------------------------
 
-code_change(_, {transport, _, _, _, _} = S, _) ->
-    {ok, #transport{} = list_to_tuple(tuple_to_list(S) ++ [false])};
 code_change(_, State, _) ->
     {ok, State}.
 
@@ -343,6 +512,7 @@ code_change(_, State, _) ->
 terminate(_, _) ->
     ok.
 
+
 %% ---------------------------------------------------------------------------
 
 putr(Key, Val) ->
@@ -351,49 +521,68 @@ putr(Key, Val) ->
 getr(Key) ->
     get({?MODULE, Key}).
 
-%% start_timer/1
-
-start_timer(#listener{count = 0} = S) ->
-    S#listener{tref = erlang:start_timer(?LISTENER_TIMEOUT, self(), close)};
-start_timer(S) ->
-    S.
-
 %% m/2
 %%
 %% Transition monitor state.
 
+%% Outgoing message.
+m(Msg, S)
+  when is_record(Msg, diameter_packet);
+       is_binary(Msg) ->
+    send(Msg, S),
+    S;
+
+%% Transport has established a connection. Stop monitoring on the
+%% parent so as not to die before a send from the transport.
+m({start, TPid, T, Ack} = M, #monitor{transport = TPid} = S) ->
+    case T of
+        {Sock, Mod} ->
+            demonitor(S#monitor.parent, [flush]),
+            S#monitor{parent = false,
+                      socket = Sock,
+                      module = Mod,
+                      ack = Ack};
+        false ->  %% monitor not sending
+            x(M)
+    end;
+
 %% Transport is telling us to die.
-m({stop, TPid}, #monitor{transport = TPid}) ->
-    ok;
+m({stop, TPid} = T, #monitor{transport = TPid}) ->
+    x(T);
 
-%% Transport has died.
-m({'DOWN', _, process, TPid, _}, #monitor{transport = TPid}) ->
-    ok;
+%% Transport is telling us to die.
+m({stop, TPid} = T, #monitor{transport = TPid}) ->
+    x(T);
 
-%% Transport parent has died.
-m({'DOWN', _, process, Pid, _}, #monitor{parent = Pid,
-                                         transport = TPid}) ->
-    exit(TPid, {shutdown, parent}).
+%% Transport is telling us that TLS has been negotiated after
+%% capabilities exchange.
+m({tls, SSock}, S) ->
+    S#monitor{socket = SSock,
+              module = ssl};
+
+%% Transport or parent has died.
+m({'DOWN', M, process, P, _} = T, #monitor{parent = MRef,
+                                           transport = TPid})
+  when M == MRef;
+       P == TPid ->
+    x(T).
 
 %% l/2
 %%
 %% Transition listener state.
 
-%% Another accept transport is attaching.
-l({accept, TPid}, #listener{count = N} = S) ->
-    erlang:monitor(process, TPid),
-    S#listener{count = N+1};
-
-%% Accepting process has died.
-l({'DOWN', _, process, _, _}, #listener{count = N} = S) ->
-    start_timer(S#listener{count = N-1});
-
-%% Timeout after the last accepting process has died.
-l({timeout, TRef, close = T}, #listener{tref = TRef,
-                                        count = 0}) ->
+%% Service process has died.
+l({'DOWN', _, process, Pid, _} = T, #listener{service = Pid,
+                                              socket = Sock,
+                                              module = M}) ->
+    M:close(Sock),
     x(T);
-l({timeout, _, close}, #listener{} = S) ->
-    S.
+
+%% Transport has been removed.
+l({transport, remove, _} = T, #listener{socket = Sock,
+                                        module = M}) ->
+    M:close(Sock),
+    x(T).
 
 %% t/2
 %%
@@ -405,51 +594,29 @@ t(T,S) ->
             S;
         #transport{} = NS ->
             NS;
-        {stop, Reason} ->
-            x(Reason);
         stop ->
             x(T)
     end.
 
 %% transition/2
 
-%% Initial incoming message when we might need to upgrade to TLS:
-%% don't request another message until we know.
-transition({tcp, Sock, Bin}, #transport{socket = Sock,
-                                        parent = Pid,
-                                        frag = Head,
-                                        module = M,
-                                        ssl = Opts}
-                             = S)
-  when is_list(Opts) ->
-    case recv1(Head, Bin) of
-        {Msg, B} when is_binary(Msg) ->
-            diameter_peer:recv(Pid, Msg),
-            S#transport{frag = B};
-        Frag ->
-            setopts(M, Sock),
-            S#transport{frag = Frag}
-    end;
-
-%% Incoming message.
+%% Incoming packets.
 transition({P, Sock, Bin}, #transport{socket = Sock,
-                                      module = M,
-                                      ssl = B}
+                                      ssl = B,
+                                      frag = Frag}
                            = S)
-  when P == tcp, not B;
-       P == ssl, B ->
-    setopts(M, Sock),
-    recv(Bin, S);
+  when P == ssl, true == B;
+       P == tcp ->
+    recv(acc(Frag, Bin), S);
 
 %% Capabilties exchange has decided on whether or not to run over TLS.
 transition({diameter, {tls, Ref, Type, B}}, #transport{parent = Pid}
                                             = S) ->
-    #transport{socket = Sock,
-               module = M}
+    true = is_boolean(B),  %% assert
+    #transport{}
         = NS
         = tls_handshake(Type, B, S),
     Pid ! {diameter, {tls, Ref}},
-    setopts(M, Sock),
     NS#transport{ssl = B};
 
 transition({C, Sock}, #transport{socket = Sock,
@@ -466,14 +633,18 @@ transition({E, Sock, _Reason} = T, #transport{socket = Sock,
     ?ERROR({T,S});
 
 %% Outgoing message.
-transition({diameter, {send, Bin}}, #transport{socket = Sock,
-                                               module = M}) ->
-    case send(M, Sock, Bin) of
-        ok ->
-            ok;
-        {error, Reason} ->
-            {stop, {send, Reason}}
-    end;
+transition({diameter, {send, Msg}}, #transport{} = S) ->
+    message(send, Msg, S);
+
+%% Monitor has sent an outgoing message.
+transition(Msg, S)
+  when is_record(Msg, diameter_packet);
+       is_binary(Msg) ->
+    message(ack, Msg, S);
+
+%% Deferred actions from a message_cb.
+transition({actions, Dir, Acts}, S) ->
+    setopts(actions(Acts, Dir, S));
 
 %% Request to close the transport connection.
 transition({diameter, {close, Pid}}, #transport{parent = Pid,
@@ -483,8 +654,8 @@ transition({diameter, {close, Pid}}, #transport{parent = Pid,
     stop;
 
 %% Timeout for reception of outstanding packets.
-transition({timeout, TRef, flush}, S) ->
-    flush(TRef, S);
+transition({timeout, TRef, flush}, #transport{tref = TRef} = S) ->
+    flush(S#transport{tref = false});
 
 %% Request for the local port number.
 transition({resolve_port, Pid}, #transport{socket = Sock,
@@ -493,8 +664,18 @@ transition({resolve_port, Pid}, #transport{socket = Sock,
     Pid ! portnr(M, Sock),
     ok;
 
-%% Parent process has died.
-transition({'DOWN', _, process, Pid, _}, #transport{parent = Pid}) ->
+%% Parent process has died: call the monitor to not close the socket
+%% during an ongoing send, but don't let it take forever.
+transition({'DOWN', _, process, Pid, _}, #transport{parent = Pid,
+                                                    send = MPid}) ->
+    false == MPid
+        orelse (ok == gen_server:call(MPid, {stop, self()}, 1000))
+        orelse exit(MPid, {shutdown, parent}),
+    stop;
+
+%% Monitor process has died.
+transition({'DOWN', _, process, MPid, _}, #transport{send = MPid})
+  when is_pid(MPid) ->
     stop.
 
 %% Crash on anything unexpected.
@@ -518,13 +699,13 @@ tls_handshake(_, true, #transport{ssl = false}) ->
 %% Capabilities exchange negotiated TLS: upgrade the connection.
 tls_handshake(Type, true, #transport{socket = Sock,
                                      module = M,
-                                     ssl = Opts}
+                                     ssl = Opts,
+                                     send = MPid}
                           = S) ->
     {ok, SSock} = tls(Type, Sock, [{cb_info, ?TCP_CB(M)} | Opts]),
-    Ref = getr(ref),
-    is_reference(Ref)  %% started in new code
-        andalso
-        (true = diameter_reg:add_new({?MODULE, Type, {Ref, SSock}})),
+    Ref = getr(?REF_KEY),
+    true = diameter_reg:add_new({?MODULE, Type, {Ref, SSock}}),
+    false == MPid orelse (MPid ! {tls, SSock}), %% tell the sender process
     S#transport{socket = SSock,
                 module = ssl};
 
@@ -535,99 +716,88 @@ tls_handshake(_, false, S) ->
 tls(connect, Sock, Opts) ->
     ssl:connect(Sock, Opts);
 tls(accept, Sock, Opts) ->
-    ssl:ssl_accept(Sock, Opts).
+    ssl:handshake(Sock, Opts).  %% assume no handshake option
 
 %% recv/2
 %%
-%% Reassemble fragmented messages and extract multple message sent
+%% Reassemble fragmented messages and extract multiple message sent
 %% using Nagle.
 
-recv(Bin, #transport{parent = Pid, frag = Head} = S) ->
-    case recv1(Head, Bin) of
-        {Msg, B} when is_binary(Msg) ->
-            diameter_peer:recv(Pid, Msg),
-            recv(B, S#transport{frag = <<>>});
-        Frag ->
-            S#transport{frag = Frag}
-    end.
+%% Receive packets until a full message is received,
 
-%% recv1/2
+recv({Msg, Rest}, S) ->  %% have a complete message ...
+    recv(acc(Rest), message(recv, Msg, S));
 
-%% No previous fragment.
-recv1(<<>>, Bin) ->
-    rcv(Bin);
+recv(Frag, #transport{recv = B,
+                      socket = Sock,
+                      module = M}
+           = S) ->       %% or not
+    B andalso setopts(M, Sock),
+    start_fragment_timer(S#transport{frag = Frag,
+                                     flush = false,
+                                     active = B}).
 
-recv1({TRef, Head}, Bin) ->
-    erlang:cancel_timer(TRef),
-    rcv(Head, Bin).
+%% acc/2
 
-%% rcv/2
+%% Know how many bytes to extract.
+acc([Len | Acc], Bin) ->
+    acc1(Len, <<Acc/binary, Bin/binary>>);
 
-%% Not even the first four bytes of the header.
-rcv(Head, Bin)
-  when is_binary(Head) ->
-    rcv(<<Head/binary, Bin/binary>>);
+%% Or not.
+acc(Head, Bin) ->
+    acc(<<Head/binary, Bin/binary>>).
 
-%% Or enough to know how many bytes to extract.
-rcv({Len, N, Head, Acc}, Bin) ->
-    rcv(Len, N + size(Bin), Head, [Bin | Acc]).
-
-%% rcv/4
+%% acc1/3
 
 %% Extract a message for which we have all bytes.
-rcv(Len, N, Head, Acc)
-  when Len =< N ->
-    rcv1(Len, bin(Head, Acc));
+acc1(Len, Bin)
+  when Len =< byte_size(Bin) ->
+    split_binary(Bin, Len);
 
 %% Wait for more packets.
-rcv(Len, N, Head, Acc) ->
-    {start_timer(), {Len, N, Head, Acc}}.
+acc1(Len, Bin) ->
+    [Len | Bin].
 
-%% rcv/2
+%% acc/1
 
-%% Nothing left.
-rcv(<<>> = Bin) ->
-    Bin;
+%% Don't match on Bin since this results in it being copied at the
+%% next append according to the Efficiency Guide. This is also the
+%% reason that the Len is extracted and maintained when accumulating
+%% messages. The simplest implementation is just to accumulate a
+%% binary and match <<_, Len:24, _/binary>> each time the length is
+%% required, but the performance of this decays quadratically with the
+%% message length, since the binary is then copied with each append of
+%% additional bytes from gen_tcp.
 
-%% Well, this isn't good. Chances are things will go south from here
-%% but if we're lucky then the bytes we have extend to an intended
-%% message boundary and we can recover by simply discarding them,
-%% which is the result of receiving them.
-rcv(<<_:1/binary, Len:24, _/binary>> = Bin)
-  when Len < 20 ->
-    {Bin, <<>>};
-
-%% Enough bytes to extract a message.
-rcv(<<_:1/binary, Len:24, _/binary>> = Bin)
-  when Len =< size(Bin) ->
-    rcv1(Len, Bin);
-
-%% Or not: wait for more packets.
-rcv(<<_:1/binary, Len:24, _/binary>> = Head) ->
-    {start_timer(), {Len, size(Head), Head, []}};
+acc(Bin)
+  when 3 < byte_size(Bin) ->
+    {Head, _} = split_binary(Bin, 4),
+    [_,A,B,C] = binary_to_list(Head),
+    Len = (A bsl 16) bor (B bsl 8) bor C,
+    if Len < 20 ->
+            %% Message length isn't sufficient for a Diameter Header.
+            %% Chances are things will go south from here but if we're
+            %% lucky then the bytes we have extend to an intended
+            %% message boundary and we can recover by simply receiving
+            %% them. Make it so.
+            {Bin, <<>>};
+       true ->
+            acc1(Len, Bin)
+    end;
 
 %% Not even 4 bytes yet.
-rcv(Head) ->
-    {start_timer(), Head}.
-
-%% rcv1/2
-
-rcv1(Len, Bin) ->
-    <<Msg:Len/binary, Rest/binary>> = Bin,
-    {Msg, Rest}.
-
-%% bin/[12]
-
-bin(Head, Acc) ->
-    list_to_binary([Head | lists:reverse(Acc)]).
-
-bin({_, _, Head, Acc}) ->
-    bin(Head, Acc);
-bin(Bin)
-  when is_binary(Bin) ->
+acc(Bin) ->
     Bin.
 
-%% start_timer/0
+%% bin/1
+
+bin([_ | Bin]) ->
+    Bin;
+
+bin(Bin) ->
+    Bin.
+
+%% flush/1
 
 %% An erroneously large message length may leave us with a fragment
 %% that lingers if the peer doesn't have anything more to send. Start
@@ -640,21 +810,36 @@ bin(Bin)
 %% since all messages with length problems are discarded this should
 %% also eventually lead to watchdog failover.
 
-start_timer() ->
-    erlang:start_timer(?FRAGMENT_TIMEOUT, self(), flush).
+%% No fragment to flush or not receiving messages.
+flush(#transport{frag = <<>>} = S) ->
+    S;
 
-flush(TRef, #transport{parent = Pid, frag = {TRef, Head}} = S) ->
-    diameter_peer:recv(Pid, bin(Head)),
-    S#transport{frag = <<>>};
-flush(_, S) ->
-    S.
+%% Messages have been received since last timer expiry.
+flush(#transport{flush = false} = S) ->
+    start_fragment_timer(S#transport{flush = true});
+
+%% No messages since last expiry.
+flush(#transport{frag = Frag} = S) ->
+    message(recv, bin(Frag), S#transport{frag = <<>>}).
+
+%% start_fragment_timer/1
+%%
+%% Start a timer only if there's none running and a message to flush.
+
+start_fragment_timer(#transport{frag = B, tref = TRef} = S)
+  when B == <<>>;
+       TRef /= false ->
+    S;
+
+start_fragment_timer(#transport{timeout = Tmo} = S) ->
+    S#transport{tref = erlang:start_timer(Tmo, self(), flush)}.
 
 %% accept/2
 
 accept(ssl, LSock) ->
     case ssl:transport_accept(LSock) of
         {ok, Sock} ->
-            {ssl:ssl_accept(Sock), Sock};
+            ssl:handshake(Sock);
         {error, _} = No ->
             No
     end;
@@ -665,6 +850,35 @@ accept(Mod, LSock) ->
 
 connect(Mod, Host, Port, Opts) ->
     Mod:connect(Host, Port, Opts).
+
+%% send/2
+
+send(Msg, #monitor{socket = Sock, module = M, transport = TPid, ack = B}) ->
+    send1(M, Sock, Msg),
+    B andalso (TPid ! Msg);
+
+send(Msg, #transport{socket = Sock, module = M, send = false} = S) ->
+    send1(M, Sock, Msg),
+    message(ack, Msg, S);
+
+%% Send from the monitor process to avoid deadlock if both the
+%% receiver and the peer were to block in send.
+send(Msg, #transport{send = Pid} = S) ->
+    Pid ! Msg,
+    S.
+
+%% send1/3
+
+send1(Mod, Sock, #diameter_packet{bin = Bin}) ->
+    send1(Mod, Sock, Bin);
+
+send1(Mod, Sock, Bin) ->
+    case send(Mod, Sock, Bin) of
+        ok ->
+            ok;
+        {error, Reason} ->
+            x({send, Reason})
+    end.
 
 %% send/3
 
@@ -684,24 +898,135 @@ setopts(ssl, Sock, Opts) ->
 setopts(M, Sock, Opts) ->
     M:setopts(Sock, Opts).
 
+%% setopts/1
+
+setopts(#transport{socket = Sock,
+                   active = A,
+                   recv = B,
+                   module = M}
+        = S)
+  when B, not A ->
+    setopts(M, Sock),
+    S#transport{active = true};
+
+setopts(S) ->
+    S.
+
 %% setopts/2
 
 setopts(M, Sock) ->
     case setopts(M, Sock, [{active, once}]) of
         ok -> ok;
-        X  -> x({setopts, M, Sock, X})  %% possibly on peer disconnect
+        X  -> x({setopts, Sock, M, X})  %% possibly on peer disconnect
     end.
 
 %% portnr/2
 
 portnr(gen_tcp, Sock) ->
     inet:port(Sock);
-portnr(ssl, Sock) ->
-    case ssl:sockname(Sock) of
+portnr(M, Sock) ->
+    case M:sockname(Sock) of
         {ok, {_Addr, PortNr}} ->
             {ok, PortNr};
         {error, _} = No ->
             No
-    end;
-portnr(M, Sock) ->
-    M:port(Sock).
+    end.
+
+%% sockname/2
+
+sockname(gen_tcp, Sock) ->
+    inet:sockname(Sock);
+sockname(M, Sock) ->
+    M:sockname(Sock).
+
+%% peername/2
+
+peername(gen_tcp, Sock) ->
+    inet:peername(Sock);
+peername(M, Sock) ->
+    M:peername(Sock).
+
+%% getstat/2
+
+getstat(gen_tcp, Sock) ->
+    inet:getstat(Sock);
+getstat(M, Sock) ->
+    M:getstat(Sock).
+%% Note that ssl:getstat/1 doesn't yet exist in R15B01.
+
+%% A message_cb is invoked whenever a message is sent or received, or
+%% to provide acknowledgement of a completed send or discarded
+%% request. Ignoring possible extra arguments, calls are of the
+%% following form.
+%%
+%% cb(recv, Msg)          Receive a message into diameter?
+%% cb(send, Msg)          Send a message on the socket?
+%% cb(ack,  Msg)          Acknowledgement of a completed send.
+%% cb(ack,  false)        Acknowledgement of a discarded request.
+%%
+%% Msg will be binary() in a recv callback, but can be a
+%% diameter_packet record in a send/ack callback if a recv/send
+%% callback returns a record. Callbacks return a list of the following
+%% form.
+%%
+%%   [boolean() | send | recv | binary() | #diameter_packet{}]
+%%
+%% The atoms are meaningless by themselves, but say whether subsequent
+%% messages are to be sent or received. A boolean says whether or not
+%% to continue reading on the socket. Messages can be received even
+%% after false is returned if these arrived in the same packet. A
+%% leading recv or send is implicit on the corresponding callbacks. A
+%% new callback can be returned as the tail of a returned list: any
+%% value not of the aforementioned list type is interpreted as a
+%% callback.
+
+%% message/3
+
+message(send, false = M, S) ->
+    message(ack, M, S);
+
+message(ack, _, #transport{message_cb = false} = S) ->
+    S;
+
+message(Dir, Msg, #transport{message_cb = CB} = S) ->
+    setopts(actions(cb(CB, Dir, Msg), Dir, S)).
+
+%% actions/3
+
+actions([], _, S) ->
+    S;
+
+actions([B | As], Dir, S)
+  when is_boolean(B) ->
+    actions(As, Dir, S#transport{recv = B});
+
+actions([Dir | As], _, S)
+  when Dir == send;
+       Dir == recv ->
+    actions(As, Dir, S);
+
+actions([Msg | As], send = Dir, S)
+  when is_binary(Msg);
+       is_record(Msg, diameter_packet) ->
+    actions(As, Dir, send(Msg, S));
+
+actions([Msg | As], recv = Dir, #transport{parent = Pid} = S)
+  when is_binary(Msg);
+       is_record(Msg, diameter_packet) ->
+    diameter_peer:recv(Pid, Msg),
+    actions(As, Dir, S);
+
+actions([{defer, Tmo, Acts} | As], Dir, S) ->
+    erlang:send_after(Tmo, self(), {actions, Dir, Acts}),
+    actions(As, Dir, S);
+
+actions(CB, _, S) ->
+    S#transport{message_cb = CB}.
+
+%% cb/3
+
+cb(false, _, Msg) ->
+    [Msg];
+
+cb(CB, Dir, Msg) ->
+    diameter_lib:eval([CB, Dir, Msg]).

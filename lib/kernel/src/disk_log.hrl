@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1997-2012. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2017. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -38,6 +39,7 @@
 -define(MAX_FILES, 65000).
 -define(MAX_BYTES, ((1 bsl 64) - 1)).
 -define(MAX_CHUNK_SIZE, 65536).
+-define(MAX_FWRITE_CACHE, 65536).
 
 %% Object defines
 -define(LOGMAGIC, <<1,2,3,4>>). 
@@ -53,11 +55,10 @@
 %% Types -- alphabetically
 %%------------------------------------------------------------------------
 
--type dlog_byte()        :: [dlog_byte()] | byte().
 -type dlog_format()      :: 'external' | 'internal'.
 -type dlog_format_type() :: 'halt_ext' | 'halt_int' | 'wrap_ext' | 'wrap_int'.
 -type dlog_head()        :: 'none' | {'ok', binary()} | mfa().
--type dlog_head_opt()    :: none | term() | binary() | [dlog_byte()].
+-type dlog_head_opt()    :: none | term() | iodata().
 -type log()              :: term().  % XXX: refine
 -type dlog_mode()        :: 'read_only' | 'read_write'.
 -type dlog_name()        :: atom() | string().
@@ -68,13 +69,14 @@
                           | {file, FileName :: file:filename()}
                           | {linkto, LinkTo :: none | pid()}
                           | {repair, Repair :: true | false | truncate}
-                          | {type, Type :: dlog_type}
+                          | {type, Type :: dlog_type()}
                           | {format, Format :: dlog_format()}
                           | {size, Size :: dlog_size()}
                           | {distributed, Nodes :: [node()]}
                           | {notify, boolean()}
                           | {head, Head :: dlog_head_opt()}
                           | {head_func, MFA :: {atom(), atom(), list()}}
+                          | {quiet, boolean()}
                           | {mode, Mode :: dlog_mode()}.
 -type dlog_options()     :: [dlog_option()].
 -type dlog_repair()      :: 'truncate' | boolean().
@@ -101,6 +103,7 @@
 	      head = none,
 	      mode = read_write   :: dlog_mode(),
 	      notify = false      :: boolean(),
+	      quiet = false       :: boolean(),
 	      options = []        :: dlog_options()}).
 
 -record(cache,                %% Cache for logged terms (per file descriptor).
@@ -151,8 +154,8 @@
 	 users = 0         :: non_neg_integer(),   %% non-linked users
 	 filename          :: file:filename(),	   %% real name of the file
 	 owners = []       :: [{pid(), boolean()}],%% [{pid, notify}]
-	 type = halt	   :: dlog_type(),
-	 format = internal :: dlog_format(),
+	 type              :: dlog_type(),
+	 format            :: dlog_format(),
 	 format_type	   :: dlog_format_type(),
 	 head = none,         %%  none | {head, H} | {M,F,A}
 	                      %%  called when wraplog wraps

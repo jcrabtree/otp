@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -22,7 +23,7 @@
 
 -export([fread/2,fread/3]).
 
--import(lists, [reverse/1,reverse/2]).
+-import(lists, [reverse/1]).
 
 -define(is_whitespace(C),
 	((C) =:= $\s orelse (C) =:= $\t
@@ -37,13 +38,13 @@
 
 -spec fread(Continuation, String, Format) -> Return when
       Continuation :: io_lib:continuation() |  [],
-      String :: string(),
+      String :: string() | 'eof',
       Format :: string(),
       Return :: {'more', Continuation1 :: io_lib:continuation()}
               | {'done', Result, LeftOverChars :: string()},
-      Result :: {'ok', InputList :: io_lib:chars()}
+      Result :: {'ok', InputList :: [io_lib:fread_item()]}
               | 'eof'
-              | {'error', What :: term()}.
+              | {'error', {'fread', What :: io_lib:fread_error()}}.
 
 fread([], Chars, Format) ->
     %%io:format("FREAD: ~w `~s'~n", [Format,Chars]),
@@ -101,11 +102,12 @@ fread_line(Format0, Line, N0, Results0, More, Newline) ->
 -spec fread(Format, String) -> Result when
       Format :: string(),
       String :: string(),
-      Result :: {'ok', InputList :: io_lib:chars(), LeftOverChars :: string()}
+      Result :: {'ok', InputList :: [io_lib:fread_item()],
+                 LeftOverChars :: string()}
               | {'more', RestFormat :: string(),
                  Nchars :: non_neg_integer(),
                  InputStack :: io_lib:chars()}
-              | {'error', What :: term()}.
+              | {'error', {'fread', What :: io_lib:fread_error()}}.
 
 fread(Format, Line) ->
     fread(Format, Line, 0, []).
@@ -157,8 +159,8 @@ fread_field([$t|Format], F, Sup, _Unic) ->
 fread_field(Format, F, Sup, Unic) ->
     {Format,F,Sup,Unic}.
 
-%% fread1(Format, FieldWidth, Suppress, Line, N, Results, AllFormat)
-%% fread1(Format, FieldWidth, Suppress, Line, N, Results)
+%% fread1(Format, FieldWidth, Suppress, Unicode, Line, N, Results, AllFormat)
+%% fread1(Format, FieldWidth, Suppress, Unicode, Line, N, Results)
 %%  The main dispatch function for the formatting commands. Done in two
 %%  stages so format commands that need no input can always be processed.
 
@@ -229,9 +231,8 @@ fread1([$s|Format], none, Sup, U, Line0, N0, Res) ->
 fread1([$s|Format], F, Sup, U, Line0, N, Res) ->
     {Line,Cs} = fread_chars(Line0, F, U),
     fread_string(Cs, Sup, U, Format, Line, N+F, Res);
-%% XXX:PaN Atoms still only latin1...
-fread1([$a|Format], none, Sup, false, Line0, N0, Res) ->
-    {Line,N,Cs} = fread_string_cs(Line0, N0, false),
+fread1([$a|Format], none, Sup, U, Line0, N0, Res) ->
+    {Line,N,Cs} = fread_string_cs(Line0, N0, U),
     fread_atom(Cs, Sup, Format, Line, N, Res);
 fread1([$a|Format], F, Sup, false, Line0, N, Res) ->
     {Line,Cs} = fread_chars(Line0, F, false),

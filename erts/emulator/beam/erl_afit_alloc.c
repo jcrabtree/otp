@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  * 
- * Copyright Ericsson AB 2003-2011. All Rights Reserved.
+ * Copyright Ericsson AB 2003-2018. All Rights Reserved.
  * 
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
- * 
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  * 
  * %CopyrightEnd%
  */
@@ -37,18 +38,23 @@
 #define GET_ERL_AF_ALLOC_IMPL
 #include "erl_afit_alloc.h"
 
+struct AFFreeBlock_t_ {
+    Block_t block_head;
+    AFFreeBlock_t *prev;
+    AFFreeBlock_t *next;
+};
+#define AF_BLK_SZ(B) MBC_FBLK_SZ(&(B)->block_head)
 
 #define MIN_MBC_SZ		(16*1024)
 #define MIN_MBC_FIRST_FREE_SZ	(4*1024)
 
 /* Prototypes of callback functions */
-static Block_t *	get_free_block		(Allctr_t *, Uint,
-						 Block_t *, Uint, Uint32);
-static void		link_free_block		(Allctr_t *, Block_t *, Uint32);
-static void		unlink_free_block	(Allctr_t *, Block_t *, Uint32);
+static Block_t *	get_free_block		(Allctr_t *, Uint, Block_t *, Uint);
+static void		link_free_block		(Allctr_t *, Block_t *);
+static void		unlink_free_block	(Allctr_t *, Block_t *);
 
 
-static Eterm		info_options		(Allctr_t *, char *, int *,
+static Eterm		info_options		(Allctr_t *, char *, fmtfn_t *,
 						 void *arg, Uint **, Uint *);
 static void		init_atoms		(void);
 
@@ -78,8 +84,6 @@ erts_afalc_start(AFAllctr_t *afallctr,
 
     sys_memcpy((void *) afallctr, (void *) &zero.allctr, sizeof(AFAllctr_t));
 
-    init->sbmbct = 0; /* Small mbc not supported by afit */
-
     allctr->mbc_header_size		= sizeof(Carrier_t);
     allctr->min_mbc_size		= MIN_MBC_SZ;
     allctr->min_mbc_first_free_size	= MIN_MBC_FIRST_FREE_SZ;
@@ -95,6 +99,9 @@ erts_afalc_start(AFAllctr_t *afallctr,
     allctr->get_next_mbc_size		= NULL;
     allctr->creating_mbc		= NULL;
     allctr->destroying_mbc		= NULL;
+    allctr->add_mbc                     = NULL;
+    allctr->remove_mbc                  = NULL;
+    allctr->largest_fblk_in_mbc         = NULL;
     allctr->init_atoms			= init_atoms;
 
 #ifdef ERTS_ALLOC_UTIL_HARD_DEBUG
@@ -111,14 +118,13 @@ erts_afalc_start(AFAllctr_t *afallctr,
 }
 
 static Block_t *
-get_free_block(Allctr_t *allctr, Uint size, Block_t *cand_blk, Uint cand_size,
-	       Uint32 flags)
+get_free_block(Allctr_t *allctr, Uint size, Block_t *cand_blk, Uint cand_size)
 {
     AFAllctr_t *afallctr = (AFAllctr_t *) allctr;
 
     ASSERT(!cand_blk || cand_size >= size);
 
-    if (afallctr->free_list && BLK_SZ(afallctr->free_list) >= size) {
+    if (afallctr->free_list && AF_BLK_SZ(afallctr->free_list) >= size) {
 	AFFreeBlock_t *res = afallctr->free_list;	
 	afallctr->free_list = res->next;
 	if (res->next)
@@ -130,12 +136,12 @@ get_free_block(Allctr_t *allctr, Uint size, Block_t *cand_blk, Uint cand_size,
 }
 
 static void
-link_free_block(Allctr_t *allctr, Block_t *block, Uint32 flags)
+link_free_block(Allctr_t *allctr, Block_t *block)
 {
     AFFreeBlock_t *blk = (AFFreeBlock_t *) block;
     AFAllctr_t *afallctr = (AFAllctr_t *) allctr;
 
-    if (afallctr->free_list && BLK_SZ(afallctr->free_list) > BLK_SZ(blk)) {
+    if (afallctr->free_list && AF_BLK_SZ(afallctr->free_list) > AF_BLK_SZ(blk)) {
 	blk->next = afallctr->free_list->next;
 	blk->prev = afallctr->free_list;
 	afallctr->free_list->next = blk;
@@ -151,7 +157,7 @@ link_free_block(Allctr_t *allctr, Block_t *block, Uint32 flags)
 }
 
 static void
-unlink_free_block(Allctr_t *allctr, Block_t *block, Uint32 flags)
+unlink_free_block(Allctr_t *allctr, Block_t *block)
 {
     AFFreeBlock_t *blk = (AFFreeBlock_t *) block;
     AFAllctr_t *afallctr = (AFAllctr_t *) allctr;
@@ -175,7 +181,7 @@ static struct {
 
 static void ERTS_INLINE atom_init(Eterm *atom, char *name)
 {
-    *atom = am_atom_put(name, strlen(name));
+    *atom = am_atom_put(name, sys_strlen(name));
 }
 #define AM_INIT(AM) atom_init(&am.AM, #AM)
 
@@ -221,7 +227,7 @@ add_2tup(Uint **hpp, Uint *szp, Eterm *lp, Eterm el1, Eterm el2)
 static Eterm
 info_options(Allctr_t *allctr,
 	     char *prefix,
-	     int *print_to_p,
+	     fmtfn_t *print_to_p,
 	     void *print_to_arg,
 	     Uint **hpp,
 	     Uint *szp)
@@ -235,7 +241,7 @@ info_options(Allctr_t *allctr,
     if (hpp || szp) {
 	
 	if (!atoms_initialized)
-	    erl_exit(1, "%s:%d: Internal error: Atoms not initialized",
+	    erts_exit(ERTS_ERROR_EXIT, "%s:%d: Internal error: Atoms not initialized",
 		     __FILE__, __LINE__);;
 
 	res = NIL;
@@ -254,10 +260,10 @@ info_options(Allctr_t *allctr,
  * to erts_afalc_test()                                                      *
 \*                                                                           */
 
-unsigned long
-erts_afalc_test(unsigned long op, unsigned long a1, unsigned long a2)
+UWord
+erts_afalc_test(UWord op, UWord a1, UWord a2)
 {
     switch (op) {
-    default:	ASSERT(0); return ~((unsigned long) 0);
+    default:	ASSERT(0); return ~((UWord) 0);
     }
 }

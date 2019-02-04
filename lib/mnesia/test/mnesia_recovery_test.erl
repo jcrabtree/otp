@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2010. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -20,7 +21,80 @@
 %%
 -module(mnesia_recovery_test).
 -author('hakan@erix.ericsson.se').
--compile([export_all]).
+
+-export([init_per_testcase/2, end_per_testcase/2,
+         init_per_group/2, end_per_group/2,
+         all/0, groups/0]).
+
+-export([coord_dies/1, after_full_disc_partition/1,
+         disc_less/1, garb_decision/1,
+         system_upgrade/1,
+         delete_during_start/1,
+         no_master_2/1, no_master_3/1, one_master_2/1, one_master_3/1,
+         two_master_2/1, two_master_3/1, all_master_2/1,
+         all_master_3/1,
+         dirty_read_during_down/1, trans_read_during_down/1,
+         mnesia_down_during_startup_disk_ram/1,
+         mnesia_down_during_startup_init_ram/1,
+         mnesia_down_during_startup_init_disc/1,
+         mnesia_down_during_startup_init_disc_only/1,
+         mnesia_down_during_startup_tm_ram/1,
+         mnesia_down_during_startup_tm_disc/1,
+         mnesia_down_during_startup_tm_disc_only/1,
+         with_checkpoint_same/1, with_checkpoint_other/1,
+         explicit_stop_during_snmp/1,
+         sym_trans_before_commit_kill_coord_node/1,
+         sym_trans_before_commit_kill_coord_pid/1,
+         sym_trans_before_commit_kill_part_after_ask/1,
+         sym_trans_before_commit_kill_part_before_ask/1,
+         sym_trans_after_commit_kill_coord_node/1,
+         sym_trans_after_commit_kill_coord_pid/1,
+         sym_trans_after_commit_kill_part_after_ask/1,
+         sym_trans_after_commit_kill_part_do_commit_pre/1,
+         sym_trans_after_commit_kill_part_do_commit_post/1,
+         sync_dirty_pre_kill_part/1,
+         sync_dirty_pre_kill_coord_node/1,
+         sync_dirty_pre_kill_coord_pid/1,
+         sync_dirty_post_kill_part/1,
+         sync_dirty_post_kill_coord_node/1,
+         sync_dirty_post_kill_coord_pid/1,
+         async_dirty_pre_kill_part/1,
+         async_dirty_pre_kill_coord_node/1,
+         async_dirty_pre_kill_coord_pid/1,
+         async_dirty_post_kill_part/1,
+         async_dirty_post_kill_coord_node/1,
+         async_dirty_post_kill_coord_pid/1,
+         asymtrans_part_ask/1,
+         asymtrans_part_commit_vote/1,
+         asymtrans_part_pre_commit/1,
+         asymtrans_part_log_commit/1,
+         asymtrans_part_do_commit/1,
+         asymtrans_coord_got_votes/1,
+         asymtrans_coord_pid_got_votes/1,
+         asymtrans_coord_log_commit_rec/1,
+         asymtrans_coord_pid_log_commit_rec/1,
+         asymtrans_coord_log_commit_dec/1,
+         asymtrans_coord_pid_log_commit_dec/1,
+         asymtrans_coord_rec_acc_pre_commit_log_commit/1,
+         asymtrans_coord_pid_rec_acc_pre_commit_log_commit/1,
+         asymtrans_coord_rec_acc_pre_commit_done_commit/1,
+         asymtrans_coord_pid_rec_acc_pre_commit_done_commit/1,
+         after_corrupt_files_decision_log_head/1,
+         after_corrupt_files_decision_log_tail/1,
+         after_corrupt_files_latest_log_head/1,
+         after_corrupt_files_latest_log_tail/1,
+         after_corrupt_files_table_dat_head/1,
+         after_corrupt_files_table_dat_tail/1,
+         after_corrupt_files_schema_dat_head/1,
+         after_corrupt_files_schema_dat_tail/1]).
+
+-export([reader/2, check/0, get_all_retainers/1,
+         verify_data/2, verify_where2read/1,
+         do_trans_loop/2,
+         start_stop/3, do_sym_trans/2, do_sync_dirty/2, do_async_dirty/2,
+         do_asym_trans/2, garb_handler/1, mymnesia_start/1
+        ]).
+
 
 -include("mnesia_test_lib.hrl").
 -include_lib("kernel/include/file.hrl").
@@ -99,21 +173,21 @@ groups() ->
        async_dirty_post_kill_coord_node,
        async_dirty_post_kill_coord_pid]},
      {asym_trans, [],
-      [asym_trans_kill_part_ask,
-       asym_trans_kill_part_commit_vote,
-       asym_trans_kill_part_pre_commit,
-       asym_trans_kill_part_log_commit,
-       asym_trans_kill_part_do_commit,
-       asym_trans_kill_coord_got_votes,
-       asym_trans_kill_coord_pid_got_votes,
-       asym_trans_kill_coord_log_commit_rec,
-       asym_trans_kill_coord_pid_log_commit_rec,
-       asym_trans_kill_coord_log_commit_dec,
-       asym_trans_kill_coord_pid_log_commit_dec,
-       asym_trans_kill_coord_rec_acc_pre_commit_log_commit,
-       asym_trans_kill_coord_pid_rec_acc_pre_commit_log_commit,
-       asym_trans_kill_coord_rec_acc_pre_commit_done_commit,
-       asym_trans_kill_coord_pid_rec_acc_pre_commit_done_commit]},
+      [asymtrans_part_ask,
+       asymtrans_part_commit_vote,
+       asymtrans_part_pre_commit,
+       asymtrans_part_log_commit,
+       asymtrans_part_do_commit,
+       asymtrans_coord_got_votes,
+       asymtrans_coord_pid_got_votes,
+       asymtrans_coord_log_commit_rec,
+       asymtrans_coord_pid_log_commit_rec,
+       asymtrans_coord_log_commit_dec,
+       asymtrans_coord_pid_log_commit_dec,
+       asymtrans_coord_rec_acc_pre_commit_log_commit,
+       asymtrans_coord_pid_rec_acc_pre_commit_log_commit,
+       asymtrans_coord_rec_acc_pre_commit_done_commit,
+       asymtrans_coord_pid_rec_acc_pre_commit_done_commit]},
      {after_corrupt_files, [],
       [after_corrupt_files_decision_log_head,
        after_corrupt_files_decision_log_tail,
@@ -320,7 +394,9 @@ read_during_down(Op, Config) when is_list(Config) ->
     ?log("W2R ~p~n", [W2R]),
     loop_and_kill_mnesia(10, hd(W2R), Tabs),
     [Pid ! self() || Pid <- Readers],
-    ?match([ok, ok, ok], [receive ok -> ok after 1000 -> {Pid, mnesia_lib:dist_coredump()} end || Pid <- Readers]),
+    ?match([ok, ok, ok],
+	   [receive ok -> ok after 5000 -> {Pid, mnesia_lib:dist_coredump()} end
+	    || Pid <- Readers]),
     ?verify_mnesia(Ns, []).
 
 reader(Tab, OP) ->
@@ -338,8 +414,12 @@ reader(Tab, OP) ->
 	    ?error("Expected ~p Got ~p ~n", [[{Tab, key, val}], Else]),
 	    erlang:error(test_failed)
     end,
-    receive Pid ->
-	    Pid ! ok
+    receive
+	Pid when is_pid(Pid) ->
+	    Pid ! ok;
+	Other ->
+	    io:format("Msg: ~p~n", [Other]),
+	    error(Other)
     after 50 ->
 	    reader(Tab, OP)
     end.
@@ -497,12 +577,21 @@ with_checkpoint(Config, Type) when is_list(Config) ->
     ?match(ok, mnesia:deactivate_checkpoint(sune)),
     ?match([], check_chkp(Nodes)),
 
+    Wait = fun(Loop) ->
+		   timer:sleep(300),
+		   sys:get_status(mnesia_monitor),
+		   case lists:member(Kill, mnesia_lib:val({current, db_nodes})) of
+		       true -> Loop(Loop);
+		       false -> ok
+		   end
+	   end,
+
     case Kill of
 	Node1 -> 
 	    ignore;
 	Node2 ->
 	    mnesia_test_lib:kill_mnesia([Kill]),
-	    timer:sleep(500),  %% Just to help debugging
+	    Wait(Wait),
 	    ?match({ok, sune, _}, mnesia:activate_checkpoint([{name, sune}, 
 		{max, mnesia:system_info(tables)}, 
 		{ram_overrides_dump, true}])),
@@ -569,7 +658,7 @@ delete_during_start(Config) when is_list(Config) ->
     mnesia_test_lib:kill_mnesia([N2,N3]),
 %%    timer:sleep(500),
     ?match({[ok,ok],[]}, rpc:multicall([N2,N3], mnesia,start, 
-				       [[{extra_db_nodes,[N1]}]])),
+				       [[{extra_db_nodes,[N1]}, {schema, ?BACKEND}]])),
     [Tab1,Tab2,Tab3|_] = Tabs,
     ?match({atomic, ok}, mnesia:delete_table(Tab1)),
     ?match({atomic, ok}, mnesia:delete_table(Tab2)),
@@ -607,7 +696,7 @@ explicit_stop_during_snmp(Config) when is_list(Config) ->
 
     Do_trans_Pid1 = spawn_link(Node2, ?MODULE, do_trans_loop, [Tab, self()]),
     Do_trans_Pid2 = spawn_link(?MODULE, do_trans_loop, [Tab, self()]),
-    Start_stop_Pid = spawn_link(?MODULE, start_stop, [Node1, 10, self()]),
+    Start_stop_Pid = spawn_link(?MODULE, start_stop, [Node1, 5, self()]),
     receive 
 	test_done -> 
 	    ok
@@ -631,16 +720,17 @@ do_trans_loop2(Tab, Father) ->
 	end,
     case mnesia:transaction(Trans) of
 	{atomic, ok} ->
-	    timer:sleep(200),
+	    timer:sleep(100),
 	    do_trans_loop2(Tab, Father);
 	{aborted, {node_not_running, N}} when N == node() ->
-	    timer:sleep(200),
+	    timer:sleep(100),
 	    do_trans_loop2(Tab, Father);
 	{aborted, {no_exists, Tab}} ->
-	    timer:sleep(200),
+	    timer:sleep(100),
 	    do_trans_loop2(Tab, Father);
 	Else ->
 	    ?error("Transaction failed: ~p ~n", [Else]),
+            io:format("INFO: ~p~n",[erlang:process_info(self())]),
 	    Father ! test_done,
 	    exit(shutdown)
     end.
@@ -649,9 +739,9 @@ start_stop(_Node1, 0, Father) ->
     Father ! test_done,
     exit(shutdown);
 start_stop(Node1, N, Father) when N > 0->
-    timer:sleep(timer:seconds(5)),
-    ?match(stopped, rpc:call(Node1, mnesia, stop, [])),
     timer:sleep(timer:seconds(2)),
+    ?match(stopped, rpc:call(Node1, mnesia, stop, [])),
+    timer:sleep(timer:seconds(1)),
     ?match([], mnesia_test_lib:start_mnesia([Node1])),
     start_stop(Node1, N-1, Father).    
 
@@ -978,8 +1068,8 @@ do_async_dirty([Tab], _Fahter) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
-asym_trans_kill_part_ask(suite) -> [];
-asym_trans_kill_part_ask(Config) when is_list(Config) -> 
+asymtrans_part_ask(suite) -> [];
+asymtrans_part_ask(Config) when is_list(Config) -> 
     ?is_debug_compiled,
     Nodes = ?acquire_nodes(3, Config ++ [{tc_timeout, timer:minutes(2)}]),
     [Coord, Part1, Part2] = Nodes,
@@ -989,8 +1079,8 @@ asym_trans_kill_part_ask(Config) when is_list(Config) ->
     kill_after_debug_point(Part1, {Part1, {mnesia_tm, doit_ask_commit}}, 
 			   TransFun, [Tab1, Tab2], Nodes).
 
-asym_trans_kill_part_commit_vote(suite) -> [];
-asym_trans_kill_part_commit_vote(Config) when is_list(Config) -> 
+asymtrans_part_commit_vote(suite) -> [];
+asymtrans_part_commit_vote(Config) when is_list(Config) -> 
     ?is_debug_compiled,
     Nodes = ?acquire_nodes(3, Config ++ [{tc_timeout, timer:minutes(2)}]),
     [Coord, Part1, Part2] = Nodes,
@@ -1000,8 +1090,8 @@ asym_trans_kill_part_commit_vote(Config) when is_list(Config) ->
     kill_after_debug_point(Part1, {Part1, {mnesia_tm, commit_participant, vote_yes}}, 
 			   TransFun, [Tab1, Tab2], Nodes).
 
-asym_trans_kill_part_pre_commit(suite) -> [];
-asym_trans_kill_part_pre_commit(Config) when is_list(Config) -> 
+asymtrans_part_pre_commit(suite) -> [];
+asymtrans_part_pre_commit(Config) when is_list(Config) -> 
     ?is_debug_compiled,
     Nodes = ?acquire_nodes(3, Config ++ [{tc_timeout, timer:minutes(2)}]),
     [Coord, Part1, Part2] = Nodes,
@@ -1011,8 +1101,8 @@ asym_trans_kill_part_pre_commit(Config) when is_list(Config) ->
     kill_after_debug_point(Part1, {Part1, {mnesia_tm, commit_participant, pre_commit}}, 
 			   TransFun, [Tab1, Tab2], Nodes).
 
-asym_trans_kill_part_log_commit(suite) -> [];
-asym_trans_kill_part_log_commit(Config) when is_list(Config) -> 
+asymtrans_part_log_commit(suite) -> [];
+asymtrans_part_log_commit(Config) when is_list(Config) -> 
     ?is_debug_compiled,
     Nodes = ?acquire_nodes(3, Config ++ [{tc_timeout, timer:minutes(2)}]),
     [Coord, Part1, Part2] = Nodes,
@@ -1022,8 +1112,8 @@ asym_trans_kill_part_log_commit(Config) when is_list(Config) ->
     kill_after_debug_point(Part1, {Part1, {mnesia_tm, commit_participant, log_commit}}, 
 			   TransFun, [Tab1, Tab2], Nodes).
 
-asym_trans_kill_part_do_commit(suite) -> [];
-asym_trans_kill_part_do_commit(Config) when is_list(Config) -> 
+asymtrans_part_do_commit(suite) -> [];
+asymtrans_part_do_commit(Config) when is_list(Config) -> 
     ?is_debug_compiled,
     Nodes = ?acquire_nodes(3, Config ++ [{tc_timeout, timer:minutes(2)}]),
     [Coord, Part1, Part2] = Nodes,
@@ -1033,8 +1123,8 @@ asym_trans_kill_part_do_commit(Config) when is_list(Config) ->
     kill_after_debug_point(Part1, {Part1, {mnesia_tm, commit_participant, do_commit}}, 
 			   TransFun, [Tab1, Tab2], Nodes).
 
-asym_trans_kill_coord_got_votes(suite) -> [];
-asym_trans_kill_coord_got_votes(Config) when is_list(Config) -> 
+asymtrans_coord_got_votes(suite) -> [];
+asymtrans_coord_got_votes(Config) when is_list(Config) -> 
     ?is_debug_compiled,
     Nodes = ?acquire_nodes(3, Config ++ [{tc_timeout, timer:minutes(2)}]),
     [Coord, Part1, Part2] = Nodes,
@@ -1044,8 +1134,8 @@ asym_trans_kill_coord_got_votes(Config) when is_list(Config) ->
     kill_after_debug_point(Coord, {Coord, {mnesia_tm, multi_commit_asym_got_votes}}, 
 			   TransFun, [Tab1, Tab2], Nodes).
 
-asym_trans_kill_coord_pid_got_votes(suite) -> [];
-asym_trans_kill_coord_pid_got_votes(Config) when is_list(Config) -> 
+asymtrans_coord_pid_got_votes(suite) -> [];
+asymtrans_coord_pid_got_votes(Config) when is_list(Config) -> 
     ?is_debug_compiled,
     Nodes = ?acquire_nodes(3, Config ++ [{tc_timeout, timer:minutes(2)}]),
     [Coord, Part1, Part2] = Nodes,
@@ -1055,8 +1145,8 @@ asym_trans_kill_coord_pid_got_votes(Config) when is_list(Config) ->
     kill_after_debug_point(coord_pid, {Coord, {mnesia_tm, multi_commit_asym_got_votes}}, 
 			   TransFun, [Tab1, Tab2], Nodes).
 
-asym_trans_kill_coord_log_commit_rec(suite) -> [];
-asym_trans_kill_coord_log_commit_rec(Config) when is_list(Config) -> 
+asymtrans_coord_log_commit_rec(suite) -> [];
+asymtrans_coord_log_commit_rec(Config) when is_list(Config) -> 
     ?is_debug_compiled,
     Nodes = ?acquire_nodes(3, Config ++ [{tc_timeout, timer:minutes(2)}]),
     [Coord, Part1, Part2] = Nodes,
@@ -1066,8 +1156,8 @@ asym_trans_kill_coord_log_commit_rec(Config) when is_list(Config) ->
     kill_after_debug_point(Coord, {Coord, {mnesia_tm, multi_commit_asym_log_commit_rec}}, 
 			   TransFun, [Tab1, Tab2], Nodes).
 
-asym_trans_kill_coord_pid_log_commit_rec(suite) -> [];
-asym_trans_kill_coord_pid_log_commit_rec(Config) when is_list(Config) -> 
+asymtrans_coord_pid_log_commit_rec(suite) -> [];
+asymtrans_coord_pid_log_commit_rec(Config) when is_list(Config) -> 
     ?is_debug_compiled,
     Nodes = ?acquire_nodes(3, Config ++ [{tc_timeout, timer:minutes(2)}]),
     [Coord, Part1, Part2] = Nodes,
@@ -1077,8 +1167,8 @@ asym_trans_kill_coord_pid_log_commit_rec(Config) when is_list(Config) ->
     kill_after_debug_point(coord_pid, {Coord, {mnesia_tm, multi_commit_asym_log_commit_rec}}, 
 			   TransFun, [Tab1, Tab2], Nodes).
 
-asym_trans_kill_coord_log_commit_dec(suite) -> [];
-asym_trans_kill_coord_log_commit_dec(Config) when is_list(Config) -> 
+asymtrans_coord_log_commit_dec(suite) -> [];
+asymtrans_coord_log_commit_dec(Config) when is_list(Config) -> 
     ?is_debug_compiled,
     Nodes = ?acquire_nodes(3, Config ++ [{tc_timeout, timer:minutes(2)}]),
     [Coord, Part1, Part2] = Nodes,
@@ -1088,8 +1178,8 @@ asym_trans_kill_coord_log_commit_dec(Config) when is_list(Config) ->
     kill_after_debug_point(Coord, {Coord, {mnesia_tm, multi_commit_asym_log_commit_dec}}, 
 			   TransFun, [Tab1, Tab2], Nodes).
 
-asym_trans_kill_coord_pid_log_commit_dec(suite) -> [];
-asym_trans_kill_coord_pid_log_commit_dec(Config) when is_list(Config) -> 
+asymtrans_coord_pid_log_commit_dec(suite) -> [];
+asymtrans_coord_pid_log_commit_dec(Config) when is_list(Config) -> 
     ?is_debug_compiled,
     Nodes = ?acquire_nodes(3, Config ++ [{tc_timeout, timer:minutes(2)}]),
     [Coord, Part1, Part2] = Nodes,
@@ -1099,8 +1189,8 @@ asym_trans_kill_coord_pid_log_commit_dec(Config) when is_list(Config) ->
     kill_after_debug_point(coord_pid, {Coord, {mnesia_tm, multi_commit_asym_log_commit_dec}}, 
 			   TransFun, [Tab1, Tab2], Nodes).
 
-asym_trans_kill_coord_rec_acc_pre_commit_log_commit(suite) -> [];
-asym_trans_kill_coord_rec_acc_pre_commit_log_commit(Config) when is_list(Config) -> 
+asymtrans_coord_rec_acc_pre_commit_log_commit(suite) -> [];
+asymtrans_coord_rec_acc_pre_commit_log_commit(Config) when is_list(Config) -> 
     ?is_debug_compiled,
     Nodes = ?acquire_nodes(3, Config ++ [{tc_timeout, timer:minutes(2)}]),
     [Coord, Part1, Part2] = Nodes,
@@ -1110,8 +1200,8 @@ asym_trans_kill_coord_rec_acc_pre_commit_log_commit(Config) when is_list(Config)
     kill_after_debug_point(Coord, {Coord, {mnesia_tm, rec_acc_pre_commit_log_commit}}, 
 			   TransFun, [Tab1, Tab2], Nodes).
 
-asym_trans_kill_coord_pid_rec_acc_pre_commit_log_commit(suite) -> [];
-asym_trans_kill_coord_pid_rec_acc_pre_commit_log_commit(Config) when is_list(Config) -> 
+asymtrans_coord_pid_rec_acc_pre_commit_log_commit(suite) -> [];
+asymtrans_coord_pid_rec_acc_pre_commit_log_commit(Config) when is_list(Config) -> 
     ?is_debug_compiled,
     Nodes = ?acquire_nodes(3, Config ++ [{tc_timeout, timer:minutes(2)}]),
     [Coord, Part1, Part2] = Nodes,
@@ -1121,8 +1211,8 @@ asym_trans_kill_coord_pid_rec_acc_pre_commit_log_commit(Config) when is_list(Con
     kill_after_debug_point(coord_pid, {Coord, {mnesia_tm, rec_acc_pre_commit_log_commit}}, 
 			   TransFun, [Tab1, Tab2], Nodes).
 
-asym_trans_kill_coord_rec_acc_pre_commit_done_commit(suite) -> [];
-asym_trans_kill_coord_rec_acc_pre_commit_done_commit(Config) when is_list(Config) -> 
+asymtrans_coord_rec_acc_pre_commit_done_commit(suite) -> [];
+asymtrans_coord_rec_acc_pre_commit_done_commit(Config) when is_list(Config) -> 
     ?is_debug_compiled,
     Nodes = ?acquire_nodes(3, Config ++ [{tc_timeout, timer:minutes(2)}]),
     [Coord, Part1, Part2] = Nodes,
@@ -1132,8 +1222,8 @@ asym_trans_kill_coord_rec_acc_pre_commit_done_commit(Config) when is_list(Config
     kill_after_debug_point(Coord, {Coord, {mnesia_tm, rec_acc_pre_commit_done_commit}}, 
 			   TransFun, [Tab1, Tab2], Nodes).
 
-asym_trans_kill_coord_pid_rec_acc_pre_commit_done_commit(suite) -> [];
-asym_trans_kill_coord_pid_rec_acc_pre_commit_done_commit(Config) when is_list(Config) -> 
+asymtrans_coord_pid_rec_acc_pre_commit_done_commit(suite) -> [];
+asymtrans_coord_pid_rec_acc_pre_commit_done_commit(Config) when is_list(Config) -> 
     ?is_debug_compiled,
     Nodes = ?acquire_nodes(3, Config ++ [{tc_timeout, timer:minutes(2)}]),
     [Coord, Part1, Part2] = Nodes,
@@ -1535,8 +1625,9 @@ disc_less(Config) when is_list(Config) ->
     ?match(ok, rpc:call(Node2, mnesia, start, [])),
 
     timer:sleep(500),
-    ?match(ok, rpc:call(Node3, mnesia, start, [[{extra_db_nodes, [Node1, Node2]}]])),
+    ?match(ok, rpc:call(Node3, mnesia, start, [[{extra_db_nodes, [Node1, Node2]}, {schema, ?BACKEND}]])),
     ?match(ok, rpc:call(Node3, mnesia, wait_for_tables, [[Tab1, Tab2, Tab3], 20000])),
+    ?match(ok, rpc:call(Node1, mnesia, wait_for_tables, [[Tab1, Tab2, Tab3], 20000])),
 
     ?match(ok, rpc:call(Node3, ?MODULE, verify_data, [Tab1, 100])),
     ?match(ok, rpc:call(Node3, ?MODULE, verify_data, [Tab2, 100])),

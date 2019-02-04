@@ -2,18 +2,19 @@
 %% -*- erlang -*-
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2010-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2010-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%----------------------------------------------------------------------
@@ -27,6 +28,7 @@
 %% Records 
 %%======================================================================
 -record(args, {suffix=".xml",
+               dir=".",
 	       layout=docgen_edoc_xml_cb,
 	       def=[],
 	       includes=[],
@@ -84,7 +86,7 @@ module(File, Args) ->
 		    
 		    {app_default, "OTPROOT"},
 		    {file_suffix, Args#args.suffix},
-		    {dir,         "."},
+		    {dir,         Args#args.dir},
 		    {layout,      Args#args.layout}],
 	    edoc:file(File, Opts);
 	false ->
@@ -100,10 +102,12 @@ module(File, Args) ->
 users_guide(File, Args) ->
     case filelib:is_regular(File) of
 	true ->
+            Enc = epp:read_encoding(File, [{in_comment_only, false}]),
+            Encoding = [{encoding, Enc} || Enc =/= none],
 	    Opts = [{def,         Args#args.def},
 		    {app_default, "OTPROOT"},
 		    {file_suffix, Args#args.suffix},
-		    {layout,      Args#args.layout}],
+		    {layout,      Args#args.layout}] ++ Encoding,
 	    
 	    Env = edoc_lib:get_doc_env(Opts),
 	    
@@ -115,7 +119,7 @@ users_guide(File, Args) ->
 	    Text = edoc_lib:run_layout(F, Opts),
 	    
 	    OutFile = "chapter" ++ Args#args.suffix,
-	    edoc_lib:write_file(Text, ".", OutFile);
+	    edoc_lib:write_file(Text, Args#args.dir, OutFile, Encoding);
 	false ->
 	    io:format("~s: not a regular file\n", [File]),
 	    usage()
@@ -136,6 +140,8 @@ parse(["-def", Key, Val |RawOpts], Type, Args) ->
 parse(["-i", Dir |RawOpts], Type, Args) ->
     Args2 = Args#args{includes=Args#args.includes++[Dir]},
     parse(RawOpts, Type, Args2);
+parse(["-dir", Dir |RawOpts], Type, Args) ->
+    parse(RawOpts, Type, Args#args{dir=Dir});
 parse(["-preprocess", Bool |RawOpts], Type, Args) when Bool == "true";
 						       Bool == "false" ->
     parse(RawOpts, Type, Args#args{preprocess=list_to_atom(Bool)});

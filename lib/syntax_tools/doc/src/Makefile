@@ -1,18 +1,19 @@
 #
 # %CopyrightBegin%
 #
-# Copyright Ericsson AB 2006-2010. All Rights Reserved.
+# Copyright Ericsson AB 2006-2018. All Rights Reserved.
 #
-# The contents of this file are subject to the Erlang Public License,
-# Version 1.1, (the "License"); you may not use this file except in
-# compliance with the License. You should have received a copy of the
-# Erlang Public License along with this software. If not, it can be
-# retrieved online at http://www.erlang.org/.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-# Software distributed under the License is distributed on an "AS IS"
-# basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-# the License for the specific language governing rights and limitations
-# under the License.
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 #
 # %CopyrightEnd%
 #
@@ -50,9 +51,11 @@ XML_REF3_FILES = \
 	erl_syntax_lib.xml \
 	erl_tidy.xml \
 	igor.xml \
+	merl.xml \
+	merl_transform.xml \
 	prettypr.xml
 
-XML_PART_FILES = part.xml part_notes.xml
+XML_PART_FILES = part.xml
 XML_CHAPTER_FILES = chapter.xml
 XML_NOTES_FILES = notes.xml
 
@@ -60,9 +63,10 @@ BOOK_FILES = book.xml
 
 
 XML_FILES=\
-	$(BOOK_FILES) $(XML_CHAPTER_FILES) \
-	$(XML_PART_FILES) $(XML_REF3_FILES) $(XML_APPLICATION_FILES) \
+	$(BOOK_FILES) $(XML_PART_FILES)  $(XML_APPLICATION_FILES) \
 	$(XML_NOTES_FILES)
+
+XML_GEN_FILES = $(XML_REF3_FILES:%=$(XMLDIR)/%) $(XML_CHAPTER_FILES:%=$(XMLDIR)/%)
 
 # ----------------------------------------------------
 INFO_FILE = ../../info
@@ -78,11 +82,16 @@ HTML_REF_MAN_FILE = $(HTMLDIR)/index.html
 
 TOP_PDF_FILE = $(PDFDIR)/$(APPLICATION)-$(VSN).pdf
 
+SPECS_FILES = $(XML_REF3_FILES:%.xml=$(SPECDIR)/specs_%.xml)
+
+TOP_SPECS_FILE = specs.xml
+
 # ----------------------------------------------------
-# FLAGS 
+# FLAGS
 # ----------------------------------------------------
-XML_FLAGS += 
-DVIPS_FLAGS += 
+XML_FLAGS +=
+SPECS_FLAGS = -I../../include
+DVIPS_FLAGS +=
 
 # ----------------------------------------------------
 # Targets
@@ -90,7 +99,7 @@ DVIPS_FLAGS +=
 $(HTMLDIR)/%.gif: %.gif
 	$(INSTALL_DATA) $< $@
 
-docs: pdf html man
+docs: man pdf html
 
 $(TOP_PDF_FILE): $(XML_FILES)
 
@@ -100,28 +109,32 @@ html: gifs $(HTML_REF_MAN_FILE)
 
 man: $(MAN3_FILES)
 
-$(XML_REF3_FILES):
-	escript $(DOCGEN)/priv/bin/xml_from_edoc.escript $(SRC_DIR)/$(@:%.xml=%.erl)
+$(XML_REF3_FILES:%=$(XMLDIR)/%):
+	$(gen_verbose)escript $(DOCGEN)/priv/bin/xml_from_edoc.escript \
+	-dir $(XMLDIR) $(SRC_DIR)/$(@:$(XMLDIR)/%.xml=%.erl)
 
-$(XML_CHAPTER_FILES):
-	escript $(DOCGEN)/priv/bin/xml_from_edoc.escript -def vsn $(VSN) -chapter ../overview.edoc 
+$(XML_CHAPTER_FILES:%=$(XMLDIR)/%):
+	$(gen_verbose)escript $(DOCGEN)/priv/bin/xml_from_edoc.escript -def vsn $(VSN) \
+	-chapter -dir $(XMLDIR) ../overview.edoc
 
 gifs: $(GIF_FILES:%=$(HTMLDIR)/%)
 
 xml: $(XML_REF3_FILES) $(XML_CHAPTER_FILES)
 
-debug opt: 
+debug opt:
 
 clean clean_docs:
 	rm -rf $(HTMLDIR)/*
+	rm -rf $(XMLDIR)
 	rm -f $(MAN3DIR)/*
 	rm -f $(XML_REF3_FILES) $(XML_CHAPTER_FILES) *.html
 	rm -f $(TOP_PDF_FILE) $(TOP_PDF_FILE:%.pdf=%.fo)
-	rm -f errs core *~ 
+	rm -f $(SPECDIR)/*
+	rm -f errs core *~
 
 # ----------------------------------------------------
 # Release Target
-# ---------------------------------------------------- 
+# ----------------------------------------------------
 include $(ERL_TOP)/make/otp_release_targets.mk
 
 release_docs_spec: docs

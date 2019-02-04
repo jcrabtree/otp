@@ -1,18 +1,19 @@
-%%
+%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2004-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2004-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -24,479 +25,575 @@
 -include("ssh.hrl").
 -include("ssh_connect.hrl").
 -include_lib("public_key/include/public_key.hrl").
+-include_lib("kernel/include/file.hrl").
+-include_lib("kernel/include/inet.hrl").
 
--export([start/0, start/1, stop/0, connect/3, connect/4, close/1, connection_info/2,
+-export([start/0, start/1, stop/0,
+	 connect/2, connect/3, connect/4,
+	 close/1, connection_info/2,
 	 channel_info/3,
 	 daemon/1, daemon/2, daemon/3,
-	 stop_listener/1, stop_listener/2, stop_daemon/1, stop_daemon/2,
-	 shell/1, shell/2, shell/3]).
+	 daemon_info/1,
+	 default_algorithms/0,
+         chk_algos_opts/1,
+	 stop_listener/1, stop_listener/2,  stop_listener/3,
+	 stop_daemon/1, stop_daemon/2, stop_daemon/3,
+	 shell/1, shell/2, shell/3
+	]).
 
--deprecated({sign_data, 2, next_major_release}).
--deprecated({verify_data, 3, next_major_release}).
+%%% "Deprecated" types export:
+-export_type([ssh_daemon_ref/0, ssh_connection_ref/0, ssh_channel_id/0]).
+-opaque ssh_daemon_ref()     :: daemon_ref().
+-opaque ssh_connection_ref() :: connection_ref().
+-opaque ssh_channel_id()     :: channel_id().
 
--export([sign_data/2, verify_data/3]).
+
+%%% Type exports
+-export_type([daemon_ref/0,
+              connection_ref/0,
+	      channel_id/0,
+              client_options/0, client_option/0,
+              daemon_options/0, daemon_option/0,
+              common_options/0,
+              role/0,
+              subsystem_spec/0,
+              algs_list/0,
+              double_algs/1,
+              modify_algs_list/0,
+              alg_entry/0,
+              kex_alg/0,
+              pubkey_alg/0,
+              cipher_alg/0,
+              mac_alg/0,
+              compression_alg/0,
+              ip_port/0
+	     ]).
+
+
+-opaque daemon_ref()         :: pid() .
+-opaque channel_id()     :: non_neg_integer().
+-type connection_ref()       :: pid().  % should be -opaque, but that gives problems
 
 %%--------------------------------------------------------------------
-%% Function: start([, Type]) -> ok
-%%
-%%  Type =  permanent | transient | temporary
-%%
-%% Description: Starts the inets application. Default type
+%% Description: Starts the ssh application. Default type
 %% is temporary. see application(3)
 %%--------------------------------------------------------------------
+-spec start() -> ok | {error, term()}.
+
 start() ->
-    application:start(ssh).
+    start(temporary).
+
+-spec start(Type) -> ok | {error, term()} when
+      Type :: permanent | transient | temporary .
 
 start(Type) ->
-    application:start(ssh, Type).
+    case application:ensure_all_started(ssh, Type) of
+        {ok, _} ->
+            ok;
+        Other ->
+            Other
+    end.
 
 %%--------------------------------------------------------------------
-%% Function: stop() -> ok
-%%
-%% Description: Stops the inets application.
+%% Description: Stops the ssh application.
 %%--------------------------------------------------------------------
+-spec stop() -> ok | {error, term()}.
+
 stop() ->
     application:stop(ssh).
 
 %%--------------------------------------------------------------------
-%% Function: connect(Host, Port, Options) -> 
-%%           connect(Host, Port, Options, Timeout -> ConnectionRef | {error, Reason}
-%% 
-%%	Host - string()
-%%	Port - integer()
-%%	Options - [{Option, Value}]
-%%      Timeout - infinity | integer().
-%%
 %% Description: Starts an ssh connection.
 %%--------------------------------------------------------------------
-connect(Host, Port, Options) ->
+-spec connect(OpenTcpSocket, Options) -> {ok,connection_ref()} | {error,term()} when
+      OpenTcpSocket :: open_socket(),
+      Options :: client_options().
+
+connect(OpenTcpSocket, Options) when is_port(OpenTcpSocket),
+                                     is_list(Options) ->
+    connect(OpenTcpSocket, Options, infinity).
+
+
+-spec connect(open_socket(), client_options(), timeout()) ->
+                     {ok,connection_ref()} | {error,term()}
+           ; (host(), inet:port_number(), client_options()) ->
+                     {ok,connection_ref()} | {error,term()}.
+
+connect(Socket, UserOptions, NegotiationTimeout) when is_port(Socket),
+                                                      is_list(UserOptions) ->
+    case ssh_options:handle_options(client, UserOptions) of
+	{error, Error} ->
+	    {error, Error};
+	Options ->
+            case valid_socket_to_use(Socket, ?GET_OPT(transport,Options)) of
+		ok ->
+		    {ok, {Host,_Port}} = inet:sockname(Socket),
+		    Opts = ?PUT_INTERNAL_OPT([{user_pid,self()}, {host,Host}], Options),
+		    ssh_connection_handler:start_connection(client, Socket, Opts, NegotiationTimeout);
+		{error,SockError} ->
+		    {error,SockError}
+	    end
+    end;
+
+connect(Host, Port, Options) when is_integer(Port),
+                                  Port>0,
+                                  is_list(Options) ->
     connect(Host, Port, Options, infinity).
-connect(Host, Port, Options, Timeout) ->
-    case handle_options(Options) of
+
+
+-spec connect(Host, Port, Options, NegotiationTimeout) -> {ok,connection_ref()} | {error,term()} when
+      Host :: host(),
+      Port :: inet:port_number(),
+      Options :: client_options(),
+      NegotiationTimeout :: timeout().
+
+connect(Host0, Port, UserOptions, Timeout) when is_integer(Port),
+                                               Port>0,
+                                               is_list(UserOptions) ->
+    case ssh_options:handle_options(client, UserOptions) of
 	{error, _Reason} = Error ->
 	    Error;
-	{SocketOptions, SshOptions} ->
-	    DisableIpv6 =  proplists:get_value(ip_v6_disabled, SshOptions, false),
-	    Inet = inetopt(DisableIpv6),
-	    do_connect(Host, Port, [Inet | SocketOptions], 
-		       [{host, Host} | SshOptions], Timeout, DisableIpv6)
-    end.
-
-do_connect(Host, Port, SocketOptions, SshOptions, Timeout, DisableIpv6) ->
-    try sshc_sup:start_child([[{address, Host}, {port, Port}, 
-			       {role, client},
-			       {channel_pid, self()},
-			       {socket_opts, SocketOptions}, 
-			       {ssh_opts, SshOptions}]]) of 
- 	{ok, ConnectionSup} ->
-	    {ok, Manager} = 
-		ssh_connection_sup:connection_manager(ConnectionSup),
-	    MRef = erlang:monitor(process, Manager),
-	    receive 
-		{Manager, is_connected} ->
-		    do_demonitor(MRef, Manager),
-		    {ok, Manager};
-		%% When the connection fails 
-		%% ssh_connection_sup:connection_manager
-		%% might return undefined as the connection manager
-		%% could allready have terminated, so we will not
-		%% match the Manager in this case
-		{_, not_connected, {error, econnrefused}} when DisableIpv6 == false ->
-		    do_demonitor(MRef, Manager),
-		    do_connect(Host, Port, proplists:delete(inet6, SocketOptions), 
-			    SshOptions, Timeout, true);
-		{_, not_connected, {error, Reason}} ->
-		    do_demonitor(MRef, Manager),
-		    {error, Reason};
-		{_, not_connected, Other} ->
-		    do_demonitor(MRef, Manager),
-		    {error, Other};
-		{'DOWN', MRef, _, Manager, Reason} when is_pid(Manager) ->
-		    error_logger:warning_report([{ssh, connect},
-						 {diagnose,
-						  "Connection was closed before properly set up."},
-						 {host, Host},
-						 {port, Port},
-						 {reason, Reason}]),
-		    receive %% Clear EXIT message from queue
-			{'EXIT', Manager, _What} -> 
-			    {error, channel_closed}
-		    after 0 ->
-			    {error, channel_closed}
-		    end
-	    after Timeout  ->
-		    do_demonitor(MRef, Manager),
-		    ssh_connection_manager:stop(Manager),
-		    {error, timeout}
+        Options ->
+	    {_, Transport, _} = TransportOpts = ?GET_OPT(transport, Options),
+	    ConnectionTimeout = ?GET_OPT(connect_timeout, Options),
+            SocketOpts = [{active,false} | ?GET_OPT(socket_options,Options)],
+            Host = mangle_connect_address(Host0, SocketOpts),
+	    try Transport:connect(Host, Port, SocketOpts, ConnectionTimeout) of
+		{ok, Socket} ->
+		    Opts = ?PUT_INTERNAL_OPT([{user_pid,self()}, {host,Host}], Options),
+		    ssh_connection_handler:start_connection(client, Socket, Opts, Timeout);
+		{error, Reason} ->
+		    {error, Reason}
+	    catch
+		exit:{function_clause, _F} ->
+		    {error, {options, {transport, TransportOpts}}};
+		exit:badarg ->
+		    {error, {options, {socket_options, SocketOpts}}}
 	    end
-    catch 
-	exit:{noproc, _} ->
- 	    {error, ssh_not_started}
     end.
-
-do_demonitor(MRef, Manager) ->
-    erlang:demonitor(MRef),
-    receive 
-	{'DOWN', MRef, _, Manager, _} -> 
-	    ok
-    after 0 -> 
-	    ok
-    end.
-
 
 %%--------------------------------------------------------------------
-%% Function: close(ConnectionRef) -> ok
+-spec close(ConnectionRef) -> ok | {error,term()} when
+      ConnectionRef :: connection_ref() .
 %%
 %% Description: Closes an ssh connection.
-%%--------------------------------------------------------------------	
+%%--------------------------------------------------------------------
 close(ConnectionRef) ->
-    ssh_connection_manager:stop(ConnectionRef).
+    ssh_connection_handler:stop(ConnectionRef).
 
 %%--------------------------------------------------------------------
-%% Function: connection_info(ConnectionRef) -> [{Option, Value}]
-%%
-%% Description: Retrieves information about a connection. 
-%%--------------------------------------------------------------------	
-connection_info(ConnectionRef, Options) ->
-    ssh_connection_manager:connection_info(ConnectionRef, Options).
+%% Description: Retrieves information about a connection.
+%%--------------------------------------------------------------------
+-spec connection_info(ConnectionRef, Keys) ->  ConnectionInfo when
+      ConnectionRef :: connection_ref(),
+      Keys :: [client_version | server_version | user | peer | sockname],
+      ConnectionInfo :: [{client_version, Version}
+                         | {server_version, Version}
+                         | {user,string()}
+                         | {peer, {inet:hostname(), ip_port()}}
+                         | {sockname, ip_port()}
+                        ],
+      Version :: {ProtocolVersion, VersionString::string()},
+      ProtocolVersion :: {Major::pos_integer(), Minor::non_neg_integer()} .
+
+connection_info(Connection, Options) ->
+    ssh_connection_handler:connection_info(Connection, Options).
 
 %%--------------------------------------------------------------------
-%% Function: channel_info(ConnectionRef) -> [{Option, Value}]
+-spec channel_info(connection_ref(), channel_id(), [atom()]) -> proplists:proplist().
 %%
-%% Description: Retrieves information about a connection. 
-%%--------------------------------------------------------------------	
+%% Description: Retrieves information about a connection.
+%%--------------------------------------------------------------------
 channel_info(ConnectionRef, ChannelId, Options) ->
-    ssh_connection_manager:channel_info(ConnectionRef, ChannelId, Options).
+    ssh_connection_handler:channel_info(ConnectionRef, ChannelId, Options).
 
 %%--------------------------------------------------------------------
-%% Function: daemon(Port) ->
-%%           daemon(Port, Options) ->
-%%           daemon(Address, Port, Options) -> SshSystemRef
-%%
-%% Description: Starts a server listening for SSH connections 
+%% Description: Starts a server listening for SSH connections
 %% on the given port.
-%%--------------------------------------------------------------------	
+%%--------------------------------------------------------------------
+-spec daemon(inet:port_number()) ->  {ok,daemon_ref()} | {error,term()}.
+
 daemon(Port) ->
     daemon(Port, []).
 
-daemon(Port, Options) ->
-    daemon(any, Port, Options).
 
-daemon(HostAddr, Port, Options0) ->
-    Options1 = case proplists:get_value(shell, Options0) of
-		   undefined ->
-		       [{shell, {shell, start, []}}  | Options0];
-		   _ ->
-		       Options0
-	       end,
-    DisableIpv6 =  proplists:get_value(ip_v6_disabled, Options0, false),
-    {Host, Inet, Options} = case HostAddr of
-				any ->
-				    {ok, Host0} = inet:gethostname(), 
-				    {Host0, inetopt(DisableIpv6), Options1};
-				{_,_,_,_} ->
-				    {HostAddr, inet, 
-				     [{ip, HostAddr} | Options1]};
-				{_,_,_,_,_,_,_,_} ->
-				    {HostAddr, inet6, 
-				     [{ip, HostAddr} | Options1]}
-			    end,
-    start_daemon(Host, Port, Options, Inet).
+-spec daemon(inet:port_number()|open_socket(), daemon_options()) -> {ok,daemon_ref()} | {error,term()}.
+
+daemon(Socket, UserOptions) when is_port(Socket) ->
+    try
+        #{} = Options = ssh_options:handle_options(server, UserOptions),
+
+        case valid_socket_to_use(Socket, ?GET_OPT(transport,Options)) of
+            ok ->
+                {ok, {IP,Port}} = inet:sockname(Socket),
+                finalize_start(IP, Port, ?GET_OPT(profile, Options),
+                               ?PUT_INTERNAL_OPT({connected_socket, Socket}, Options),
+                               fun(Opts, DefaultResult) ->
+                                       try ssh_acceptor:handle_established_connection(
+                                             IP, Port, Opts, Socket)
+                                       of
+                                           {error,Error} ->
+                                               {error,Error};
+                                           _ ->
+                                               DefaultResult
+                                       catch
+                                           C:R ->
+                                               {error,{could_not_start_connection,{C,R}}}
+                                       end
+                               end);
+            {error,SockError} ->
+                {error,SockError}
+            end
+    catch
+        throw:bad_fd ->
+            {error,bad_fd};
+        throw:bad_socket ->
+            {error,bad_socket};
+        error:{badmatch,{error,Error}} ->
+            {error,Error};
+        error:Error ->
+            {error,Error};
+        _C:_E ->
+            {error,{cannot_start_daemon,_C,_E}}
+    end;
+
+daemon(Port, UserOptions) when 0 =< Port, Port =< 65535 ->
+    daemon(any, Port, UserOptions).
+
+
+-spec daemon(any | inet:ip_address(), inet:port_number(), daemon_options()) -> {ok,daemon_ref()} | {error,term()}
+           ;(socket, open_socket(), daemon_options()) -> {ok,daemon_ref()} | {error,term()}
+            .
+
+daemon(Host0, Port0, UserOptions0) when 0 =< Port0, Port0 =< 65535,
+                                        Host0 == any ; Host0 == loopback ; is_tuple(Host0) ->
+    try
+        {Host1, UserOptions} = handle_daemon_args(Host0, UserOptions0),
+        #{} = Options0 = ssh_options:handle_options(server, UserOptions),
+        {open_listen_socket(Host1, Port0, Options0), Options0}
+    of
+        {{{Host,Port}, ListenSocket}, Options1} ->
+            try
+                %% Now Host,Port is what to use for the supervisor to register its name,
+                %% and ListenSocket is for listening on connections. But it is still owned
+                %% by self()...
+                finalize_start(Host, Port, ?GET_OPT(profile, Options1),
+                               ?PUT_INTERNAL_OPT({lsocket,{ListenSocket,self()}}, Options1),
+                               fun(Opts, Result) ->
+                                       {_, Callback, _} = ?GET_OPT(transport, Opts),
+                                       receive
+                                           {request_control, ListenSocket, ReqPid} ->
+                                               ok = Callback:controlling_process(ListenSocket, ReqPid),
+                                               ReqPid ! {its_yours,ListenSocket},
+                                               Result
+                                       end
+                               end)
+            of
+                {error,Err} ->
+                    close_listen_socket(ListenSocket, Options1),
+                    {error,Err};
+                OK ->
+                    OK
+            catch
+                error:Error ->
+                    close_listen_socket(ListenSocket, Options1),
+                    error(Error);
+                exit:Exit ->
+                    close_listen_socket(ListenSocket, Options1),
+                    exit(Exit)
+            end
+    catch
+        throw:bad_fd ->
+            {error,bad_fd};
+        throw:bad_socket ->
+            {error,bad_socket};
+        error:{badmatch,{error,Error}} ->
+            {error,Error};
+        error:Error ->
+            {error,Error};
+        _C:_E ->
+            {error,{cannot_start_daemon,_C,_E}}
+    end;
+
+daemon(_, _, _) ->
+    {error, badarg}.
 
 %%--------------------------------------------------------------------
-%% Function: stop_listener(SysRef) -> ok
-%%           stop_listener(Address, Port) -> ok
-%%
-%%
-%% Description: Stops the listener, but leaves 
+-spec daemon_info(Daemon) -> {ok, DaemonInfo} | {error,term()} when
+      Daemon :: daemon_ref(),
+      DaemonInfo :: [  {ip, inet:ip_address()}
+                       | {port, inet:port_number()}
+                       | {profile, term()}
+                    ].
+
+daemon_info(Pid) ->
+    case catch ssh_system_sup:acceptor_supervisor(Pid) of
+	AsupPid when is_pid(AsupPid) ->
+	    [{IP,Port,Profile}] =
+		[{IP,Prt,Prf} 
+                 || {{ssh_acceptor_sup,Hst,Prt,Prf},_Pid,worker,[ssh_acceptor]} 
+                        <- supervisor:which_children(AsupPid),
+                    IP <- [case inet:parse_strict_address(Hst) of
+                               {ok,IP} -> IP;
+                               _ -> Hst
+                           end]
+                ],
+	    {ok, [{port,Port},
+                  {ip,IP},
+                  {profile,Profile}
+                 ]};
+	_ ->
+	    {error,bad_daemon_ref}
+    end.
+
+%%--------------------------------------------------------------------
+%% Description: Stops the listener, but leaves
 %% existing connections started by the listener up and running.
-%%--------------------------------------------------------------------	
+%%--------------------------------------------------------------------
+-spec stop_listener(daemon_ref()) -> ok.
+
 stop_listener(SysSup) ->
     ssh_system_sup:stop_listener(SysSup).
+
+
+-spec stop_listener(inet:ip_address(), inet:port_number()) -> ok.
+
 stop_listener(Address, Port) ->
-    ssh_system_sup:stop_listener(Address, Port).
+    stop_listener(Address, Port, ?DEFAULT_PROFILE).
+
+
+-spec stop_listener(any|inet:ip_address(), inet:port_number(), term()) -> ok.
+
+stop_listener(any, Port, Profile) ->
+    map_ip(fun(IP) ->
+                   ssh_system_sup:stop_listener(IP, Port, Profile) 
+           end, [{0,0,0,0},{0,0,0,0,0,0,0,0}]);
+stop_listener(Address, Port, Profile) ->
+    map_ip(fun(IP) ->
+                   ssh_system_sup:stop_listener(IP, Port, Profile) 
+           end, {address,Address}).
 
 %%--------------------------------------------------------------------
-%% Function: stop_daemon(SysRef) -> ok
-%%%          stop_daemon(Address, Port) -> ok
-%%
-%%
-%% Description: Stops the listener and all connections started by 
+%% Description: Stops the listener and all connections started by
 %% the listener.
-%%--------------------------------------------------------------------	
+%%--------------------------------------------------------------------
+-spec stop_daemon(DaemonRef::daemon_ref()) -> ok.
+
 stop_daemon(SysSup) ->
     ssh_system_sup:stop_system(SysSup).
+
+
+-spec stop_daemon(inet:ip_address(), inet:port_number()) -> ok.
+
 stop_daemon(Address, Port) ->
-    ssh_system_sup:stop_system(Address, Port).
+    stop_daemon(Address, Port, ?DEFAULT_PROFILE).
+
+
+-spec stop_daemon(any|inet:ip_address(), inet:port_number(), atom()) -> ok.
+
+stop_daemon(any, Port, Profile) ->
+    map_ip(fun(IP) ->
+                   ssh_system_sup:stop_system(IP, Port, Profile) 
+           end, [{0,0,0,0},{0,0,0,0,0,0,0,0}]);
+stop_daemon(Address, Port, Profile) ->
+    map_ip(fun(IP) ->
+                   ssh_system_sup:stop_system(IP, Port, Profile) 
+           end, {address,Address}).
 
 %%--------------------------------------------------------------------
-%% Function: shell(Host [,Port,Options]) -> {ok, ConnectionRef} | 
-%%                                                     {error, Reason}
-%%
-%%   Host = string()
-%%   Port = integer()
-%%   Options = [{Option, Value}]
-%%
 %% Description: Starts an interactive shell to an SSH server on the
 %% given <Host>. The function waits for user input,
 %% and will not return until the remote shell is ended.(e.g. on
 %% exit from the shell)
 %%--------------------------------------------------------------------
+-spec shell(open_socket() | host()) ->  _.
+
+shell(Socket) when is_port(Socket) ->
+    shell(Socket, []);
 shell(Host) ->
     shell(Host, ?SSH_DEFAULT_PORT, []).
+
+
+-spec shell(open_socket() | host(), client_options()) ->  _.
+
+shell(Socket, Options) when is_port(Socket) ->
+    start_shell( connect(Socket, Options) );
 shell(Host, Options) ->
     shell(Host, ?SSH_DEFAULT_PORT, Options).
+
+
+-spec shell(Host, Port, Options) -> _ when
+      Host :: host(),
+      Port :: inet:port_number(),
+      Options :: client_options() .
+
 shell(Host, Port, Options) ->
-    case connect(Host, Port, Options) of
-	{ok, ConnectionRef} ->
-	    case ssh_connection:session_channel(ConnectionRef, infinity) of
-		{ok,ChannelId}  ->
-		    Args = [{channel_cb, ssh_shell}, 
-			    {init_args,[ConnectionRef, ChannelId]},
-			    {cm, ConnectionRef}, {channel_id, ChannelId}],
-		    {ok, State} = ssh_channel:init([Args]),
-		    ssh_channel:enter_loop(State);
-		Error ->
-		    Error
-	    end;
+    start_shell( connect(Host, Port, Options) ).
+
+
+
+start_shell({ok, ConnectionRef}) ->
+    case ssh_connection:session_channel(ConnectionRef, infinity) of
+	{ok,ChannelId}  ->
+	    success = ssh_connection:ptty_alloc(ConnectionRef, ChannelId, []),
+	    Args = [{channel_cb, ssh_shell},
+		    {init_args,[ConnectionRef, ChannelId]},
+		    {cm, ConnectionRef}, {channel_id, ChannelId}],
+	    {ok, State} = ssh_client_channel:init([Args]),
+            try
+                ssh_client_channel:enter_loop(State)
+            catch
+                exit:normal ->
+                    ok
+            end;
 	Error ->
 	    Error
+    end;
+
+start_shell(Error) ->
+    Error.
+
+%%--------------------------------------------------------------------
+-spec default_algorithms() -> algs_list() .
+%%--------------------------------------------------------------------
+default_algorithms() ->
+    ssh_transport:default_algorithms().
+
+%%--------------------------------------------------------------------
+-spec chk_algos_opts(client_options()|daemon_options()) -> internal_options() | {error,term()}.
+%%--------------------------------------------------------------------
+chk_algos_opts(Opts) ->
+    case lists:foldl(
+           fun({preferred_algorithms,_}, Acc) -> Acc;
+              ({modify_algorithms,_}, Acc) -> Acc;
+              (KV, Acc) -> [KV|Acc]
+           end, [], Opts)
+    of
+        [] ->
+            case ssh_options:handle_options(client, Opts) of
+                M when is_map(M) ->
+                    maps:get(preferred_algorithms, M);
+                Others ->
+                    Others
+            end;
+        OtherOps ->
+            {error, {non_algo_opts_found,OtherOps}}
     end.
 
 %%--------------------------------------------------------------------
 %%% Internal functions
 %%--------------------------------------------------------------------
-start_daemon(Host, Port, Options, Inet) ->
-    case handle_options(Options) of
-	{error, _Reason} = Error ->
-	    Error;
-	{SocketOptions, SshOptions}->
-	    do_start_daemon(Host, Port,[{role, server} |SshOptions] , [Inet | SocketOptions])
-    end.
-    
-do_start_daemon(Host, Port, Options, SocketOptions) ->
-    case ssh_system_sup:system_supervisor(Host, Port) of
-	undefined ->
-	    %% TODO: It would proably make more sense to call the
-	    %% address option host but that is a too big change at the
-	    %% monent. The name is a legacy name!
-	    try sshd_sup:start_child([{address, Host}, 
-				      {port, Port}, {role, server},
-				      {socket_opts, SocketOptions}, 
-				      {ssh_opts, Options}]) of
-		{ok, SysSup} ->
-		    {ok, SysSup};
-		{error, {already_started, _}} ->
-		    {error, eaddrinuse}
-	    catch
-		exit:{noproc, _} ->
-		    {error, ssh_not_started}
-	    end;
-	Sup  ->
-	    case ssh_system_sup:restart_acceptor(Host, Port) of
-		{ok, _} ->
-		    {ok, Sup};
-		_  ->
-		    {error, eaddrinuse}
-	    end
+%% The handle_daemon_args/2 function basically only sets the ip-option in Opts
+%% so that it is correctly set when opening the listening socket.
+
+handle_daemon_args(any, Opts) ->
+    case proplists:get_value(ip, Opts) of
+        undefined -> {any, Opts};
+        IP -> {IP, Opts}
+    end;
+
+handle_daemon_args(IPaddr, Opts) when is_tuple(IPaddr) ; IPaddr == loopback ->
+    case proplists:get_value(ip, Opts) of
+        undefined -> {IPaddr, [{ip,IPaddr}|Opts]};
+        IPaddr -> {IPaddr, Opts};
+        IP -> {IPaddr, [{ip,IPaddr}|Opts--[{ip,IP}]]} %% Backward compatibility
     end.
 
-handle_options(Opts) ->
-    try handle_option(proplists:unfold(Opts), [], []) of
-	{_,_} = Options ->
-	    Options
+%%%----------------------------------------------------------------
+valid_socket_to_use(Socket, {tcp,_,_}) ->
+    %% Is this tcp-socket a valid socket?
+    try {is_tcp_socket(Socket),
+         {ok,[{active,false}]} == inet:getopts(Socket, [active])
+        }
+    of
+        {true,  true} -> ok;
+        {true, false} -> {error, not_passive_mode};
+        _ ->             {error, not_tcp_socket}
     catch
-	throw:Error ->
-	    Error
+        _:_ ->           {error, bad_socket}
+    end;
+
+valid_socket_to_use(_, {L4,_,_}) ->
+    {error, {unsupported,L4}}.
+
+
+is_tcp_socket(Socket) ->
+    case inet:getopts(Socket, [delay_send]) of
+        {ok,[_]} -> true;
+        _ -> false
     end.
 
-handle_option([], SocketOptions, SshOptions) ->
-    {SocketOptions, SshOptions};
-handle_option([{system_dir, _} = Opt | Rest], SocketOptions, SshOptions) ->
-    handle_option(Rest, SocketOptions, [handle_ssh_option(Opt) | SshOptions]);
-handle_option([{user_dir, _} = Opt | Rest], SocketOptions, SshOptions) ->
-    handle_option(Rest, SocketOptions, [handle_ssh_option(Opt) | SshOptions]);
-handle_option([{user_dir_fun, _} = Opt | Rest], SocketOptions, SshOptions) ->
-    handle_option(Rest, SocketOptions, [handle_ssh_option(Opt) | SshOptions]);
-handle_option([{silently_accept_hosts, _} = Opt | Rest], SocketOptions, SshOptions) ->
-    handle_option(Rest, SocketOptions, [handle_ssh_option(Opt) | SshOptions]);
-handle_option([{user_interaction, _} = Opt | Rest], SocketOptions, SshOptions) ->
-    handle_option(Rest, SocketOptions, [handle_ssh_option(Opt) | SshOptions]);
-handle_option([{public_key_alg, _} = Opt | Rest], SocketOptions, SshOptions) ->
-    handle_option(Rest, SocketOptions, [handle_ssh_option(Opt) | SshOptions]);
-handle_option([{connect_timeout, _} = Opt | Rest], SocketOptions, SshOptions) ->
-    handle_option(Rest, SocketOptions, [handle_ssh_option(Opt) | SshOptions]);
-handle_option([{user, _} = Opt | Rest], SocketOptions, SshOptions) ->
-    handle_option(Rest, SocketOptions, [handle_ssh_option(Opt) | SshOptions]);
-handle_option([{dsa_pass_phrase, _} = Opt | Rest], SocketOptions, SshOptions) ->
-    handle_option(Rest, SocketOptions, [handle_ssh_option(Opt) | SshOptions]);
-handle_option([{rsa_pass_phrase, _} = Opt | Rest], SocketOptions, SshOptions) ->
-    handle_option(Rest, SocketOptions, [handle_ssh_option(Opt) | SshOptions]);
-handle_option([{password, _} = Opt | Rest], SocketOptions, SshOptions) ->
-    handle_option(Rest, SocketOptions, [handle_ssh_option(Opt) | SshOptions]);
-handle_option([{user_passwords, _} = Opt | Rest], SocketOptions, SshOptions) ->
-    handle_option(Rest, SocketOptions, [handle_ssh_option(Opt) | SshOptions]);
-handle_option([{pwdfun, _} = Opt | Rest], SocketOptions, SshOptions) ->
-    handle_option(Rest, SocketOptions, [handle_ssh_option(Opt) | SshOptions]);
-handle_option([{user_auth, _} = Opt | Rest],SocketOptions, SshOptions ) ->
-    handle_option(Rest, SocketOptions, [handle_ssh_option(Opt) | SshOptions]);
-handle_option([{key_cb, _} = Opt | Rest], SocketOptions, SshOptions) ->
-    handle_option(Rest, SocketOptions, [handle_ssh_option(Opt) | SshOptions]);
-handle_option([{role, _} = Opt | Rest], SocketOptions, SshOptions) ->
-    handle_option(Rest, SocketOptions, [handle_ssh_option(Opt) | SshOptions]);
-handle_option([{compression, _} = Opt | Rest], SocketOptions, SshOptions) ->
-    handle_option(Rest, SocketOptions, [handle_ssh_option(Opt) | SshOptions]);
-%%Backwards compatibility
-handle_option([{allow_user_interaction, Value}  | Rest], SocketOptions, SshOptions) ->
-    handle_option(Rest, SocketOptions, [handle_ssh_option({user_interaction, Value}) | SshOptions]);
-handle_option([{infofun, _} = Opt | Rest],SocketOptions, SshOptions) ->
-    handle_option(Rest, SocketOptions, [handle_ssh_option(Opt) | SshOptions]);
-handle_option([{connectfun, _} = Opt | Rest], SocketOptions, SshOptions) ->
-    handle_option(Rest, SocketOptions, [handle_ssh_option(Opt) | SshOptions]);
-handle_option([{disconnectfun, _} = Opt | Rest], SocketOptions, SshOptions) ->
-    handle_option(Rest, SocketOptions, [handle_ssh_option(Opt) | SshOptions]);
-handle_option([{failfun, _} = Opt | Rest],  SocketOptions, SshOptions) ->
-    handle_option(Rest, SocketOptions, [handle_ssh_option(Opt) | SshOptions]);
-handle_option([{ip_v6_disabled, _} = Opt | Rest], SocketOptions, SshOptions) ->
-    handle_option(Rest, SocketOptions, [handle_ssh_option(Opt) | SshOptions]);
-handle_option([{transport, _} = Opt | Rest], SocketOptions, SshOptions) ->
-    handle_option(Rest, SocketOptions, [handle_ssh_option(Opt) | SshOptions]);
-handle_option([{subsystems, _} = Opt | Rest], SocketOptions, SshOptions) ->
-    handle_option(Rest, SocketOptions, [handle_ssh_option(Opt) | SshOptions]);
-handle_option([{ssh_cli, _} = Opt | Rest], SocketOptions, SshOptions) ->
-    handle_option(Rest, SocketOptions, [handle_ssh_option(Opt) | SshOptions]);
-handle_option([{shell, _} = Opt | Rest], SocketOptions, SshOptions) ->
-    handle_option(Rest, SocketOptions, [handle_ssh_option(Opt) | SshOptions]);
-handle_option([{exec, _} = Opt | Rest], SocketOptions, SshOptions) ->
-    handle_option(Rest, SocketOptions, [handle_ssh_option(Opt) | SshOptions]);
-handle_option([Opt | Rest], SocketOptions, SshOptions) ->
-    handle_option(Rest, [handle_inet_option(Opt) | SocketOptions], SshOptions).
+%%%----------------------------------------------------------------
+open_listen_socket(_Host0, Port0, Options0) ->
+    {ok,LSock} =
+        case ?GET_SOCKET_OPT(fd, Options0) of
+            undefined ->
+                ssh_acceptor:listen(Port0, Options0);
+            Fd when is_integer(Fd) ->
+                %% Do gen_tcp:listen with the option {fd,Fd}:
+                ssh_acceptor:listen(0, Options0)
+        end,
+    {ok,{LHost,LPort}} = inet:sockname(LSock),
+    {{LHost,LPort}, LSock}.
 
-handle_ssh_option({system_dir, Value} = Opt) when is_list(Value) ->
-    Opt;
-handle_ssh_option({user_dir, Value} = Opt) when is_list(Value) ->
-    Opt;
-handle_ssh_option({user_dir_fun, Value} = Opt) when is_function(Value) ->
-    Opt;
-handle_ssh_option({silently_accept_hosts, Value} = Opt) when Value == true; Value == false ->
-    Opt;
-handle_ssh_option({user_interaction, Value} = Opt) when Value == true; Value == false ->
-    Opt;
-handle_ssh_option({public_key_alg, Value} = Opt) when Value == ssh_rsa; Value == ssh_dsa ->
-    Opt;
-handle_ssh_option({connect_timeout, Value} = Opt) when is_integer(Value); Value == infinity ->
-    Opt;
-handle_ssh_option({user, Value} = Opt) when is_list(Value) ->
-    Opt;
-handle_ssh_option({dsa_pass_phrase, Value} = Opt) when is_list(Value) ->
-    Opt;
-handle_ssh_option({rsa_pass_phrase, Value} = Opt) when is_list(Value) ->
-    Opt;
-handle_ssh_option({password, Value} = Opt) when is_list(Value) ->
-    Opt;
-handle_ssh_option({user_passwords, Value} = Opt) when is_list(Value)->
-    Opt;
-handle_ssh_option({pwdfun, Value} = Opt) when is_function(Value) ->
-    Opt;
-handle_ssh_option({user_auth, Value} = Opt)  when is_function(Value) ->
-    Opt;
-handle_ssh_option({key_cb, Value} = Opt)  when is_atom(Value) ->
-    Opt;
-handle_ssh_option({compression, Value} = Opt) when is_atom(Value) ->
-    Opt;
-handle_ssh_option({exec, {Module, Function, _}} = Opt) when is_atom(Module), 
-							    is_atom(Function) ->
-
-    Opt;
-handle_ssh_option({infofun, Value} = Opt)  when is_function(Value) ->
-    Opt;
-handle_ssh_option({connectfun, Value} = Opt) when is_function(Value) ->
-    Opt;
-handle_ssh_option({disconnectfun , Value} = Opt) when is_function(Value) ->
-    Opt;
-handle_ssh_option({failfun, Value} = Opt) when is_function(Value) ->
-    Opt;
-handle_ssh_option({ip_v6_disabled, Value} = Opt) when Value == true;
-						      Value == false ->
-    Opt;
-handle_ssh_option({transport, {Protocol, Cb, ClosTag}} = Opt) when is_atom(Protocol),
-								   is_atom(Cb),
-								   is_atom(ClosTag) ->
-    Opt;
-handle_ssh_option({subsystems, Value} = Opt) when is_list(Value) ->
-    Opt;
-handle_ssh_option({ssh_cli, {Cb, _}}= Opt) when is_atom(Cb) ->
-    Opt;
-handle_ssh_option({shell, {Module, Function, _}} = Opt)  when is_atom(Module),
-							      is_atom(Function) ->
-    Opt;
-handle_ssh_option({shell, Value} = Opt) when is_function(Value) ->
-    Opt;
-handle_ssh_option(Opt) ->
-    throw({error, {eoptions, Opt}}).
-
-handle_inet_option({active, _} = Opt) ->
-    throw({error, {{eoptions, Opt}, "Ssh has built in flow control, "
-		   "and activ is handled internaly user is not allowd"
-		   "to specify this option"}});
-handle_inet_option({inet, _} = Opt) ->
-    throw({error, {{eoptions, Opt},"Is set internaly use ip_v6_disabled to"
-		   " enforce iv4 in the server, client will fallback to ipv4 if"
-		   " it can not use ipv6"}});
-handle_inet_option({reuseaddr, _} = Opt) ->
-    throw({error, {{eoptions, Opt},"Is set internaly user is not allowd"
-		   "to specify this option"}});
-%% Option verified by inet
-handle_inet_option(Opt) ->
-    Opt.
-
-%% Has IPv6 been disabled?
-inetopt(true) ->
-    inet;
-inetopt(false) ->
-    case gen_tcp:listen(0, [inet6, {ip, loopback}]) of
-	{ok, Dummyport} ->
-	    gen_tcp:close(Dummyport),
-	    inet6;
-	_ ->
-	    inet
+%%%----------------------------------------------------------------
+close_listen_socket(ListenSocket, Options) ->
+    try
+        {_, Callback, _} = ?GET_OPT(transport, Options),
+        Callback:close(ListenSocket)
+    catch
+        _C:_E -> ok
     end.
 
-%%%
-%% Deprecated
-%%%
+%%%----------------------------------------------------------------
+finalize_start(Host, Port, Profile, Options0, F) ->
+    try
+        %% throws error:Error if no usable hostkey is found
+        ssh_connection_handler:available_hkey_algorithms(server, Options0),
 
-%%--------------------------------------------------------------------
-%% Function: sign_data(Data, Algorithm) -> binary() |
-%%                                         {error, Reason}
-%%
-%%   Data = binary()
-%%   Algorithm = "ssh-rsa"
-%%
-%% Description: Use SSH key to sign data.
-%%--------------------------------------------------------------------
-sign_data(Data, Algorithm) when is_binary(Data) ->
-    case ssh_file:user_key(Algorithm,[]) of
-	{ok, Key} when Algorithm == "ssh-rsa" ->
-	    public_key:sign(Data, sha, Key);
-	Error ->
-	    Error
+        sshd_sup:start_child(Host, Port, Profile, Options0)
+    of
+        {error, {already_started, _}} ->
+            {error, eaddrinuse};
+        {error, Error} ->
+            {error, Error};
+        Result = {ok,_} ->
+            F(Options0, Result)
+    catch
+        error:{shutdown,Err} ->
+            {error,Err};
+        exit:{noproc, _} ->
+            {error, ssh_not_started}
     end.
 
-%%--------------------------------------------------------------------
-%% Function: verify_data(Data, Signature, Algorithm) -> ok |
-%%                                                      {error, Reason}
-%%
-%%   Data = binary()
-%%   Signature = binary()
-%%   Algorithm = "ssh-rsa"
-%%
-%% Description: Use SSH signature to verify data.
-%%--------------------------------------------------------------------
-verify_data(Data, Signature, Algorithm) when is_binary(Data), is_binary(Signature) ->
-    case ssh_file:user_key(Algorithm, []) of
-	{ok, #'RSAPrivateKey'{publicExponent = E, modulus = N}} when Algorithm == "ssh-rsa" ->
-	    public_key:verify(Data, sha, Signature, #'RSAPublicKey'{publicExponent = E, modulus = N});
-	Error ->
-	    Error
+%%%----------------------------------------------------------------
+map_ip(Fun, {address,IP}) when is_tuple(IP) ->
+    Fun(IP);
+map_ip(Fun, {address,Address}) ->
+    IPs = try {ok,#hostent{h_addr_list=IP0s}} = inet:gethostbyname(Address),
+               IP0s
+          catch
+              _:_ -> []
+          end,
+    map_ip(Fun, IPs);
+map_ip(Fun, IPs) ->
+    lists:map(Fun, IPs).
+
+%%%----------------------------------------------------------------
+mangle_connect_address(A, SockOpts) ->
+    mangle_connect_address1(A, proplists:get_value(inet6,SockOpts,false)).
+
+loopback(true) -> {0,0,0,0,0,0,0,1};
+loopback(false) ->      {127,0,0,1}.
+
+mangle_connect_address1( loopback,     V6flg) -> loopback(V6flg);
+mangle_connect_address1(      any,     V6flg) -> loopback(V6flg);
+mangle_connect_address1({0,0,0,0},         _) -> loopback(false);
+mangle_connect_address1({0,0,0,0,0,0,0,0}, _) -> loopback(true);
+mangle_connect_address1(       IP,     _) when is_tuple(IP) -> IP;
+mangle_connect_address1(A, _) ->
+    case catch inet:parse_address(A) of
+        {ok,         {0,0,0,0}} -> loopback(false);
+        {ok, {0,0,0,0,0,0,0,0}} -> loopback(true);
+        _ -> A
     end.

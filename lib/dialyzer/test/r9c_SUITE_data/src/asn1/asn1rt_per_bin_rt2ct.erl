@@ -1,20 +1,20 @@
-%% ``The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved via the world wide web at http://www.erlang.org/.
+%% ``Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% The Initial Developer of the Original Code is Ericsson Utvecklings AB.
 %% Portions created by Ericsson are Copyright 1999, Ericsson Utvecklings
 %% AB. All Rights Reserved.''
 %%
 %%     $Id: asn1rt_per_bin_rt2ct.erl,v 1.1 2008/12/17 09:53:31 mikpe Exp $
-%%
 -module(asn1rt_per_bin_rt2ct).
 
 %% encoding / decoding of PER aligned
@@ -1059,7 +1059,7 @@ decode_enumerated(Buffer,C,NamedNumberTup) when tuple(NamedNumberTup) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% bitstring NamedBitList
 %% Val can be  of:
-%% - [identifiers] where only named identifers are set to one,
+%% - [identifiers] where only named identifiers are set to one,
 %%   the Constraint must then have some information of the
 %%   bitlength.
 %% - [list of ones and zeroes] all bits
@@ -1198,7 +1198,7 @@ encode_bin_bit_string(C,UnusedAndBin={_,_},NamedBitList) ->
 %    case get_constraint(C,'SizeConstraint') of
 
 % 	0 ->
-% 	    []; % borde avgöras i compile-time
+% 	    []; % should be dont in compile time
 % 	V when integer(V),V=<16 ->
 % 	    {Unused2,Bin2} = pad_list(V,UnusedAndBin1),
 % 	    <<BitVal:V,_:Unused2>> = Bin2,

@@ -6,7 +6,7 @@
 and semantics are as close as possible to those of the Perl 5 language.
 
                        Written by Philip Hazel
-           Copyright (c) 1997-2008 University of Cambridge
+           Copyright (c) 1997-2012 University of Cambridge
 
 -----------------------------------------------------------------------------
 Redistribution and use in source and binary forms, with or without
@@ -38,7 +38,7 @@ POSSIBILITY OF SUCH DAMAGE.
 */
 
 
-/* This module contains the external function erts_pcre_maketables(), which builds
+/* This module contains the external function pcre_maketables(), which builds
 character tables for PCRE in the current locale. The file is compiled on its
 own as part of the PCRE library. However, it is also included in the
 compilation of dftables.c, in which case the macro DFTABLES is defined. */
@@ -60,21 +60,34 @@ compilation of dftables.c, in which case the macro DFTABLES is defined. */
 /* This function builds a set of character tables for use by PCRE and returns
 a pointer to them. They are build using the ctype functions, and consequently
 their contents will depend upon the current locale setting. When compiled as
-part of the library, the store is obtained via erts_pcre_malloc(), but when compiled
-inside dftables, use malloc().
+part of the library, the store is obtained via PUBL(malloc)(), but when
+compiled inside dftables, use malloc().
 
 Arguments:   none
 Returns:     pointer to the contiguous block of data
 */
 
+#if defined COMPILE_PCRE8
+#if defined(ERLANG_INTEGRATION)
 const unsigned char *
 erts_pcre_maketables(void)
+#else
+const unsigned char *
+pcre_maketables(void)
+#endif
+#elif defined COMPILE_PCRE16
+const unsigned char *
+pcre16_maketables(void)
+#elif defined COMPILE_PCRE32
+const unsigned char *
+pcre32_maketables(void)
+#endif
 {
 unsigned char *yield, *p;
 int i;
 
 #ifndef DFTABLES
-yield = (unsigned char*)(erts_pcre_malloc)(tables_length);
+yield = (unsigned char*)(PUBL(malloc))(tables_length);
 #else
 yield = (unsigned char*)malloc(tables_length);
 #endif
@@ -91,13 +104,17 @@ for (i = 0; i < 256; i++) *p++ = tolower(i);
 for (i = 0; i < 256; i++) *p++ = islower(i)? toupper(i) : tolower(i);
 
 /* Then the character class tables. Don't try to be clever and save effort on
-exclusive ones - in some locales things may be different. Note that the table
-for "space" includes everything "isspace" gives, including VT in the default
-locale. This makes it work for the POSIX class [:space:]. Note also that it is
-possible for a character to be alnum or alpha without being lower or upper,
-such as "male and female ordinals" (\xAA and \xBA) in the fr_FR locale (at
-least under Debian Linux's locales as of 12/2005). So we must test for alnum
-specially. */
+exclusive ones - in some locales things may be different.
+
+Note that the table for "space" includes everything "isspace" gives, including
+VT in the default locale. This makes it work for the POSIX class [:space:].
+From release 8.34 is is also correct for Perl space, because Perl added VT at
+release 5.18.
+
+Note also that it is possible for a character to be alnum or alpha without
+being lower or upper, such as "male and female ordinals" (\xAA and \xBA) in the
+fr_FR locale (at least under Debian Linux's locales as of 12/2005). So we must
+test for alnum specially. */
 
 memset(p, 0, cbit_length);
 for (i = 0; i < 256; i++)
@@ -116,14 +133,15 @@ for (i = 0; i < 256; i++)
   }
 p += cbit_length;
 
-/* Finally, the character type table. In this, we exclude VT from the white
-space chars, because Perl doesn't recognize it as such for \s and for comments
-within regexes. */
+/* Finally, the character type table. In this, we used to exclude VT from the
+white space chars, because Perl didn't recognize it as such for \s and for
+comments within regexes. However, Perl changed at release 5.18, so PCRE changed
+at release 8.34. */
 
 for (i = 0; i < 256; i++)
   {
   int x = 0;
-  if (i != 0x0b && isspace(i)) x += ctype_space;
+  if (isspace(i)) x += ctype_space;
   if (isalpha(i)) x += ctype_letter;
   if (isdigit(i)) x += ctype_digit;
   if (isxdigit(i)) x += ctype_xdigit;

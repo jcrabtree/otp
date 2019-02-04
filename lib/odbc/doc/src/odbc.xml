@@ -1,23 +1,24 @@
-<?xml version="1.0" encoding="latin1" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <!DOCTYPE erlref SYSTEM "erlref.dtd">
 
 <erlref>
   <header>
     <copyright>
-      <year>1999</year><year>2011</year>
+      <year>1999</year><year>2016</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
-      The contents of this file are subject to the Erlang Public License,
-      Version 1.1, (the "License"); you may not use this file except in
-      compliance with the License. You should have received a copy of the
-      Erlang Public License along with this software. If not, it can be
-      retrieved online at http://www.erlang.org/.
+      Licensed under the Apache License, Version 2.0 (the "License");
+      you may not use this file except in compliance with the License.
+      You may obtain a copy of the License at
+ 
+          http://www.apache.org/licenses/LICENSE-2.0
 
-      Software distributed under the License is distributed on an "AS IS"
-      basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-      the License for the specific language governing rights and limitations
-      under the License.
+      Unless required by applicable law or agreed to in writing, software
+      distributed under the License is distributed on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+      See the License for the specific language governing permissions and
+      limitations under the License.
 
     </legalnotice>
 
@@ -28,7 +29,7 @@
     <date></date>
     <rev></rev>
   </header>
-  <module>odbc</module>
+  <module since="">odbc</module>
   <modulesummary>Erlang ODBC application</modulesummary>
   <description>
     <p>This application provides an Erlang interface to communicate
@@ -74,8 +75,12 @@
     <code type="none">
  milliseconds() = integer() >= 0     </code>
     <code type="none">
- common_reason() = connection_closed | term() - some kind of
-                 explanation of what went wrong    </code>
+ common_reason() = connection_closed | extended_error() | term() - some kind of
+ explanation of what went wrong    </code>
+    <code type="none">
+ extended_error() = {string(), integer(), Reason} - extended error type with ODBC
+ and native database error codes, as well as the base reason that would have been
+ returned had extended_errors not been enabled. </code>
     <code type="none">
  string() = list of ASCII characters    </code>
     <code type="none">
@@ -101,8 +106,14 @@
  odbc_data_type() = sql_integer | sql_smallint | sql_tinyint |
       {sql_decimal, precision(), scale()} |
       {sql_numeric, precision(), scale()} |
-      {sql_char, size()} | {sql_wchar, size()} | {sql_varchar, size()} | {sql_wvarchar, size()}| {sql_float, precision()} |
-      {sql_wlongvarchar, size()} | {sql_float, precision()} | sql_real | sql_double | sql_bit | atom()
+      {sql_char, size()} |
+      {sql_wchar, size()} |
+      {sql_varchar, size()} |
+      {sql_wvarchar, size()}|
+      {sql_float, precision()} |
+      {sql_wlongvarchar, size()} |
+      {sql_float, precision()} |
+      sql_real | sql_double | sql_bit | atom()
     </code>
     <code type="none">
  precision() = integer()    </code>
@@ -119,8 +130,8 @@
   </section>
   <funcs>
     <func>
-      <name>commit(Ref, CommitMode) -></name>
-      <name>commit(Ref, CommitMode, TimeOut) -> ok | {error, Reason} </name>
+      <name since="">commit(Ref, CommitMode) -></name>
+      <name since="">commit(Ref, CommitMode, TimeOut) -> ok | {error, Reason} </name>
       <fsummary>Commits or rollbacks a transaction. </fsummary>
       <type>
         <v>Ref = connection_reference() </v>
@@ -134,7 +145,7 @@
       </desc>
     </func>
     <func>
-      <name>connect(ConnectStr, Options) -> {ok, Ref} | {error, Reason} </name>
+      <name since="">connect(ConnectStr, Options) -> {ok, Ref} | {error, Reason} </name>
       <fsummary>Opens a connection to the database. </fsummary>
       <type>
         <v>ConnectStr = string()</v>
@@ -143,7 +154,7 @@
         <d>All options has default values. </d>
         <v>option() = {auto_commit, on | off} | {timeout, milliseconds()}
 	| {binary_strings, on | off} | {tuple_row, on | off} | {scrollable_cursors, on | off} |
-	{trace_driver, on | off} </v>
+	{trace_driver, on | off} | {extended_errors, on | off} </v>
         <v>Ref = connection_reference() - should be used to access the connection. </v>
         <v>Reason = port_program_executable_not_found | common_reason()</v>
       </type>
@@ -196,14 +207,40 @@
           <p>For more information about the <c>ConnectStr</c> see
             description of the function SQLDriverConnect in [1].</p>
         </note>
+
+		  <p>The <c>extended_errors</c> option enables extended ODBC error
+			  information when an operation fails. Rather than returning <c>{error, Reason}</c>,
+			  the failing function will reutrn <c>{error, {ODBCErrorCode, NativeErrorCode, Reason}}</c>.
+			  Note that this information is probably of little use when writing database-independent code,
+			  but can be of assistance in providing more sophisticated error handling when dealing with
+			  a known underlying database.
+	           </p>
+			 <list type="bulleted">
+				  <item><c>ODBCErrorCode</c> is the ODBC error string returned by the ODBC driver.</item>
+				  <item><c>NativeErrorCode</c> is the numberic error code returned by the underlying database. The possible values
+					  and their meanings are dependent on the database being used.</item>
+				  <item><c>Reason</c> is as per the <c>Reason</c> field when extended errors are not enabled.</item>
+		  </list>
+
+        <note>
+            <p>The current implementation spawns a port programm
+            written in C that utilizes the actual ODBC driver. There
+            is a default timeout of 5000 msec for this port programm
+            to connect to the Erlang ODBC application. This timeout
+            can be changed by setting an application specific
+            environment variable 'port_timeout' with the number of
+            milliseconds for the ODBC application. E.g.: [{odbc,
+            [{port_timeout, 60000}]}] to set it to 60 seconds.
+            </p>
+        </note>
       </desc>
     </func>
     <func>
-      <name>disconnect(Ref) -> ok | {error, Reason} </name>
+      <name since="">disconnect(Ref) -> ok | {error, Reason} </name>
       <fsummary>Closes a connection to a database. </fsummary>
       <type>
         <v>Ref = connection_reference()</v>
-        <v>Reason = process_not_owner_of_odbc_connection</v>
+        <v>Reason = process_not_owner_of_odbc_connection | extended_error()</v>
       </type>
       <desc>
         <p>Closes a connection to a database. This will also
@@ -218,8 +255,8 @@
       </desc>
     </func>
     <func>
-      <name>describe_table(Ref, Table) -> </name>
-      <name>describe_table(Ref, Table, Timeout) -> {ok, Description} | {error, Reason} </name>
+      <name since="">describe_table(Ref, Table) -> </name>
+      <name since="">describe_table(Ref, Table, Timeout) -> {ok, Description} | {error, Reason} </name>
       <fsummary>Queries the database to find out the data types of the columns of the table <c>Table</c>. </fsummary>
       <type>
         <v>Ref = connection_reference()</v>
@@ -234,8 +271,8 @@
       </desc>
     </func>
     <func>
-      <name>first(Ref) -></name>
-      <name>first(Ref, Timeout) -> {selected, ColNames, Rows} | {error, Reason} </name>
+      <name since="">first(Ref) -></name>
+      <name since="">first(Ref, Timeout) -> {selected, ColNames, Rows} | {error, Reason} </name>
       <fsummary>Returns the first row of the result set and positions a cursor at this row.</fsummary>
       <type>
         <v>Ref = connection_reference()</v>
@@ -250,8 +287,8 @@
       </desc>
     </func>
     <func>
-      <name>last(Ref) -></name>
-      <name>last(Ref, TimeOut) -> {selected, ColNames, Rows} | {error, Reason} </name>
+      <name since="">last(Ref) -></name>
+      <name since="">last(Ref, TimeOut) -> {selected, ColNames, Rows} | {error, Reason} </name>
       <fsummary>Returns the last row of the result set and positions a cursor at this row. </fsummary>
       <type>
         <v>Ref = connection_reference()</v>
@@ -266,8 +303,8 @@
       </desc>
     </func>
     <func>
-      <name>next(Ref) -> </name>
-      <name>next(Ref, TimeOut) -> {selected, ColNames, Rows} | {error, Reason} </name>
+      <name since="">next(Ref) -> </name>
+      <name since="">next(Ref, TimeOut) -> {selected, ColNames, Rows} | {error, Reason} </name>
       <fsummary>Returns the next row of the result set relative the current cursor position and positions the cursor at this row. </fsummary>
       <type>
         <v>Ref = connection_reference()</v>
@@ -288,8 +325,8 @@
       </desc>
     </func>
     <func>
-      <name>param_query(Ref, SQLQuery, Params) -> </name>
-      <name>param_query(Ref, SQLQuery, Params, TimeOut) -> ResultTuple | {error, Reason} </name>
+      <name since="">param_query(Ref, SQLQuery, Params) -> </name>
+      <name since="">param_query(Ref, SQLQuery, Params, TimeOut) -> ResultTuple | {error, Reason} </name>
       <fsummary>Executes a parameterized SQL query.</fsummary>
       <type>
         <v>Ref = connection_reference()</v>
@@ -316,8 +353,8 @@
       </desc>
     </func>
     <func>
-      <name>prev(Ref) -> </name>
-      <name>prev(ConnectionReference, TimeOut) -> {selected, ColNames, Rows} | {error, Reason} </name>
+      <name since="">prev(Ref) -> </name>
+      <name since="">prev(ConnectionReference, TimeOut) -> {selected, ColNames, Rows} | {error, Reason} </name>
       <fsummary>Returns the previous row of the result set relative the current cursor position and positions the cursor at this row. </fsummary>
       <type>
         <v>Ref = connection_reference()</v>
@@ -334,8 +371,8 @@
     </func>
 
     <func>
-      <name>start() -> </name>
-      <name>start(Type) -> ok | {error, Reason}</name>
+      <name since="">start() -> </name>
+      <name since="">start(Type) -> ok | {error, Reason}</name>
       <fsummary>Starts the odb application. </fsummary>
       
       <type>
@@ -352,7 +389,7 @@
     </func>
 
     <func>
-      <name>stop() -> ok </name>
+      <name since="">stop() -> ok </name>
       <fsummary> Stops the odbc application.</fsummary>
       
       <desc>
@@ -363,8 +400,8 @@
     </func>
     
     <func>
-      <name>sql_query(Ref, SQLQuery) -> </name>
-      <name>sql_query(Ref, SQLQuery, TimeOut) -> ResultTuple | [ResultTuple] |{error, Reason}</name>
+      <name since="">sql_query(Ref, SQLQuery) -> </name>
+      <name since="">sql_query(Ref, SQLQuery, TimeOut) -> ResultTuple | [ResultTuple] |{error, Reason}</name>
       <fsummary>Executes a SQL query or a batch of SQL queries. If it is a SELECT query the result set is returned, on the format<c>{selected, ColNames, Rows}</c>. For other query types the tuple <c>{updated, NRows}</c>is returned, and for batched queries, if the driver supports them, this function can also return a list of result tuples.</fsummary>
       <type>
         <v>Ref = connection_reference()</v>
@@ -392,8 +429,8 @@
       </desc>
     </func>
     <func>
-      <name>select_count(Ref, SelectQuery) -> </name>
-      <name>select_count(Ref, SelectQuery, TimeOut) -> {ok, NrRows} | {error, Reason} </name>
+      <name since="">select_count(Ref, SelectQuery) -> </name>
+      <name since="">select_count(Ref, SelectQuery, TimeOut) -> {ok, NrRows} | {error, Reason} </name>
       <fsummary>Executes a SQL SELECT query and associates the result set with the connection. A cursor is positioned before the first row in the result set and the tuple <c>{ok, NrRows}</c>is returned. </fsummary>
       <type>
         <v>Ref = connection_reference()</v>
@@ -416,8 +453,8 @@
       </desc>
     </func>
     <func>
-      <name>select(Ref, Position, N) -></name>
-      <name>select(Ref, Position, N, TimeOut) -> {selected, ColNames, Rows} | {error, Reason} </name>
+      <name since="">select(Ref, Position, N) -></name>
+      <name since="">select(Ref, Position, N, TimeOut) -> {selected, ColNames, Rows} | {error, Reason} </name>
       <fsummary>Selects <c>N</c>consecutive rows of the result set.</fsummary>
       <type>
         <v>Ref = connection_reference()</v>

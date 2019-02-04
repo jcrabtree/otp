@@ -1,34 +1,27 @@
 /*
  * %CopyrightBegin%
  * 
- * Copyright Ericsson AB 2006-2011. All Rights Reserved.
+ * Copyright Ericsson AB 2006-2017. All Rights Reserved.
  * 
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
- * 
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  * 
  * %CopyrightEnd%
  */
 /*
  * Purpose: Typer front-end.
  */
-#ifdef HAVE_CONFIG_H
-#  include "config.h"
-#endif
 
-#include "sys.h"
-#ifdef __WIN32__
-#include <winbase.h>
-#endif
-
-#include <ctype.h>
+#include "etc_common.h"
 
 #define NO 0
 #define YES 1
@@ -62,13 +55,17 @@ static int eargc;		/* Number of arguments in eargv. */
  */
 
 static void error(char* format, ...);
-static char* emalloc(size_t size);
+static void* emalloc(size_t size);
+#ifdef HAVE_COPYING_PUTENV
+static void efree(void *p);
+#endif
 static char* strsave(char* string);
 static void push_words(char* src);
 static int run_erlang(char* name, char** argv);
 static char* get_default_emulator(char* progname);
 #ifdef __WIN32__
 static char* possibly_quote(char* arg);
+static void* erealloc(void *p, size_t size);
 #endif
 
 /*
@@ -99,15 +96,61 @@ char *strerror(int errnum)
 }
 #endif /* !HAVE_STRERROR */
 
+static void
+set_env(char *key, char *value)
+{
+#ifdef __WIN32__
+    WCHAR wkey[MAXPATHLEN];
+    WCHAR wvalue[MAXPATHLEN];
+    MultiByteToWideChar(CP_UTF8, 0, key, -1, wkey, MAXPATHLEN);
+    MultiByteToWideChar(CP_UTF8, 0, value, -1, wvalue, MAXPATHLEN);
+    if (!SetEnvironmentVariableW(wkey, wvalue))
+        error("SetEnvironmentVariable(\"%s\", \"%s\") failed!", key, value);
+#else
+    size_t size = strlen(key) + 1 + strlen(value) + 1;
+    char *str = emalloc(size);
+    sprintf(str, "%s=%s", key, value);
+    if (putenv(str) != 0)
+        error("putenv(\"%s\") failed!", str);
+#ifdef HAVE_COPYING_PUTENV
+    efree(str);
+#endif
+#endif
+}
+
+
+#ifdef __WIN32__
+int wmain(int argc, wchar_t **wcargv)
+{
+    char** argv;
+#else
 int
 main(int argc, char** argv)
 {
+#endif
     int eargv_size;
     int eargc_base;		/* How many arguments in the base of eargv. */
     char* emulator;
     int need_shell = 0;
 
+#ifdef __WIN32__
+    int i;
+    int len;
+    /* Convert argv to utf8 */
+    argv = emalloc((argc+1) * sizeof(char*));
+    for (i=0; i<argc; i++) {
+	len = WideCharToMultiByte(CP_UTF8, 0, wcargv[i], -1, NULL, 0, NULL, NULL);
+	argv[i] = emalloc(len*sizeof(char));
+	WideCharToMultiByte(CP_UTF8, 0, wcargv[i], -1, argv[i], len, NULL, NULL);
+    }
+    argv[argc] = NULL;
+#endif
+
     emulator = get_default_emulator(argv[0]);
+    /*
+     * Add scriptname to env
+     */
+    set_env("ESCRIPT_NAME", argv[0]);
 
     /*
      * Allocate the argv vector to be used for arguments to Erlang.
@@ -134,7 +177,7 @@ main(int argc, char** argv)
     }
 
     PUSH("+B");
-    PUSH2("-boot", "start_clean");
+    PUSH2("-boot", "no_dot_erlang");
     PUSH3("-run", "typer", "start");
     PUSH("-extra");
 
@@ -193,66 +236,65 @@ push_words(char* src)
 	PUSH(strsave(sbuf));
 }
 #ifdef __WIN32__
-char *make_commandline(char **argv)
+wchar_t *make_commandline(char **argv)
 {
-    static char *buff = NULL;
+    static wchar_t *buff = NULL;
     static int siz = 0;
-    int num = 0;
-    char **arg, *p;
+    int num = 0, len;
+    char **arg;
+    wchar_t *p;
 
     if (*argv == NULL) { 
-	return "";
+	return L"";
     }
     for (arg = argv; *arg != NULL; ++arg) {
 	num += strlen(*arg)+1;
     }
     if (!siz) {
 	siz = num;
-	buff = malloc(siz*sizeof(char));
+	buff = (wchar_t *) emalloc(siz*sizeof(wchar_t));
     } else if (siz < num) {
 	siz = num;
-	buff = realloc(buff,siz*sizeof(char));
+	buff = (wchar_t *) erealloc(buff,siz*sizeof(wchar_t));
     }
     p = buff;
+    num=0;
     for (arg = argv; *arg != NULL; ++arg) {
-	strcpy(p,*arg);
-	p+=strlen(*arg);
-	*p++=' ';
+	len = MultiByteToWideChar(CP_UTF8, 0, *arg, -1, p, siz);
+	p+=(len-1);
+	*p++=L' ';
     }
-    *(--p) = '\0';
+    *(--p) = L'\0';
 
     if (debug) {
-	printf("Processed commandline:%s\n",buff);
+	printf("Processed command line:%S\n",buff);
     }
     return buff;
 }
 
 int my_spawnvp(char **argv)
 {
-    STARTUPINFO siStartInfo;
+    STARTUPINFOW siStartInfo;
     PROCESS_INFORMATION piProcInfo;
     DWORD ec;
 
-    memset(&siStartInfo,0,sizeof(STARTUPINFO));
-    siStartInfo.cb = sizeof(STARTUPINFO); 
+    memset(&siStartInfo,0,sizeof(STARTUPINFOW));
+    siStartInfo.cb = sizeof(STARTUPINFOW); 
     siStartInfo.dwFlags = STARTF_USESTDHANDLES;
     siStartInfo.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
     siStartInfo.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
     siStartInfo.hStdError = GetStdHandle(STD_ERROR_HANDLE);
-    siStartInfo.wShowWindow = SW_HIDE;
-    siStartInfo.dwFlags |= STARTF_USESHOWWINDOW;
 
-
-    if (!CreateProcess(NULL, 
-		       make_commandline(argv),
-		       NULL, 
-		       NULL, 
-		       TRUE, 
-		       0,
-		       NULL, 
-		       NULL, 
-		       &siStartInfo, 
-		       &piProcInfo)) {
+    if (!CreateProcessW(NULL, 
+			make_commandline(argv),
+			NULL, 
+			NULL, 
+			TRUE, 
+			0,
+			NULL, 
+			NULL, 
+			&siStartInfo, 
+			&piProcInfo)) {
 	return -1;
     }
     CloseHandle(piProcInfo.hThread);
@@ -313,14 +355,33 @@ error(char* format, ...)
     exit(1);
 }
 
-static char*
+static void*
 emalloc(size_t size)
 {
-  char *p = malloc(size);
+  void *p = malloc(size);
   if (p == NULL)
     error("Insufficient memory");
   return p;
 }
+
+#ifdef __WIN32__
+static void *
+erealloc(void *p, size_t size)
+{
+    void *res = realloc(p, size);
+    if (res == NULL)
+    error("Insufficient memory");
+    return res;
+}
+#endif
+
+#ifdef HAVE_COPYING_PUTENV
+static void
+efree(void *p)
+{
+    free(p);
+}
+#endif
 
 static char*
 strsave(char* string)
@@ -328,6 +389,18 @@ strsave(char* string)
     char* p = emalloc(strlen(string)+1);
     strcpy(p, string);
     return p;
+}
+
+static int 
+file_exists(char *progname) 
+{
+#ifdef __WIN32__
+    wchar_t wcsbuf[MAXPATHLEN];
+    MultiByteToWideChar(CP_UTF8, 0, progname, -1, wcsbuf, MAXPATHLEN);
+    return (_waccess(wcsbuf, 0) != -1);
+#else
+    return (access(progname, 1) != -1);
+#endif
 }
 
 static char*
@@ -343,15 +416,8 @@ get_default_emulator(char* progname)
     for (s = sbuf+strlen(sbuf); s >= sbuf; s--) {
 	if (IS_DIRSEP(*s)) {
 	    strcpy(s+1, ERL_NAME);
-#ifdef __WIN32__
-	    if (_access(sbuf, 0) != -1) {
+	    if(file_exists(sbuf))
 		return strsave(sbuf);
-	    }
-#else
-	    if (access(sbuf, 1) != -1) {
-		return strsave(sbuf);
-	    }
-#endif
 	    break;
 	}
     }

@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1997-2010. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2018. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -137,72 +138,81 @@ do(Info) ->
 %% Description: See httpd(3) ESWAPI CALLBACK FUNCTIONS
 %%-------------------------------------------------------------------------
 load("TransferDiskLogSize " ++ TransferDiskLogSize, []) ->
-    case inets_regexp:split(TransferDiskLogSize," ") of
-	{ok,[MaxBytes,MaxFiles]} ->
-	    case httpd_conf:make_integer(MaxBytes) of
+    try re:split(TransferDiskLogSize, " ",  [{return, list}]) of
+	[MaxBytes, MaxFiles] ->
+	    case make_integer(MaxBytes) of
 		{ok,MaxBytesInteger} ->
-		    case httpd_conf:make_integer(MaxFiles) of
+		    case make_integer(MaxFiles) of
 			{ok,MaxFilesInteger} ->
 			    {ok,[],{transfer_disk_log_size,
 				    {MaxBytesInteger,MaxFilesInteger}}};
 			{error,_} ->
 			    {error,
-			     ?NICE(httpd_conf:clean(TransferDiskLogSize)++
+			     ?NICE(string:strip(TransferDiskLogSize)++
 				   " is an invalid TransferDiskLogSize")}
 		    end;
-		{error,_} ->
-		    {error,?NICE(httpd_conf:clean(TransferDiskLogSize)++
-				 " is an invalid TransferDiskLogSize")}
+		_ ->
+		    {error,?NICE(string:strip(TransferDiskLogSize)++
+				     " is an invalid TransferDiskLogSize")}
 	    end
+    catch _:_ ->
+	    {error,?NICE(string:strip(TransferDiskLogSize) ++
+			     " is an invalid TransferDiskLogSize")}   
     end;
 load("TransferDiskLog " ++ TransferDiskLog,[]) ->
-    {ok,[],{transfer_disk_log,httpd_conf:clean(TransferDiskLog)}};
+    {ok,[],{transfer_disk_log,string:strip(TransferDiskLog)}};
  
 load("ErrorDiskLogSize " ++  ErrorDiskLogSize, []) ->
-    case inets_regexp:split(ErrorDiskLogSize," ") of
-	{ok,[MaxBytes,MaxFiles]} ->
-	    case httpd_conf:make_integer(MaxBytes) of
+    try re:split(ErrorDiskLogSize," ", [{return, list}]) of
+	[MaxBytes,MaxFiles] ->
+	    case make_integer(MaxBytes) of
 		{ok,MaxBytesInteger} ->
-		    case httpd_conf:make_integer(MaxFiles) of
+		    case make_integer(MaxFiles) of
 			{ok,MaxFilesInteger} ->
 			    {ok,[],{error_disk_log_size,
 				    {MaxBytesInteger,MaxFilesInteger}}};
 			{error,_} ->
-			    {error,?NICE(httpd_conf:clean(ErrorDiskLogSize)++
+			    {error,?NICE(string:strip(ErrorDiskLogSize)++
 					 " is an invalid ErrorDiskLogSize")}
 		    end;
 		{error,_} ->
-		    {error,?NICE(httpd_conf:clean(ErrorDiskLogSize)++
+		    {error,?NICE(string:strip(ErrorDiskLogSize)++
 				 " is an invalid ErrorDiskLogSize")}
 	    end
+    catch _:_ ->
+	    {error,?NICE(string:strip(ErrorDiskLogSize) ++
+			     " is an invalid TransferDiskLogSize")}   
     end;
 load("ErrorDiskLog " ++ ErrorDiskLog, []) ->
-    {ok, [], {error_disk_log, httpd_conf:clean(ErrorDiskLog)}};
+    {ok, [], {error_disk_log, string:strip(ErrorDiskLog)}};
 
 load("SecurityDiskLogSize " ++ SecurityDiskLogSize, []) ->
-    case inets_regexp:split(SecurityDiskLogSize, " ") of
-	{ok, [MaxBytes, MaxFiles]} ->
-	    case httpd_conf:make_integer(MaxBytes) of
+    try re:split(SecurityDiskLogSize, " ", [{return, list}]) of
+	[MaxBytes, MaxFiles] ->
+	    case make_integer(MaxBytes) of
 		{ok, MaxBytesInteger} ->
-		    case httpd_conf:make_integer(MaxFiles) of
+		    case make_integer(MaxFiles) of
 			{ok, MaxFilesInteger} ->
 			    {ok, [], {security_disk_log_size,
 				      {MaxBytesInteger, MaxFilesInteger}}};
 			{error,_} ->
 			    {error, 
-			     ?NICE(httpd_conf:clean(SecurityDiskLogSize) ++
+			     ?NICE(string:strip(SecurityDiskLogSize) ++
 				   " is an invalid SecurityDiskLogSize")}
 		    end;
 		{error, _} ->
-		    {error, ?NICE(httpd_conf:clean(SecurityDiskLogSize) ++
+		    {error, ?NICE(string:strip(SecurityDiskLogSize) ++
 				  " is an invalid SecurityDiskLogSize")}
 	    end
+    catch _:_ ->
+	    {error,?NICE(string:strip(SecurityDiskLogSize) ++
+			     " is an invalid SecurityDiskLogSize")}   	
     end;
 load("SecurityDiskLog " ++ SecurityDiskLog, []) ->
-    {ok, [], {security_disk_log, httpd_conf:clean(SecurityDiskLog)}};
+    {ok, [], {security_disk_log, string:strip(SecurityDiskLog)}};
 
 load("DiskLogFormat " ++ Format, []) ->
-    case httpd_conf:clean(Format) of
+    case string:strip(Format) of
 	"internal" ->
 	    {ok, [], {disk_log_format,internal}};
 	"external" ->
@@ -314,7 +324,7 @@ log_size(ConfigList, Tag) ->
     proplists:get_value(Tag, ConfigList, {500*1024,8}).
 
 create_disk_log(LogFile, SizeTag, ConfigList) ->
-    Filename = httpd_conf:clean(LogFile),
+    Filename = string:strip(LogFile),
     {MaxBytes, MaxFiles} = log_size(ConfigList, SizeTag),
     case filename:pathtype(Filename) of
 	absolute ->
@@ -353,16 +363,20 @@ create_disk_log(Filename, MaxBytes, MaxFiles, ConfigList) ->
 %%----------------------------------------------------------------------
 
 open(Filename, MaxBytes, MaxFiles, internal) ->
-    Opts = [{format, internal}, {repair, truncate}],
-    open1(Filename, MaxBytes, MaxFiles, Opts);
+    Opt0 = {format, internal},
+    Opts1 = [Opt0, {repair, true}],
+    Opts2 = [Opt0, {repair, truncate}],
+    open1(Filename, MaxBytes, MaxFiles, Opts1, Opts2);
 open(Filename, MaxBytes, MaxFiles, _) ->
     Opts = [{format, external}],
-    open1(Filename, MaxBytes, MaxFiles, Opts).
+    open1(Filename, MaxBytes, MaxFiles, Opts, Opts).
 
-open1(Filename, MaxBytes, MaxFiles, Opts0) ->
-    Opts1 = [{name, Filename}, {file, Filename}, {type, wrap}] ++ Opts0,
-    case open2(Opts1, {MaxBytes, MaxFiles}) of
+open1(Filename, MaxBytes, MaxFiles, Opts1, Opts2) ->
+    Opts0 = [{name, Filename}, {file, Filename}, {type, wrap}],
+    case open2(Opts0 ++ Opts1, Opts0 ++ Opts2, {MaxBytes, MaxFiles}) of
         {ok, LogDB} ->
+            {ok, LogDB};
+        {repaired, LogDB, {recovered, _}, {badbytes, _}} ->
             {ok, LogDB};
         {error, Reason} ->
             {error, 
@@ -372,11 +386,16 @@ open1(Filename, MaxBytes, MaxFiles, Opts0) ->
             {error, ?NICE("Can't create "++Filename)}
     end.
 
-open2(Opts, Size) ->
-    case disk_log:open(Opts) of
+open2(Opts1, Opts2, Size) ->
+    case disk_log:open(Opts1) of
         {error, {badarg, size}} ->
             %% File did not exist, add the size option and try again
-            disk_log:open([{size, Size} | Opts]);
+            disk_log:open([{size, Size} | Opts1]);
+        {error, {Reason, _}} when
+                Reason == not_a_log_file;
+                Reason == invalid_index_file ->
+            %% File was corrupt, add the truncate option and try again
+            disk_log:open([{size, Size} | Opts2]);
         Else ->
             Else
     end.
@@ -413,3 +432,11 @@ log_internal_info(Info,Date,[{internal_info,Reason}|Rest]) ->
 log_internal_info(Info,Date,[_|Rest]) ->
     log_internal_info(Info,Date,Rest).
 
+make_integer(List) ->
+    try list_to_integer(List) of
+	N ->
+	    {ok, N}
+    catch 
+	_:_ ->
+	    {error, {badarg, list_to_integer, List}}
+    end.

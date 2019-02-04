@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2008-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2008-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %% This file is generated DO NOT EDIT
@@ -32,40 +33,142 @@
 %% Here comes the definitions of all event records.
 %% they contain the event type and possible some extra information.
 
--record(wxNavigationKey,{type :: wxNavigationKeyEventType(), %% Callback event: {@link wxNavigationKeyEvent}
-	flags :: integer(),
-	focus :: wxWindow:wxWindow()}).
--type wxNavigationKeyEventType() :: navigation_key.
--type wxNavigationKey() :: #wxNavigationKey{}. %% Callback event: {@link wxNavigationKeyEvent}
+-record(wxActivate,{type :: wxActivateEventType(), %% Callback event: {@link wxActivateEvent}
+	active :: boolean()}).
+-type wxActivateEventType() :: 'activate' | 'activate_app' | 'hibernate'.
+-type wxActivate() :: #wxActivate{}. %% Callback event: {@link wxActivateEvent}
 
--record(wxSash,{type :: wxSashEventType(), %% Callback event: {@link wxSashEvent}
-	edge :: wx:wx_enum(),
-	dragRect :: {X::integer(), Y::integer(), W::integer(), H::integer()},
-	dragStatus :: wx:wx_enum()}).
--type wxSashEventType() :: sash_dragged.
--type wxSash() :: #wxSash{}. %% Callback event: {@link wxSashEvent}
+-record(wxAuiManager,{type :: wxAuiManagerEventType(), %% Callback event: {@link wxAuiManagerEvent}
+	manager :: wxAuiManager:wxAuiManager(),
+	pane :: wxAuiPaneInfo:wxAuiPaneInfo(),
+	button :: integer(),
+	veto_flag :: boolean(),
+	canveto_flag :: boolean(),
+	dc :: wxDC:wxDC()}).
+-type wxAuiManagerEventType() :: 'aui_pane_button' | 'aui_pane_close' | 'aui_pane_maximize' | 'aui_pane_restore' | 'aui_pane_activated' | 'aui_render' | 'aui_find_manager'.
+-type wxAuiManager() :: #wxAuiManager{}. %% Callback event: {@link wxAuiManagerEvent}
 
--record(wxList,{type :: wxListEventType(), %% Callback event: {@link wxListEvent}
-	code :: integer(),
-	oldItemIndex :: integer(),
-	itemIndex :: integer(),
-	col :: integer(),
-	pointDrag :: {X::integer(), Y::integer()}}).
--type wxListEventType() :: command_list_begin_drag | command_list_begin_rdrag | command_list_begin_label_edit | command_list_end_label_edit | command_list_delete_item | command_list_delete_all_items | command_list_key_down | command_list_insert_item | command_list_col_click | command_list_col_right_click | command_list_col_begin_drag | command_list_col_dragging | command_list_col_end_drag | command_list_item_selected | command_list_item_deselected | command_list_item_right_click | command_list_item_middle_click | command_list_item_activated | command_list_item_focused | command_list_cache_hint.
--type wxList() :: #wxList{}. %% Callback event: {@link wxListEvent}
+-record(wxAuiNotebook,{type :: wxAuiNotebookEventType(), %% Callback event: {@link wxAuiNotebookEvent}
+	old_selection :: integer(),
+	selection :: integer(),
+	drag_source :: wxAuiNotebook:wxAuiNotebook()}).
+-type wxAuiNotebookEventType() :: 'command_auinotebook_page_close' | 'command_auinotebook_page_changed' | 'command_auinotebook_page_changing' | 'command_auinotebook_button' | 'command_auinotebook_begin_drag' | 'command_auinotebook_end_drag' | 'command_auinotebook_drag_motion' | 'command_auinotebook_allow_dnd' | 'command_auinotebook_tab_middle_down' | 'command_auinotebook_tab_middle_up' | 'command_auinotebook_tab_right_down' | 'command_auinotebook_tab_right_up' | 'command_auinotebook_page_closed' | 'command_auinotebook_drag_done' | 'command_auinotebook_bg_dclick'.
+-type wxAuiNotebook() :: #wxAuiNotebook{}. %% Callback event: {@link wxAuiNotebookEvent}
 
--record(wxNotebook, {type :: wxNotebookEventType()}). %% Callback event: {@link wxNotebookEvent}
--type wxNotebookEventType() :: command_notebook_page_changed | command_notebook_page_changing.
--type wxNotebook() :: #wxNotebook{}. %% Callback event: {@link wxNotebookEvent}
+-record(wxCalendar,{type :: wxCalendarEventType(), %% Callback event: {@link wxCalendarEvent}
+	wday :: wx:wx_enum(),
+	date :: wx:wx_datetime()}).
+-type wxCalendarEventType() :: 'calendar_sel_changed' | 'calendar_day_changed' | 'calendar_month_changed' | 'calendar_year_changed' | 'calendar_doubleclicked' | 'calendar_weekday_clicked'.
+-type wxCalendar() :: #wxCalendar{}. %% Callback event: {@link wxCalendarEvent}
+
+-record(wxChildFocus, {type :: wxChildFocusEventType()}). %% Callback event: {@link wxChildFocusEvent}
+-type wxChildFocusEventType() :: 'child_focus'.
+-type wxChildFocus() :: #wxChildFocus{}. %% Callback event: {@link wxChildFocusEvent}
+
+-record(wxClipboardText, {type :: wxClipboardTextEventType()}). %% Callback event: {@link wxClipboardTextEvent}
+-type wxClipboardTextEventType() :: 'command_text_copy' | 'command_text_cut' | 'command_text_paste'.
+-type wxClipboardText() :: #wxClipboardText{}. %% Callback event: {@link wxClipboardTextEvent}
+
+-record(wxClose, {type :: wxCloseEventType()}). %% Callback event: {@link wxCloseEvent}
+-type wxCloseEventType() :: 'close_window' | 'end_session' | 'query_end_session'.
+-type wxClose() :: #wxClose{}. %% Callback event: {@link wxCloseEvent}
+
+-record(wxColourPicker,{type :: wxColourPickerEventType(), %% Callback event: {@link wxColourPickerEvent}
+	colour :: wx:wx_colour()}).
+-type wxColourPickerEventType() :: 'command_colourpicker_changed'.
+-type wxColourPicker() :: #wxColourPicker{}. %% Callback event: {@link wxColourPickerEvent}
+
+-record(wxCommand,{type :: wxCommandEventType(), %% Callback event: {@link wxCommandEvent}
+	cmdString :: unicode:chardata(),
+	commandInt :: integer(),
+	extraLong :: integer()}).
+-type wxCommandEventType() :: 'command_button_clicked' | 'command_checkbox_clicked' | 'command_choice_selected' | 'command_listbox_selected' | 'command_listbox_doubleclicked' | 'command_text_updated' | 'command_text_enter' | 'command_menu_selected' | 'command_slider_updated' | 'command_radiobox_selected' | 'command_radiobutton_selected' | 'command_scrollbar_updated' | 'command_vlbox_selected' | 'command_combobox_selected' | 'command_tool_rclicked' | 'command_tool_enter' | 'command_checklistbox_toggled' | 'command_togglebutton_clicked' | 'command_left_click' | 'command_left_dclick' | 'command_right_click' | 'command_set_focus' | 'command_kill_focus' | 'command_enter'.
+-type wxCommand() :: #wxCommand{}. %% Callback event: {@link wxCommandEvent}
+
+-record(wxContextMenu,{type :: wxContextMenuEventType(), %% Callback event: {@link wxContextMenuEvent}
+	pos :: {X::integer(), Y::integer()}}).
+-type wxContextMenuEventType() :: 'context_menu'.
+-type wxContextMenu() :: #wxContextMenu{}. %% Callback event: {@link wxContextMenuEvent}
+
+-record(wxDate,{type :: wxDateEventType(), %% Callback event: {@link wxDateEvent}
+	date :: wx:wx_datetime()}).
+-type wxDateEventType() :: 'date_changed'.
+-type wxDate() :: #wxDate{}. %% Callback event: {@link wxDateEvent}
 
 -record(wxDisplayChanged, {type :: wxDisplayChangedEventType()}). %% Callback event: {@link wxDisplayChangedEvent}
--type wxDisplayChangedEventType() :: display_changed.
+-type wxDisplayChangedEventType() :: 'display_changed'.
 -type wxDisplayChanged() :: #wxDisplayChanged{}. %% Callback event: {@link wxDisplayChangedEvent}
+
+-record(wxDropFiles,{type :: wxDropFilesEventType(), %% Callback event: {@link wxDropFilesEvent}
+	noFiles :: integer(),
+	pos :: {X::integer(), Y::integer()},
+	files :: [unicode:chardata()]}).
+-type wxDropFilesEventType() :: 'drop_files'.
+-type wxDropFiles() :: #wxDropFiles{}. %% Callback event: {@link wxDropFilesEvent}
 
 -record(wxErase,{type :: wxEraseEventType(), %% Callback event: {@link wxEraseEvent}
 	dc :: wxDC:wxDC()}).
--type wxEraseEventType() :: erase_background.
+-type wxEraseEventType() :: 'erase_background'.
 -type wxErase() :: #wxErase{}. %% Callback event: {@link wxEraseEvent}
+
+-record(wxFileDirPicker,{type :: wxFileDirPickerEventType(), %% Callback event: {@link wxFileDirPickerEvent}
+	path :: unicode:chardata()}).
+-type wxFileDirPickerEventType() :: 'command_filepicker_changed' | 'command_dirpicker_changed'.
+-type wxFileDirPicker() :: #wxFileDirPicker{}. %% Callback event: {@link wxFileDirPickerEvent}
+
+-record(wxFocus,{type :: wxFocusEventType(), %% Callback event: {@link wxFocusEvent}
+	win :: wxWindow:wxWindow()}).
+-type wxFocusEventType() :: 'set_focus' | 'kill_focus'.
+-type wxFocus() :: #wxFocus{}. %% Callback event: {@link wxFocusEvent}
+
+-record(wxFontPicker,{type :: wxFontPickerEventType(), %% Callback event: {@link wxFontPickerEvent}
+	font :: wxFont:wxFont()}).
+-type wxFontPickerEventType() :: 'command_fontpicker_changed'.
+-type wxFontPicker() :: #wxFontPicker{}. %% Callback event: {@link wxFontPickerEvent}
+
+-record(wxGrid,{type :: wxGridEventType(), %% Callback event: {@link wxGridEvent}
+	row :: integer(),
+	col :: integer(),
+	x :: integer(),
+	y :: integer(),
+	selecting :: boolean(),
+	control :: boolean(),
+	meta :: boolean(),
+	shift :: boolean(),
+	alt :: boolean()}).
+-type wxGridEventType() :: 'grid_cell_left_click' | 'grid_cell_right_click' | 'grid_cell_left_dclick' | 'grid_cell_right_dclick' | 'grid_label_left_click' | 'grid_label_right_click' | 'grid_label_left_dclick' | 'grid_label_right_dclick' | 'grid_row_size' | 'grid_col_size' | 'grid_range_select' | 'grid_cell_change' | 'grid_select_cell' | 'grid_editor_shown' | 'grid_editor_hidden' | 'grid_editor_created' | 'grid_cell_begin_drag'.
+-type wxGrid() :: #wxGrid{}. %% Callback event: {@link wxGridEvent}
+
+-record(wxHelp, {type :: wxHelpEventType()}). %% Callback event: {@link wxHelpEvent}
+-type wxHelpEventType() :: 'help' | 'detailed_help'.
+-type wxHelp() :: #wxHelp{}. %% Callback event: {@link wxHelpEvent}
+
+-record(wxHtmlLink,{type :: wxHtmlLinkEventType(), %% Callback event: {@link wxHtmlLinkEvent}
+	linkInfo :: wx:wx_wxHtmlLinkInfo()}).
+-type wxHtmlLinkEventType() :: 'command_html_link_clicked'.
+-type wxHtmlLink() :: #wxHtmlLink{}. %% Callback event: {@link wxHtmlLinkEvent}
+
+-record(wxIconize,{type :: wxIconizeEventType(), %% Callback event: {@link wxIconizeEvent}
+	iconized :: boolean()}).
+-type wxIconizeEventType() :: 'iconize'.
+-type wxIconize() :: #wxIconize{}. %% Callback event: {@link wxIconizeEvent}
+
+-record(wxIdle, {type :: wxIdleEventType()}). %% Callback event: {@link wxIdleEvent}
+-type wxIdleEventType() :: 'idle'.
+-type wxIdle() :: #wxIdle{}. %% Callback event: {@link wxIdleEvent}
+
+-record(wxInitDialog, {type :: wxInitDialogEventType()}). %% Callback event: {@link wxInitDialogEvent}
+-type wxInitDialogEventType() :: 'init_dialog'.
+-type wxInitDialog() :: #wxInitDialog{}. %% Callback event: {@link wxInitDialogEvent}
+
+-record(wxJoystick,{type :: wxJoystickEventType(), %% Callback event: {@link wxJoystickEvent}
+	pos :: {X::integer(), Y::integer()},
+	zPosition :: integer(),
+	buttonChange :: integer(),
+	buttonState :: integer(),
+	joyStick :: integer()}).
+-type wxJoystickEventType() :: 'joy_button_down' | 'joy_button_up' | 'joy_move' | 'joy_zmove'.
+-type wxJoystick() :: #wxJoystick{}. %% Callback event: {@link wxJoystickEvent}
 
 -record(wxKey,{type :: wxKeyEventType(), %% Callback event: {@link wxKeyEvent}
 	x :: integer(),
@@ -79,91 +182,127 @@
 	uniChar :: integer(),
 	rawCode :: integer(),
 	rawFlags :: integer()}).
--type wxKeyEventType() :: char | char_hook | key_down | key_up.
+-type wxKeyEventType() :: 'char' | 'char_hook' | 'key_down' | 'key_up'.
 -type wxKey() :: #wxKey{}. %% Callback event: {@link wxKeyEvent}
 
--record(wxWindowDestroy, {type :: wxWindowDestroyEventType()}). %% Callback event: {@link wxWindowDestroyEvent}
--type wxWindowDestroyEventType() :: destroy.
--type wxWindowDestroy() :: #wxWindowDestroy{}. %% Callback event: {@link wxWindowDestroyEvent}
+-record(wxList,{type :: wxListEventType(), %% Callback event: {@link wxListEvent}
+	code :: integer(),
+	oldItemIndex :: integer(),
+	itemIndex :: integer(),
+	col :: integer(),
+	pointDrag :: {X::integer(), Y::integer()}}).
+-type wxListEventType() :: 'command_list_begin_drag' | 'command_list_begin_rdrag' | 'command_list_begin_label_edit' | 'command_list_end_label_edit' | 'command_list_delete_item' | 'command_list_delete_all_items' | 'command_list_key_down' | 'command_list_insert_item' | 'command_list_col_click' | 'command_list_col_right_click' | 'command_list_col_begin_drag' | 'command_list_col_dragging' | 'command_list_col_end_drag' | 'command_list_item_selected' | 'command_list_item_deselected' | 'command_list_item_right_click' | 'command_list_item_middle_click' | 'command_list_item_activated' | 'command_list_item_focused' | 'command_list_cache_hint'.
+-type wxList() :: #wxList{}. %% Callback event: {@link wxListEvent}
 
--record(wxCalendar, {type :: wxCalendarEventType()}). %% Callback event: {@link wxCalendarEvent}
--type wxCalendarEventType() :: calendar_sel_changed | calendar_day_changed | calendar_month_changed | calendar_year_changed | calendar_doubleclicked | calendar_weekday_clicked.
--type wxCalendar() :: #wxCalendar{}. %% Callback event: {@link wxCalendarEvent}
+-record(wxMaximize, {type :: wxMaximizeEventType()}). %% Callback event: {@link wxMaximizeEvent}
+-type wxMaximizeEventType() :: 'maximize'.
+-type wxMaximize() :: #wxMaximize{}. %% Callback event: {@link wxMaximizeEvent}
 
--record(wxSplitter, {type :: wxSplitterEventType()}). %% Callback event: {@link wxSplitterEvent}
--type wxSplitterEventType() :: command_splitter_sash_pos_changed | command_splitter_sash_pos_changing | command_splitter_doubleclicked | command_splitter_unsplit.
--type wxSplitter() :: #wxSplitter{}. %% Callback event: {@link wxSplitterEvent}
+-record(wxMenu,{type :: wxMenuEventType(), %% Callback event: {@link wxMenuEvent}
+	menuId :: integer(),
+	menu :: wxMenu:wxMenu()}).
+-type wxMenuEventType() :: 'menu_open' | 'menu_close' | 'menu_highlight'.
+-type wxMenu() :: #wxMenu{}. %% Callback event: {@link wxMenuEvent}
+
+-record(wxMouseCaptureChanged, {type :: wxMouseCaptureChangedEventType()}). %% Callback event: {@link wxMouseCaptureChangedEvent}
+-type wxMouseCaptureChangedEventType() :: 'mouse_capture_changed'.
+-type wxMouseCaptureChanged() :: #wxMouseCaptureChanged{}. %% Callback event: {@link wxMouseCaptureChangedEvent}
+
+-record(wxMouseCaptureLost, {type :: wxMouseCaptureLostEventType()}). %% Callback event: {@link wxMouseCaptureLostEvent}
+-type wxMouseCaptureLostEventType() :: 'mouse_capture_lost'.
+-type wxMouseCaptureLost() :: #wxMouseCaptureLost{}. %% Callback event: {@link wxMouseCaptureLostEvent}
+
+-record(wxMouse,{type :: wxMouseEventType(), %% Callback event: {@link wxMouseEvent}
+	x :: integer(),
+	y :: integer(),
+	leftDown :: boolean(),
+	middleDown :: boolean(),
+	rightDown :: boolean(),
+	controlDown :: boolean(),
+	shiftDown :: boolean(),
+	altDown :: boolean(),
+	metaDown :: boolean(),
+	wheelRotation :: integer(),
+	wheelDelta :: integer(),
+	linesPerAction :: integer()}).
+-type wxMouseEventType() :: 'left_down' | 'left_up' | 'middle_down' | 'middle_up' | 'right_down' | 'right_up' | 'motion' | 'enter_window' | 'leave_window' | 'left_dclick' | 'middle_dclick' | 'right_dclick' | 'mousewheel'.
+-type wxMouse() :: #wxMouse{}. %% Callback event: {@link wxMouseEvent}
+
+-record(wxMove,{type :: wxMoveEventType(), %% Callback event: {@link wxMoveEvent}
+	pos :: {X::integer(), Y::integer()},
+	rect :: {X::integer(), Y::integer(), W::integer(), H::integer()}}).
+-type wxMoveEventType() :: 'move'.
+-type wxMove() :: #wxMove{}. %% Callback event: {@link wxMoveEvent}
+
+-record(wxNavigationKey,{type :: wxNavigationKeyEventType(), %% Callback event: {@link wxNavigationKeyEvent}
+	flags :: integer(),
+	focus :: wxWindow:wxWindow()}).
+-type wxNavigationKeyEventType() :: 'navigation_key'.
+-type wxNavigationKey() :: #wxNavigationKey{}. %% Callback event: {@link wxNavigationKeyEvent}
+
+-record(wxNotebook,{type :: wxNotebookEventType(), %% Callback event: {@link wxNotebookEvent}
+	nSel :: integer(),
+	nOldSel :: integer()}).
+-type wxNotebookEventType() :: 'command_notebook_page_changed' | 'command_notebook_page_changing'.
+-type wxNotebook() :: #wxNotebook{}. %% Callback event: {@link wxNotebookEvent}
+
+-record(wxPaint, {type :: wxPaintEventType()}). %% Callback event: {@link wxPaintEvent}
+-type wxPaintEventType() :: 'paint'.
+-type wxPaint() :: #wxPaint{}. %% Callback event: {@link wxPaintEvent}
+
+-record(wxPaletteChanged, {type :: wxPaletteChangedEventType()}). %% Callback event: {@link wxPaletteChangedEvent}
+-type wxPaletteChangedEventType() :: 'palette_changed'.
+-type wxPaletteChanged() :: #wxPaletteChanged{}. %% Callback event: {@link wxPaletteChangedEvent}
+
+-record(wxQueryNewPalette, {type :: wxQueryNewPaletteEventType()}). %% Callback event: {@link wxQueryNewPaletteEvent}
+-type wxQueryNewPaletteEventType() :: 'query_new_palette'.
+-type wxQueryNewPalette() :: #wxQueryNewPalette{}. %% Callback event: {@link wxQueryNewPaletteEvent}
+
+-record(wxSash,{type :: wxSashEventType(), %% Callback event: {@link wxSashEvent}
+	edge :: wx:wx_enum(),
+	dragRect :: {X::integer(), Y::integer(), W::integer(), H::integer()},
+	dragStatus :: wx:wx_enum()}).
+-type wxSashEventType() :: 'sash_dragged'.
+-type wxSash() :: #wxSash{}. %% Callback event: {@link wxSashEvent}
 
 -record(wxScroll,{type :: wxScrollEventType(), %% Callback event: {@link wxScrollEvent}
 	commandInt :: integer(),
 	extraLong :: integer()}).
--type wxScrollEventType() :: scroll_top | scroll_bottom | scroll_lineup | scroll_linedown | scroll_pageup | scroll_pagedown | scroll_thumbtrack | scroll_thumbrelease | scroll_changed.
+-type wxScrollEventType() :: 'scroll_top' | 'scroll_bottom' | 'scroll_lineup' | 'scroll_linedown' | 'scroll_pageup' | 'scroll_pagedown' | 'scroll_thumbtrack' | 'scroll_thumbrelease' | 'scroll_changed'.
 -type wxScroll() :: #wxScroll{}. %% Callback event: {@link wxScrollEvent}
 
--record(wxMenu, {type :: wxMenuEventType()}). %% Callback event: {@link wxMenuEvent}
--type wxMenuEventType() :: menu_open | menu_close | menu_highlight.
--type wxMenu() :: #wxMenu{}. %% Callback event: {@link wxMenuEvent}
+-record(wxScrollWin,{type :: wxScrollWinEventType(), %% Callback event: {@link wxScrollWinEvent}
+	commandInt :: integer(),
+	extraLong :: integer()}).
+-type wxScrollWinEventType() :: 'scrollwin_top' | 'scrollwin_bottom' | 'scrollwin_lineup' | 'scrollwin_linedown' | 'scrollwin_pageup' | 'scrollwin_pagedown' | 'scrollwin_thumbtrack' | 'scrollwin_thumbrelease'.
+-type wxScrollWin() :: #wxScrollWin{}. %% Callback event: {@link wxScrollWinEvent}
 
--record(wxContextMenu, {type :: wxContextMenuEventType()}). %% Callback event: {@link wxContextMenuEvent}
--type wxContextMenuEventType() :: context_menu.
--type wxContextMenu() :: #wxContextMenu{}. %% Callback event: {@link wxContextMenuEvent}
+-record(wxSetCursor,{type :: wxSetCursorEventType(), %% Callback event: {@link wxSetCursorEvent}
+	x :: integer(),
+	y :: integer(),
+	cursor :: wxCursor:wxCursor()}).
+-type wxSetCursorEventType() :: 'set_cursor'.
+-type wxSetCursor() :: #wxSetCursor{}. %% Callback event: {@link wxSetCursorEvent}
 
--record(wxShow, {type :: wxShowEventType()}). %% Callback event: {@link wxShowEvent}
--type wxShowEventType() :: show.
+-record(wxShow,{type :: wxShowEventType(), %% Callback event: {@link wxShowEvent}
+	show :: boolean()}).
+-type wxShowEventType() :: 'show'.
 -type wxShow() :: #wxShow{}. %% Callback event: {@link wxShowEvent}
+
+-record(wxSize,{type :: wxSizeEventType(), %% Callback event: {@link wxSizeEvent}
+	size :: {W::integer(), H::integer()},
+	rect :: {X::integer(), Y::integer(), W::integer(), H::integer()}}).
+-type wxSizeEventType() :: 'size'.
+-type wxSize() :: #wxSize{}. %% Callback event: {@link wxSizeEvent}
 
 -record(wxSpin,{type :: wxSpinEventType(), %% Callback event: {@link wxSpinEvent}
 	commandInt :: integer()}).
--type wxSpinEventType() :: command_spinctrl_updated | spin_up | spin_down | spin.
+-type wxSpinEventType() :: 'command_spinctrl_updated' | 'spin_up' | 'spin_down' | 'spin'.
 -type wxSpin() :: #wxSpin{}. %% Callback event: {@link wxSpinEvent}
 
--record(wxSetCursor, {type :: wxSetCursorEventType()}). %% Callback event: {@link wxSetCursorEvent}
--type wxSetCursorEventType() :: set_cursor.
--type wxSetCursor() :: #wxSetCursor{}. %% Callback event: {@link wxSetCursorEvent}
-
--record(wxFontPicker,{type :: wxFontPickerEventType(), %% Callback event: {@link wxFontPickerEvent}
-	font :: wxFont:wxFont()}).
--type wxFontPickerEventType() :: command_fontpicker_changed.
--type wxFontPicker() :: #wxFontPicker{}. %% Callback event: {@link wxFontPickerEvent}
-
--record(wxScrollWin, {type :: wxScrollWinEventType()}). %% Callback event: {@link wxScrollWinEvent}
--type wxScrollWinEventType() :: scrollwin_top | scrollwin_bottom | scrollwin_lineup | scrollwin_linedown | scrollwin_pageup | scrollwin_pagedown | scrollwin_thumbtrack | scrollwin_thumbrelease.
--type wxScrollWin() :: #wxScrollWin{}. %% Callback event: {@link wxScrollWinEvent}
-
--record(wxPaint, {type :: wxPaintEventType()}). %% Callback event: {@link wxPaintEvent}
--type wxPaintEventType() :: paint | paint_icon.
--type wxPaint() :: #wxPaint{}. %% Callback event: {@link wxPaintEvent}
-
--record(wxChildFocus, {type :: wxChildFocusEventType()}). %% Callback event: {@link wxChildFocusEvent}
--type wxChildFocusEventType() :: child_focus.
--type wxChildFocus() :: #wxChildFocus{}. %% Callback event: {@link wxChildFocusEvent}
-
--record(wxMaximize, {type :: wxMaximizeEventType()}). %% Callback event: {@link wxMaximizeEvent}
--type wxMaximizeEventType() :: maximize.
--type wxMaximize() :: #wxMaximize{}. %% Callback event: {@link wxMaximizeEvent}
-
--record(wxFileDirPicker,{type :: wxFileDirPickerEventType(), %% Callback event: {@link wxFileDirPickerEvent}
-	path :: unicode:chardata()}).
--type wxFileDirPickerEventType() :: command_filepicker_changed | command_dirpicker_changed.
--type wxFileDirPicker() :: #wxFileDirPicker{}. %% Callback event: {@link wxFileDirPickerEvent}
-
--record(wxFocus, {type :: wxFocusEventType()}). %% Callback event: {@link wxFocusEvent}
--type wxFocusEventType() :: set_focus | kill_focus.
--type wxFocus() :: #wxFocus{}. %% Callback event: {@link wxFocusEvent}
-
--record(wxDate,{type :: wxDateEventType(), %% Callback event: {@link wxDateEvent}
-	date :: wx:wx_datetime()}).
--type wxDateEventType() :: date_changed.
--type wxDate() :: #wxDate{}. %% Callback event: {@link wxDateEvent}
-
--record(wxHtmlLink,{type :: wxHtmlLinkEventType(), %% Callback event: {@link wxHtmlLinkEvent}
-	linkInfo :: wx:wx_wxHtmlLinkInfo()}).
--type wxHtmlLinkEventType() :: command_html_link_clicked.
--type wxHtmlLink() :: #wxHtmlLink{}. %% Callback event: {@link wxHtmlLinkEvent}
-
--record(wxHelp, {type :: wxHelpEventType()}). %% Callback event: {@link wxHelpEvent}
--type wxHelpEventType() :: help | detailed_help.
--type wxHelp() :: #wxHelp{}. %% Callback event: {@link wxHelpEvent}
+-record(wxSplitter, {type :: wxSplitterEventType()}). %% Callback event: {@link wxSplitterEvent}
+-type wxSplitterEventType() :: 'command_splitter_sash_pos_changed' | 'command_splitter_sash_pos_changing' | 'command_splitter_doubleclicked' | 'command_splitter_unsplit'.
+-type wxSplitter() :: #wxSplitter{}. %% Callback event: {@link wxSplitterEvent}
 
 -record(wxStyledText,{type :: wxStyledTextEventType(), %% Callback event: {@link wxStyledTextEvent}
 	position :: integer(),
@@ -186,138 +325,42 @@
 	dragText :: unicode:chardata(),
 	dragAllowMove :: boolean(),
 	dragResult :: wx:wx_enum()}).
--type wxStyledTextEventType() :: stc_change | stc_styleneeded | stc_charadded | stc_savepointreached | stc_savepointleft | stc_romodifyattempt | stc_key | stc_doubleclick | stc_updateui | stc_modified | stc_macrorecord | stc_marginclick | stc_needshown | stc_painted | stc_userlistselection | stc_uridropped | stc_dwellstart | stc_dwellend | stc_start_drag | stc_drag_over | stc_do_drop | stc_zoom | stc_hotspot_click | stc_hotspot_dclick | stc_calltip_click | stc_autocomp_selection.
+-type wxStyledTextEventType() :: 'stc_change' | 'stc_styleneeded' | 'stc_charadded' | 'stc_savepointreached' | 'stc_savepointleft' | 'stc_romodifyattempt' | 'stc_key' | 'stc_doubleclick' | 'stc_updateui' | 'stc_modified' | 'stc_macrorecord' | 'stc_marginclick' | 'stc_needshown' | 'stc_painted' | 'stc_userlistselection' | 'stc_uridropped' | 'stc_dwellstart' | 'stc_dwellend' | 'stc_start_drag' | 'stc_drag_over' | 'stc_do_drop' | 'stc_zoom' | 'stc_hotspot_click' | 'stc_hotspot_dclick' | 'stc_calltip_click' | 'stc_autocomp_selection'.
 -type wxStyledText() :: #wxStyledText{}. %% Callback event: {@link wxStyledTextEvent}
 
 -record(wxSysColourChanged, {type :: wxSysColourChangedEventType()}). %% Callback event: {@link wxSysColourChangedEvent}
--type wxSysColourChangedEventType() :: sys_colour_changed.
+-type wxSysColourChangedEventType() :: 'sys_colour_changed'.
 -type wxSysColourChanged() :: #wxSysColourChanged{}. %% Callback event: {@link wxSysColourChangedEvent}
 
--record(wxGrid,{type :: wxGridEventType(), %% Callback event: {@link wxGridEvent}
-	row :: integer(),
-	col :: integer(),
-	x :: integer(),
-	y :: integer(),
-	selecting :: boolean(),
-	control :: boolean(),
-	meta :: boolean(),
-	shift :: boolean(),
-	alt :: boolean()}).
--type wxGridEventType() :: grid_cell_left_click | grid_cell_right_click | grid_cell_left_dclick | grid_cell_right_dclick | grid_label_left_click | grid_label_right_click | grid_label_left_dclick | grid_label_right_dclick | grid_row_size | grid_col_size | grid_range_select | grid_cell_change | grid_select_cell | grid_editor_shown | grid_editor_hidden | grid_editor_created | grid_cell_begin_drag.
--type wxGrid() :: #wxGrid{}. %% Callback event: {@link wxGridEvent}
-
--record(wxPaletteChanged, {type :: wxPaletteChangedEventType()}). %% Callback event: {@link wxPaletteChangedEvent}
--type wxPaletteChangedEventType() :: palette_changed.
--type wxPaletteChanged() :: #wxPaletteChanged{}. %% Callback event: {@link wxPaletteChangedEvent}
-
--record(wxUpdateUI, {type :: wxUpdateUIEventType()}). %% Callback event: {@link wxUpdateUIEvent}
--type wxUpdateUIEventType() :: update_ui.
--type wxUpdateUI() :: #wxUpdateUI{}. %% Callback event: {@link wxUpdateUIEvent}
-
--record(wxSize,{type :: wxSizeEventType(), %% Callback event: {@link wxSizeEvent}
-	size :: {W::integer(), H::integer()},
-	rect :: {X::integer(), Y::integer(), W::integer(), H::integer()}}).
--type wxSizeEventType() :: size.
--type wxSize() :: #wxSize{}. %% Callback event: {@link wxSizeEvent}
-
--record(wxIconize, {type :: wxIconizeEventType()}). %% Callback event: {@link wxIconizeEvent}
--type wxIconizeEventType() :: iconize.
--type wxIconize() :: #wxIconize{}. %% Callback event: {@link wxIconizeEvent}
-
--record(wxAuiNotebook,{type :: wxAuiNotebookEventType(), %% Callback event: {@link wxAuiNotebookEvent}
-	old_selection :: integer(),
-	selection :: integer(),
-	drag_source :: wxAuiNotebook:wxAuiNotebook()}).
--type wxAuiNotebookEventType() :: command_auinotebook_page_close | command_auinotebook_page_changed | command_auinotebook_page_changing | command_auinotebook_button | command_auinotebook_begin_drag | command_auinotebook_end_drag | command_auinotebook_drag_motion | command_auinotebook_allow_dnd | command_auinotebook_tab_middle_down | command_auinotebook_tab_middle_up | command_auinotebook_tab_right_down | command_auinotebook_tab_right_up | command_auinotebook_page_closed | command_auinotebook_drag_done | command_auinotebook_bg_dclick.
--type wxAuiNotebook() :: #wxAuiNotebook{}. %% Callback event: {@link wxAuiNotebookEvent}
-
--record(wxClose, {type :: wxCloseEventType()}). %% Callback event: {@link wxCloseEvent}
--type wxCloseEventType() :: close_window | end_session | query_end_session.
--type wxClose() :: #wxClose{}. %% Callback event: {@link wxCloseEvent}
-
--record(wxMouseCaptureChanged, {type :: wxMouseCaptureChangedEventType()}). %% Callback event: {@link wxMouseCaptureChangedEvent}
--type wxMouseCaptureChangedEventType() :: mouse_capture_changed.
--type wxMouseCaptureChanged() :: #wxMouseCaptureChanged{}. %% Callback event: {@link wxMouseCaptureChangedEvent}
-
--record(wxMouse,{type :: wxMouseEventType(), %% Callback event: {@link wxMouseEvent}
-	x :: integer(),
-	y :: integer(),
-	leftDown :: boolean(),
-	middleDown :: boolean(),
-	rightDown :: boolean(),
-	controlDown :: boolean(),
-	shiftDown :: boolean(),
-	altDown :: boolean(),
-	metaDown :: boolean(),
-	wheelRotation :: integer(),
-	wheelDelta :: integer(),
-	linesPerAction :: integer()}).
--type wxMouseEventType() :: left_down | left_up | middle_down | middle_up | right_down | right_up | motion | enter_window | leave_window | left_dclick | middle_dclick | right_dclick | mousewheel | nc_left_down | nc_left_up | nc_middle_down | nc_middle_up | nc_right_down | nc_right_up | nc_motion | nc_enter_window | nc_leave_window | nc_left_dclick | nc_middle_dclick | nc_right_dclick.
--type wxMouse() :: #wxMouse{}. %% Callback event: {@link wxMouseEvent}
-
--record(wxWindowCreate, {type :: wxWindowCreateEventType()}). %% Callback event: {@link wxWindowCreateEvent}
--type wxWindowCreateEventType() :: create.
--type wxWindowCreate() :: #wxWindowCreate{}. %% Callback event: {@link wxWindowCreateEvent}
-
--record(wxAuiManager,{type :: wxAuiManagerEventType(), %% Callback event: {@link wxAuiManagerEvent}
-	manager :: wxAuiManager:wxAuiManager(),
-	pane :: wxAuiPaneInfo:wxAuiPaneInfo(),
-	button :: integer(),
-	veto_flag :: boolean(),
-	canveto_flag :: boolean(),
-	dc :: wxDC:wxDC()}).
--type wxAuiManagerEventType() :: aui_pane_button | aui_pane_close | aui_pane_maximize | aui_pane_restore | aui_render | aui_find_manager.
--type wxAuiManager() :: #wxAuiManager{}. %% Callback event: {@link wxAuiManagerEvent}
-
--record(wxCommand,{type :: wxCommandEventType(), %% Callback event: {@link wxCommandEvent}
-	cmdString :: unicode:chardata(),
-	commandInt :: integer(),
-	extraLong :: integer()}).
--type wxCommandEventType() :: command_button_clicked | command_checkbox_clicked | command_choice_selected | command_listbox_selected | command_listbox_doubleclicked | command_text_updated | command_text_enter | command_menu_selected | command_slider_updated | command_radiobox_selected | command_radiobutton_selected | command_scrollbar_updated | command_vlbox_selected | command_combobox_selected | command_tool_rclicked | command_tool_enter | command_checklistbox_toggled | command_togglebutton_clicked | command_left_click | command_left_dclick | command_right_click | command_set_focus | command_kill_focus | command_enter.
--type wxCommand() :: #wxCommand{}. %% Callback event: {@link wxCommandEvent}
-
--record(wxJoystick, {type :: wxJoystickEventType()}). %% Callback event: {@link wxJoystickEvent}
--type wxJoystickEventType() :: joy_button_down | joy_button_up | joy_move | joy_zmove.
--type wxJoystick() :: #wxJoystick{}. %% Callback event: {@link wxJoystickEvent}
-
--record(wxQueryNewPalette, {type :: wxQueryNewPaletteEventType()}). %% Callback event: {@link wxQueryNewPaletteEvent}
--type wxQueryNewPaletteEventType() :: query_new_palette.
--type wxQueryNewPalette() :: #wxQueryNewPalette{}. %% Callback event: {@link wxQueryNewPaletteEvent}
-
--record(wxMove, {type :: wxMoveEventType()}). %% Callback event: {@link wxMoveEvent}
--type wxMoveEventType() :: move.
--type wxMove() :: #wxMove{}. %% Callback event: {@link wxMoveEvent}
-
--record(wxIdle, {type :: wxIdleEventType()}). %% Callback event: {@link wxIdleEvent}
--type wxIdleEventType() :: idle.
--type wxIdle() :: #wxIdle{}. %% Callback event: {@link wxIdleEvent}
-
--record(wxNcPaint, {type :: wxNcPaintEventType()}). %% Callback event: {@link wxNcPaintEvent}
--type wxNcPaintEventType() :: nc_paint.
--type wxNcPaint() :: #wxNcPaint{}. %% Callback event: {@link wxNcPaintEvent}
-
--record(wxColourPicker,{type :: wxColourPickerEventType(), %% Callback event: {@link wxColourPickerEvent}
-	colour :: wx:wx_colour()}).
--type wxColourPickerEventType() :: command_colourpicker_changed.
--type wxColourPicker() :: #wxColourPicker{}. %% Callback event: {@link wxColourPickerEvent}
-
 -record(wxTaskBarIcon, {type :: wxTaskBarIconEventType()}). %% Callback event: {@link wxTaskBarIconEvent}
--type wxTaskBarIconEventType() :: taskbar_move | taskbar_left_down | taskbar_left_up | taskbar_right_down | taskbar_right_up | taskbar_left_dclick | taskbar_right_dclick.
+-type wxTaskBarIconEventType() :: 'taskbar_move' | 'taskbar_left_down' | 'taskbar_left_up' | 'taskbar_right_down' | 'taskbar_right_up' | 'taskbar_left_dclick' | 'taskbar_right_dclick'.
 -type wxTaskBarIcon() :: #wxTaskBarIcon{}. %% Callback event: {@link wxTaskBarIconEvent}
 
 -record(wxTree,{type :: wxTreeEventType(), %% Callback event: {@link wxTreeEvent}
 	item :: integer(),
 	itemOld :: integer(),
 	pointDrag :: {X::integer(), Y::integer()}}).
--type wxTreeEventType() :: command_tree_begin_drag | command_tree_begin_rdrag | command_tree_begin_label_edit | command_tree_end_label_edit | command_tree_delete_item | command_tree_get_info | command_tree_set_info | command_tree_item_expanded | command_tree_item_expanding | command_tree_item_collapsed | command_tree_item_collapsing | command_tree_sel_changed | command_tree_sel_changing | command_tree_key_down | command_tree_item_activated | command_tree_item_right_click | command_tree_item_middle_click | command_tree_end_drag | command_tree_state_image_click | command_tree_item_gettooltip | command_tree_item_menu.
+-type wxTreeEventType() :: 'command_tree_begin_drag' | 'command_tree_begin_rdrag' | 'command_tree_begin_label_edit' | 'command_tree_end_label_edit' | 'command_tree_delete_item' | 'command_tree_get_info' | 'command_tree_set_info' | 'command_tree_item_expanded' | 'command_tree_item_expanding' | 'command_tree_item_collapsed' | 'command_tree_item_collapsing' | 'command_tree_sel_changed' | 'command_tree_sel_changing' | 'command_tree_key_down' | 'command_tree_item_activated' | 'command_tree_item_right_click' | 'command_tree_item_middle_click' | 'command_tree_end_drag' | 'command_tree_state_image_click' | 'command_tree_item_gettooltip' | 'command_tree_item_menu'.
 -type wxTree() :: #wxTree{}. %% Callback event: {@link wxTreeEvent}
 
--type event() :: wxAuiManager() | wxAuiNotebook() | wxCalendar() | wxChildFocus() | wxClose() | wxColourPicker() | wxCommand() | wxContextMenu() | wxDate() | wxDisplayChanged() | wxErase() | wxFileDirPicker() | wxFocus() | wxFontPicker() | wxGrid() | wxHelp() | wxHtmlLink() | wxIconize() | wxIdle() | wxJoystick() | wxKey() | wxList() | wxMaximize() | wxMenu() | wxMouse() | wxMouseCaptureChanged() | wxMove() | wxNavigationKey() | wxNcPaint() | wxNotebook() | wxPaint() | wxPaletteChanged() | wxQueryNewPalette() | wxSash() | wxScroll() | wxScrollWin() | wxSetCursor() | wxShow() | wxSize() | wxSpin() | wxSplitter() | wxStyledText() | wxSysColourChanged() | wxTaskBarIcon() | wxTree() | wxUpdateUI() | wxWindowCreate() | wxWindowDestroy().
--type wxEventType() :: wxAuiManagerEventType() | wxAuiNotebookEventType() | wxCalendarEventType() | wxChildFocusEventType() | wxCloseEventType() | wxColourPickerEventType() | wxCommandEventType() | wxContextMenuEventType() | wxDateEventType() | wxDisplayChangedEventType() | wxEraseEventType() | wxFileDirPickerEventType() | wxFocusEventType() | wxFontPickerEventType() | wxGridEventType() | wxHelpEventType() | wxHtmlLinkEventType() | wxIconizeEventType() | wxIdleEventType() | wxJoystickEventType() | wxKeyEventType() | wxListEventType() | wxMaximizeEventType() | wxMenuEventType() | wxMouseCaptureChangedEventType() | wxMouseEventType() | wxMoveEventType() | wxNavigationKeyEventType() | wxNcPaintEventType() | wxNotebookEventType() | wxPaintEventType() | wxPaletteChangedEventType() | wxQueryNewPaletteEventType() | wxSashEventType() | wxScrollEventType() | wxScrollWinEventType() | wxSetCursorEventType() | wxShowEventType() | wxSizeEventType() | wxSpinEventType() | wxSplitterEventType() | wxStyledTextEventType() | wxSysColourChangedEventType() | wxTaskBarIconEventType() | wxTreeEventType() | wxUpdateUIEventType() | wxWindowCreateEventType() | wxWindowDestroyEventType().
+-record(wxUpdateUI, {type :: wxUpdateUIEventType()}). %% Callback event: {@link wxUpdateUIEvent}
+-type wxUpdateUIEventType() :: 'update_ui'.
+-type wxUpdateUI() :: #wxUpdateUI{}. %% Callback event: {@link wxUpdateUIEvent}
+
+-record(wxWindowCreate, {type :: wxWindowCreateEventType()}). %% Callback event: {@link wxWindowCreateEvent}
+-type wxWindowCreateEventType() :: 'create'.
+-type wxWindowCreate() :: #wxWindowCreate{}. %% Callback event: {@link wxWindowCreateEvent}
+
+-record(wxWindowDestroy, {type :: wxWindowDestroyEventType()}). %% Callback event: {@link wxWindowDestroyEvent}
+-type wxWindowDestroyEventType() :: 'destroy'.
+-type wxWindowDestroy() :: #wxWindowDestroy{}. %% Callback event: {@link wxWindowDestroyEvent}
+
+-type event() :: wxActivate() | wxAuiManager() | wxAuiNotebook() | wxCalendar() | wxChildFocus() | wxClipboardText() | wxClose() | wxColourPicker() | wxCommand() | wxContextMenu() | wxDate() | wxDisplayChanged() | wxDropFiles() | wxErase() | wxFileDirPicker() | wxFocus() | wxFontPicker() | wxGrid() | wxHelp() | wxHtmlLink() | wxIconize() | wxIdle() | wxInitDialog() | wxJoystick() | wxKey() | wxList() | wxMaximize() | wxMenu() | wxMouse() | wxMouseCaptureChanged() | wxMouseCaptureLost() | wxMove() | wxNavigationKey() | wxNotebook() | wxPaint() | wxPaletteChanged() | wxQueryNewPalette() | wxSash() | wxScroll() | wxScrollWin() | wxSetCursor() | wxShow() | wxSize() | wxSpin() | wxSplitter() | wxStyledText() | wxSysColourChanged() | wxTaskBarIcon() | wxTree() | wxUpdateUI() | wxWindowCreate() | wxWindowDestroy().
+-type wxEventType() :: wxActivateEventType() | wxAuiManagerEventType() | wxAuiNotebookEventType() | wxCalendarEventType() | wxChildFocusEventType() | wxClipboardTextEventType() | wxCloseEventType() | wxColourPickerEventType() | wxCommandEventType() | wxContextMenuEventType() | wxDateEventType() | wxDisplayChangedEventType() | wxDropFilesEventType() | wxEraseEventType() | wxFileDirPickerEventType() | wxFocusEventType() | wxFontPickerEventType() | wxGridEventType() | wxHelpEventType() | wxHtmlLinkEventType() | wxIconizeEventType() | wxIdleEventType() | wxInitDialogEventType() | wxJoystickEventType() | wxKeyEventType() | wxListEventType() | wxMaximizeEventType() | wxMenuEventType() | wxMouseCaptureChangedEventType() | wxMouseCaptureLostEventType() | wxMouseEventType() | wxMoveEventType() | wxNavigationKeyEventType() | wxNotebookEventType() | wxPaintEventType() | wxPaletteChangedEventType() | wxQueryNewPaletteEventType() | wxSashEventType() | wxScrollEventType() | wxScrollWinEventType() | wxSetCursorEventType() | wxShowEventType() | wxSizeEventType() | wxSpinEventType() | wxSplitterEventType() | wxStyledTextEventType() | wxSysColourChangedEventType() | wxTaskBarIconEventType() | wxTreeEventType() | wxUpdateUIEventType() | wxWindowCreateEventType() | wxWindowDestroyEventType().
 
 %% Hardcoded Records
 -record(wxMouseState, {x :: integer(), y :: integer(),
-          leftDown :: boolean(), middleDown :: boolean, rightDown :: boolean, 
+          leftDown :: boolean(), middleDown :: boolean(), rightDown :: boolean(), 
           controlDown :: boolean(), shiftDown :: boolean(),
           altDown :: boolean(), metaDown :: boolean(), cmdDown :: boolean()
         }).
@@ -330,6 +373,21 @@
 -define(wxDefaultPosition, {-1,-1}).
 
 %% Global Variables
+-define('WX_GL_CORE_PROFILE',  wxe_util:get_const('WX_GL_CORE_PROFILE')).
+-define('WX_GL_DEBUG',  wxe_util:get_const('WX_GL_DEBUG')).
+-define('WX_GL_ES2',  wxe_util:get_const('WX_GL_ES2')).
+-define('WX_GL_FORWARD_COMPAT',  wxe_util:get_const('WX_GL_FORWARD_COMPAT')).
+-define('WX_GL_FRAMEBUFFER_SRGB',  wxe_util:get_const('WX_GL_FRAMEBUFFER_SRGB')).
+-define('WX_GL_LOSE_ON_RESET',  wxe_util:get_const('WX_GL_LOSE_ON_RESET')).
+-define('WX_GL_MAJOR_VERSION',  wxe_util:get_const('WX_GL_MAJOR_VERSION')).
+-define('WX_GL_MINOR_VERSION',  wxe_util:get_const('WX_GL_MINOR_VERSION')).
+-define('WX_GL_NO_RESET_NOTIFY',  wxe_util:get_const('WX_GL_NO_RESET_NOTIFY')).
+-define('WX_GL_RELEASE_FLUSH',  wxe_util:get_const('WX_GL_RELEASE_FLUSH')).
+-define('WX_GL_RELEASE_NONE',  wxe_util:get_const('WX_GL_RELEASE_NONE')).
+-define('WX_GL_RESET_ISOLATION',  wxe_util:get_const('WX_GL_RESET_ISOLATION')).
+-define('WX_GL_ROBUST_ACCESS',  wxe_util:get_const('WX_GL_ROBUST_ACCESS')).
+-define('WX_GL_SAMPLES',  wxe_util:get_const('WX_GL_SAMPLES')).
+-define('WX_GL_SAMPLE_BUFFERS',  wxe_util:get_const('WX_GL_SAMPLE_BUFFERS')).
 -define(wxBLACK,  wxe_util:get_const(wxBLACK)).
 -define(wxBLACK_BRUSH,  wxe_util:get_const(wxBLACK_BRUSH)).
 -define(wxBLACK_DASHED_PEN,  wxe_util:get_const(wxBLACK_DASHED_PEN)).
@@ -371,6 +429,7 @@
 -define(wxWHITE,  wxe_util:get_const(wxWHITE)).
 -define(wxWHITE_BRUSH,  wxe_util:get_const(wxWHITE_BRUSH)).
 -define(wxWHITE_PEN,  wxe_util:get_const(wxWHITE_PEN)).
+-define(wx_GL_COMPAT_PROFILE,  wxe_util:get_const(wx_GL_COMPAT_PROFILE)).
 
 %% Enum and defines
 % From class wxAuiManager
@@ -420,78 +479,78 @@
 -define(wxDateTime_Country_Unknown, 0).
 -define(wxDateTime_Country_Default, 1).
 -define(wxDateTime_Country_WesternEurope_Start, 2).
--define(wxDateTime_Country_EEC, ?Country_WesternEurope_Start).
--define(wxDateTime_France, (?Country_WesternEurope_Start+1)).
--define(wxDateTime_Germany, (?Country_WesternEurope_Start+2)).
--define(wxDateTime_UK, (?Country_WesternEurope_Start+3)).
--define(wxDateTime_Country_WesternEurope_End, ?UK).
--define(wxDateTime_Russia, (?UK+1)).
--define(wxDateTime_USA, (?UK+2)).
+-define(wxDateTime_Country_EEC, ?wxDateTime_Country_WesternEurope_Start).
+-define(wxDateTime_France, (?wxDateTime_Country_WesternEurope_Start+1)).
+-define(wxDateTime_Germany, (?wxDateTime_Country_WesternEurope_Start+2)).
+-define(wxDateTime_UK, (?wxDateTime_Country_WesternEurope_Start+3)).
+-define(wxDateTime_Country_WesternEurope_End, ?wxDateTime_UK).
+-define(wxDateTime_Russia, (?wxDateTime_UK+1)).
+-define(wxDateTime_USA, (?wxDateTime_UK+2)).
 % From class wxDateTime::GregorianAdoption
 -define(wxDateTime_Gr_Unknown, 0).
 -define(wxDateTime_Gr_Standard, 1).
 -define(wxDateTime_Gr_Alaska, 2).
 -define(wxDateTime_Gr_Albania, 3).
--define(wxDateTime_Gr_Austria, ?Gr_Unknown).
--define(wxDateTime_Gr_Austria_Brixen, (?Gr_Unknown+1)).
--define(wxDateTime_Gr_Austria_Salzburg, ?Gr_Austria_Brixen).
--define(wxDateTime_Gr_Austria_Tyrol, ?Gr_Austria_Brixen).
--define(wxDateTime_Gr_Austria_Carinthia, (?Gr_Austria_Brixen+1)).
--define(wxDateTime_Gr_Austria_Styria, ?Gr_Austria_Carinthia).
--define(wxDateTime_Gr_Belgium, (?Gr_Austria_Carinthia+1)).
--define(wxDateTime_Gr_Bulgaria, ?Gr_Unknown).
--define(wxDateTime_Gr_Bulgaria_1, (?Gr_Unknown+1)).
--define(wxDateTime_Gr_Bulgaria_2, (?Gr_Unknown+2)).
--define(wxDateTime_Gr_Bulgaria_3, (?Gr_Unknown+3)).
--define(wxDateTime_Gr_Canada, ?Gr_Unknown).
--define(wxDateTime_Gr_China, ?Gr_Unknown).
--define(wxDateTime_Gr_China_1, (?Gr_Unknown+1)).
--define(wxDateTime_Gr_China_2, (?Gr_Unknown+2)).
--define(wxDateTime_Gr_Czechoslovakia, (?Gr_Unknown+3)).
--define(wxDateTime_Gr_Denmark, (?Gr_Unknown+4)).
--define(wxDateTime_Gr_Egypt, (?Gr_Unknown+5)).
--define(wxDateTime_Gr_Estonia, (?Gr_Unknown+6)).
--define(wxDateTime_Gr_Finland, (?Gr_Unknown+7)).
--define(wxDateTime_Gr_France, (?Gr_Unknown+8)).
--define(wxDateTime_Gr_France_Alsace, (?Gr_Unknown+9)).
--define(wxDateTime_Gr_France_Lorraine, (?Gr_Unknown+10)).
--define(wxDateTime_Gr_France_Strasbourg, (?Gr_Unknown+11)).
--define(wxDateTime_Gr_Germany, ?Gr_Unknown).
--define(wxDateTime_Gr_Germany_Catholic, (?Gr_Unknown+1)).
--define(wxDateTime_Gr_Germany_Prussia, (?Gr_Unknown+2)).
--define(wxDateTime_Gr_Germany_Protestant, (?Gr_Unknown+3)).
--define(wxDateTime_Gr_GreatBritain, (?Gr_Unknown+4)).
--define(wxDateTime_Gr_Greece, (?Gr_Unknown+5)).
--define(wxDateTime_Gr_Hungary, (?Gr_Unknown+6)).
--define(wxDateTime_Gr_Ireland, ?Gr_GreatBritain).
--define(wxDateTime_Gr_Italy, ?Gr_Standard).
--define(wxDateTime_Gr_Japan, ?Gr_Unknown).
--define(wxDateTime_Gr_Japan_1, (?Gr_Unknown+1)).
--define(wxDateTime_Gr_Japan_2, (?Gr_Unknown+2)).
--define(wxDateTime_Gr_Japan_3, (?Gr_Unknown+3)).
--define(wxDateTime_Gr_Latvia, (?Gr_Unknown+4)).
--define(wxDateTime_Gr_Lithuania, (?Gr_Unknown+5)).
--define(wxDateTime_Gr_Luxemburg, (?Gr_Unknown+6)).
--define(wxDateTime_Gr_Netherlands, ?Gr_Belgium).
--define(wxDateTime_Gr_Netherlands_Groningen, (?Gr_Belgium+1)).
--define(wxDateTime_Gr_Netherlands_Gelderland, (?Gr_Belgium+2)).
--define(wxDateTime_Gr_Netherlands_Utrecht, (?Gr_Belgium+3)).
--define(wxDateTime_Gr_Netherlands_Friesland, (?Gr_Belgium+4)).
--define(wxDateTime_Gr_Norway, ?Gr_Denmark).
--define(wxDateTime_Gr_Poland, ?Gr_Standard).
--define(wxDateTime_Gr_Portugal, ?Gr_Standard).
--define(wxDateTime_Gr_Romania, (?Gr_Standard+1)).
--define(wxDateTime_Gr_Russia, (?Gr_Standard+2)).
--define(wxDateTime_Gr_Scotland, ?Gr_GreatBritain).
--define(wxDateTime_Gr_Spain, ?Gr_Standard).
--define(wxDateTime_Gr_Sweden, ?Gr_Finland).
--define(wxDateTime_Gr_Switzerland, ?Gr_Unknown).
--define(wxDateTime_Gr_Switzerland_Catholic, (?Gr_Unknown+1)).
--define(wxDateTime_Gr_Switzerland_Protestant, (?Gr_Unknown+2)).
--define(wxDateTime_Gr_Turkey, (?Gr_Unknown+3)).
--define(wxDateTime_Gr_USA, ?Gr_GreatBritain).
--define(wxDateTime_Gr_Wales, ?Gr_GreatBritain).
--define(wxDateTime_Gr_Yugoslavia, (?Gr_GreatBritain+1)).
+-define(wxDateTime_Gr_Austria, ?wxDateTime_Gr_Unknown).
+-define(wxDateTime_Gr_Austria_Brixen, (?wxDateTime_Gr_Unknown+1)).
+-define(wxDateTime_Gr_Austria_Salzburg, ?wxDateTime_Gr_Austria_Brixen).
+-define(wxDateTime_Gr_Austria_Tyrol, ?wxDateTime_Gr_Austria_Brixen).
+-define(wxDateTime_Gr_Austria_Carinthia, (?wxDateTime_Gr_Austria_Brixen+1)).
+-define(wxDateTime_Gr_Austria_Styria, ?wxDateTime_Gr_Austria_Carinthia).
+-define(wxDateTime_Gr_Belgium, (?wxDateTime_Gr_Austria_Carinthia+1)).
+-define(wxDateTime_Gr_Bulgaria, ?wxDateTime_Gr_Unknown).
+-define(wxDateTime_Gr_Bulgaria_1, (?wxDateTime_Gr_Unknown+1)).
+-define(wxDateTime_Gr_Bulgaria_2, (?wxDateTime_Gr_Unknown+2)).
+-define(wxDateTime_Gr_Bulgaria_3, (?wxDateTime_Gr_Unknown+3)).
+-define(wxDateTime_Gr_Canada, ?wxDateTime_Gr_Unknown).
+-define(wxDateTime_Gr_China, ?wxDateTime_Gr_Unknown).
+-define(wxDateTime_Gr_China_1, (?wxDateTime_Gr_Unknown+1)).
+-define(wxDateTime_Gr_China_2, (?wxDateTime_Gr_Unknown+2)).
+-define(wxDateTime_Gr_Czechoslovakia, (?wxDateTime_Gr_Unknown+3)).
+-define(wxDateTime_Gr_Denmark, (?wxDateTime_Gr_Unknown+4)).
+-define(wxDateTime_Gr_Egypt, (?wxDateTime_Gr_Unknown+5)).
+-define(wxDateTime_Gr_Estonia, (?wxDateTime_Gr_Unknown+6)).
+-define(wxDateTime_Gr_Finland, (?wxDateTime_Gr_Unknown+7)).
+-define(wxDateTime_Gr_France, (?wxDateTime_Gr_Unknown+8)).
+-define(wxDateTime_Gr_France_Alsace, (?wxDateTime_Gr_Unknown+9)).
+-define(wxDateTime_Gr_France_Lorraine, (?wxDateTime_Gr_Unknown+10)).
+-define(wxDateTime_Gr_France_Strasbourg, (?wxDateTime_Gr_Unknown+11)).
+-define(wxDateTime_Gr_Germany, ?wxDateTime_Gr_Unknown).
+-define(wxDateTime_Gr_Germany_Catholic, (?wxDateTime_Gr_Unknown+1)).
+-define(wxDateTime_Gr_Germany_Prussia, (?wxDateTime_Gr_Unknown+2)).
+-define(wxDateTime_Gr_Germany_Protestant, (?wxDateTime_Gr_Unknown+3)).
+-define(wxDateTime_Gr_GreatBritain, (?wxDateTime_Gr_Unknown+4)).
+-define(wxDateTime_Gr_Greece, (?wxDateTime_Gr_Unknown+5)).
+-define(wxDateTime_Gr_Hungary, (?wxDateTime_Gr_Unknown+6)).
+-define(wxDateTime_Gr_Ireland, ?wxDateTime_Gr_GreatBritain).
+-define(wxDateTime_Gr_Italy, ?wxDateTime_Gr_Standard).
+-define(wxDateTime_Gr_Japan, ?wxDateTime_Gr_Unknown).
+-define(wxDateTime_Gr_Japan_1, (?wxDateTime_Gr_Unknown+1)).
+-define(wxDateTime_Gr_Japan_2, (?wxDateTime_Gr_Unknown+2)).
+-define(wxDateTime_Gr_Japan_3, (?wxDateTime_Gr_Unknown+3)).
+-define(wxDateTime_Gr_Latvia, (?wxDateTime_Gr_Unknown+4)).
+-define(wxDateTime_Gr_Lithuania, (?wxDateTime_Gr_Unknown+5)).
+-define(wxDateTime_Gr_Luxemburg, (?wxDateTime_Gr_Unknown+6)).
+-define(wxDateTime_Gr_Netherlands, ?wxDateTime_Gr_Belgium).
+-define(wxDateTime_Gr_Netherlands_Groningen, (?wxDateTime_Gr_Belgium+1)).
+-define(wxDateTime_Gr_Netherlands_Gelderland, (?wxDateTime_Gr_Belgium+2)).
+-define(wxDateTime_Gr_Netherlands_Utrecht, (?wxDateTime_Gr_Belgium+3)).
+-define(wxDateTime_Gr_Netherlands_Friesland, (?wxDateTime_Gr_Belgium+4)).
+-define(wxDateTime_Gr_Norway, ?wxDateTime_Gr_Denmark).
+-define(wxDateTime_Gr_Poland, ?wxDateTime_Gr_Standard).
+-define(wxDateTime_Gr_Portugal, ?wxDateTime_Gr_Standard).
+-define(wxDateTime_Gr_Romania, (?wxDateTime_Gr_Standard+1)).
+-define(wxDateTime_Gr_Russia, (?wxDateTime_Gr_Standard+2)).
+-define(wxDateTime_Gr_Scotland, ?wxDateTime_Gr_GreatBritain).
+-define(wxDateTime_Gr_Spain, ?wxDateTime_Gr_Standard).
+-define(wxDateTime_Gr_Sweden, ?wxDateTime_Gr_Finland).
+-define(wxDateTime_Gr_Switzerland, ?wxDateTime_Gr_Unknown).
+-define(wxDateTime_Gr_Switzerland_Catholic, (?wxDateTime_Gr_Unknown+1)).
+-define(wxDateTime_Gr_Switzerland_Protestant, (?wxDateTime_Gr_Unknown+2)).
+-define(wxDateTime_Gr_Turkey, (?wxDateTime_Gr_Unknown+3)).
+-define(wxDateTime_Gr_USA, ?wxDateTime_Gr_GreatBritain).
+-define(wxDateTime_Gr_Wales, ?wxDateTime_Gr_GreatBritain).
+-define(wxDateTime_Gr_Yugoslavia, (?wxDateTime_Gr_GreatBritain+1)).
 % From class wxDateTime::Month
 -define(wxDateTime_Jan, 0).
 -define(wxDateTime_Feb, 1).
@@ -537,34 +596,34 @@
 -define(wxDateTime_GMT11, 24).
 -define(wxDateTime_GMT12, 25).
 -define(wxDateTime_GMT13, 26).
--define(wxDateTime_WET, ?GMT0).
--define(wxDateTime_WEST, ?GMT1).
--define(wxDateTime_CET, ?GMT1).
--define(wxDateTime_CEST, ?GMT2).
--define(wxDateTime_EET, ?GMT2).
--define(wxDateTime_EEST, ?GMT3).
--define(wxDateTime_MSK, ?GMT3).
--define(wxDateTime_MSD, ?GMT4).
--define(wxDateTime_AST, ?GMT_4).
--define(wxDateTime_ADT, ?GMT_3).
--define(wxDateTime_EST, ?GMT_5).
--define(wxDateTime_EDT, ?GMT_4).
--define(wxDateTime_CST, ?GMT_6).
--define(wxDateTime_CDT, ?GMT_5).
--define(wxDateTime_MST, ?GMT_7).
--define(wxDateTime_MDT, ?GMT_6).
--define(wxDateTime_PST, ?GMT_8).
--define(wxDateTime_PDT, ?GMT_7).
--define(wxDateTime_HST, ?GMT_10).
--define(wxDateTime_AKST, ?GMT_9).
--define(wxDateTime_AKDT, ?GMT_8).
--define(wxDateTime_A_WST, ?GMT8).
--define(wxDateTime_A_CST, ?GMT13+1).
--define(wxDateTime_A_EST, ?GMT10).
--define(wxDateTime_A_ESST, ?GMT11).
--define(wxDateTime_NZST, ?GMT12).
--define(wxDateTime_NZDT, ?GMT13).
--define(wxDateTime_UTC, ?GMT0).
+-define(wxDateTime_WET, ?wxDateTime_GMT0).
+-define(wxDateTime_WEST, ?wxDateTime_GMT1).
+-define(wxDateTime_CET, ?wxDateTime_GMT1).
+-define(wxDateTime_CEST, ?wxDateTime_GMT2).
+-define(wxDateTime_EET, ?wxDateTime_GMT2).
+-define(wxDateTime_EEST, ?wxDateTime_GMT3).
+-define(wxDateTime_MSK, ?wxDateTime_GMT3).
+-define(wxDateTime_MSD, ?wxDateTime_GMT4).
+-define(wxDateTime_AST, ?wxDateTime_GMT_4).
+-define(wxDateTime_ADT, ?wxDateTime_GMT_3).
+-define(wxDateTime_EST, ?wxDateTime_GMT_5).
+-define(wxDateTime_EDT, ?wxDateTime_GMT_4).
+-define(wxDateTime_CST, ?wxDateTime_GMT_6).
+-define(wxDateTime_CDT, ?wxDateTime_GMT_5).
+-define(wxDateTime_MST, ?wxDateTime_GMT_7).
+-define(wxDateTime_MDT, ?wxDateTime_GMT_6).
+-define(wxDateTime_PST, ?wxDateTime_GMT_8).
+-define(wxDateTime_PDT, ?wxDateTime_GMT_7).
+-define(wxDateTime_HST, ?wxDateTime_GMT_10).
+-define(wxDateTime_AKST, ?wxDateTime_GMT_9).
+-define(wxDateTime_AKDT, ?wxDateTime_GMT_8).
+-define(wxDateTime_A_WST, ?wxDateTime_GMT8).
+-define(wxDateTime_A_CST, (?wxDateTime_GMT13+1)).
+-define(wxDateTime_A_EST, ?wxDateTime_GMT10).
+-define(wxDateTime_A_ESST, ?wxDateTime_GMT11).
+-define(wxDateTime_NZST, ?wxDateTime_GMT12).
+-define(wxDateTime_NZDT, ?wxDateTime_GMT13).
+-define(wxDateTime_UTC, ?wxDateTime_GMT0).
 % From class wxDateTime::WeekDay
 -define(wxDateTime_Sun, 0).
 -define(wxDateTime_Mon, 1).
@@ -579,7 +638,6 @@
 -define(wxDateTime_Monday_First, 1).
 -define(wxDateTime_Sunday_First, 2).
 % From class wxDateTime::Year
--define(wxDateTime_Inv_Year, ?SHRT_MIN).
 % From class wxDialog
 -define(wxDialog_ButtonSizerFlags, (?wxOK bor ?wxCANCEL bor ?wxYES bor ?wxNO bor ?wxHELP bor ?wxNO_DEFAULT)).
 % From class wxGrid
@@ -760,6 +818,7 @@
 -define(wxCLRP_DEFAULT_STYLE, 0).
 -define(wxCLRP_USE_TEXTCTRL, ?wxPB_USE_TEXTCTRL).
 -define(wxCLRP_SHOW_LABEL, 8).
+% From "cmndata.h"
 % From "cmndata.h": wxPrintBin
 -define(wxPRINTBIN_DEFAULT, 0).
 -define(wxPRINTBIN_ONLYONE, 1).
@@ -782,6 +841,8 @@
 -define(wxC2S_NAME, 1).
 % From "confbase.h"
 -define(wxCONFIG_CASE_SENSITIVE, 0).
+% From "cpp.h"
+-define(wxEMPTY_PARAMETER_VALUE, ()).
 % From "datectrl.h"
 -define(wxDP_DEFAULT, 0).
 -define(wxDP_SPIN, 1).
@@ -789,7 +850,6 @@
 -define(wxDP_SHOWCENTURY, 4).
 -define(wxDP_ALLOWNONE, 8).
 % From "datetime.h"
--define(wxInvalidDateTime, ?wxDefaultDateTime).
 % From "dcbuffer.h"
 -define(wxBUFFER_CLIENT_AREA, 2).
 -define(wxBUFFER_VIRTUAL_AREA, 1).
@@ -1560,13 +1620,13 @@
 % From "event.h"
 % From "event.h": Propagation_state
 -define(wxEVENT_PROPAGATE_NONE, 0).
--define(wxEVENT_PROPAGATE_MAX, ?INT_MAX).
 % From "event.h": wxIdleMode
 -define(wxIDLE_PROCESS_ALL, 0).
 -define(wxIDLE_PROCESS_SPECIFIED, 1).
 % From "event.h": wxUpdateUIMode
 -define(wxUPDATE_UI_PROCESS_ALL, 0).
 -define(wxUPDATE_UI_PROCESS_SPECIFIED, 1).
+% From "fdrepdlg.h"
 % From "fdrepdlg.h": wxFindReplaceDialogStyles
 -define(wxFR_REPLACEDIALOG, 1).
 -define(wxFR_NOUPDOWN, 2).
@@ -1810,7 +1870,6 @@
 -define(wxGA_VERTICAL, ?wxVERTICAL).
 -define(wxGA_HORIZONTAL, ?wxHORIZONTAL).
 % From "gdicmn.h"
--define(wxGetDisplayDepth, ?wxDisplayDepth).
 % From "gdicmn.h": wxBitmapType
 -define(wxBITMAP_TYPE_INVALID, 0).
 -define(wxBITMAP_TYPE_BMP, 1).
@@ -1874,9 +1933,9 @@
 -define(wxCURSOR_WAIT, 24).
 -define(wxCURSOR_WATCH, 25).
 -define(wxCURSOR_BLANK, 26).
--define(wxCURSOR_DEFAULT, 27).
--define(wxCURSOR_ARROWWAIT, 28).
--define(wxCURSOR_MAX, 29).
+-define(wxCURSOR_DEFAULT, wxe_util:get_const(wxCURSOR_DEFAULT)).
+-define(wxCURSOR_ARROWWAIT, wxe_util:get_const(wxCURSOR_ARROWWAIT)).
+-define(wxCURSOR_MAX, wxe_util:get_const(wxCURSOR_MAX)).
 % From "generic_2laywin.h"
 -define(wxLAYOUT_QUERY, 256).
 -define(wxLAYOUT_MRU_LENGTH, 16).
@@ -1976,10 +2035,255 @@
 -define(wxIMAGELIST_DRAW_SELECTED, 4).
 -define(wxIMAGELIST_DRAW_TRANSPARENT, 2).
 -define(wxIMAGELIST_DRAW_NORMAL, 1).
+% From "intl.h": wxLanguage
+-define(wxLANGUAGE_DEFAULT, wxe_util:get_const(wxLANGUAGE_DEFAULT)).
+-define(wxLANGUAGE_UNKNOWN, wxe_util:get_const(wxLANGUAGE_UNKNOWN)).
+-define(wxLANGUAGE_ABKHAZIAN, wxe_util:get_const(wxLANGUAGE_ABKHAZIAN)).
+-define(wxLANGUAGE_AFAR, wxe_util:get_const(wxLANGUAGE_AFAR)).
+-define(wxLANGUAGE_AFRIKAANS, wxe_util:get_const(wxLANGUAGE_AFRIKAANS)).
+-define(wxLANGUAGE_ALBANIAN, wxe_util:get_const(wxLANGUAGE_ALBANIAN)).
+-define(wxLANGUAGE_AMHARIC, wxe_util:get_const(wxLANGUAGE_AMHARIC)).
+-define(wxLANGUAGE_ARABIC, wxe_util:get_const(wxLANGUAGE_ARABIC)).
+-define(wxLANGUAGE_ARABIC_ALGERIA, wxe_util:get_const(wxLANGUAGE_ARABIC_ALGERIA)).
+-define(wxLANGUAGE_ARABIC_BAHRAIN, wxe_util:get_const(wxLANGUAGE_ARABIC_BAHRAIN)).
+-define(wxLANGUAGE_ARABIC_EGYPT, wxe_util:get_const(wxLANGUAGE_ARABIC_EGYPT)).
+-define(wxLANGUAGE_ARABIC_IRAQ, wxe_util:get_const(wxLANGUAGE_ARABIC_IRAQ)).
+-define(wxLANGUAGE_ARABIC_JORDAN, wxe_util:get_const(wxLANGUAGE_ARABIC_JORDAN)).
+-define(wxLANGUAGE_ARABIC_KUWAIT, wxe_util:get_const(wxLANGUAGE_ARABIC_KUWAIT)).
+-define(wxLANGUAGE_ARABIC_LEBANON, wxe_util:get_const(wxLANGUAGE_ARABIC_LEBANON)).
+-define(wxLANGUAGE_ARABIC_LIBYA, wxe_util:get_const(wxLANGUAGE_ARABIC_LIBYA)).
+-define(wxLANGUAGE_ARABIC_MOROCCO, wxe_util:get_const(wxLANGUAGE_ARABIC_MOROCCO)).
+-define(wxLANGUAGE_ARABIC_OMAN, wxe_util:get_const(wxLANGUAGE_ARABIC_OMAN)).
+-define(wxLANGUAGE_ARABIC_QATAR, wxe_util:get_const(wxLANGUAGE_ARABIC_QATAR)).
+-define(wxLANGUAGE_ARABIC_SAUDI_ARABIA, wxe_util:get_const(wxLANGUAGE_ARABIC_SAUDI_ARABIA)).
+-define(wxLANGUAGE_ARABIC_SUDAN, wxe_util:get_const(wxLANGUAGE_ARABIC_SUDAN)).
+-define(wxLANGUAGE_ARABIC_SYRIA, wxe_util:get_const(wxLANGUAGE_ARABIC_SYRIA)).
+-define(wxLANGUAGE_ARABIC_TUNISIA, wxe_util:get_const(wxLANGUAGE_ARABIC_TUNISIA)).
+-define(wxLANGUAGE_ARABIC_UAE, wxe_util:get_const(wxLANGUAGE_ARABIC_UAE)).
+-define(wxLANGUAGE_ARABIC_YEMEN, wxe_util:get_const(wxLANGUAGE_ARABIC_YEMEN)).
+-define(wxLANGUAGE_ARMENIAN, wxe_util:get_const(wxLANGUAGE_ARMENIAN)).
+-define(wxLANGUAGE_ASSAMESE, wxe_util:get_const(wxLANGUAGE_ASSAMESE)).
+-define(wxLANGUAGE_AYMARA, wxe_util:get_const(wxLANGUAGE_AYMARA)).
+-define(wxLANGUAGE_AZERI, wxe_util:get_const(wxLANGUAGE_AZERI)).
+-define(wxLANGUAGE_AZERI_CYRILLIC, wxe_util:get_const(wxLANGUAGE_AZERI_CYRILLIC)).
+-define(wxLANGUAGE_AZERI_LATIN, wxe_util:get_const(wxLANGUAGE_AZERI_LATIN)).
+-define(wxLANGUAGE_BASHKIR, wxe_util:get_const(wxLANGUAGE_BASHKIR)).
+-define(wxLANGUAGE_BASQUE, wxe_util:get_const(wxLANGUAGE_BASQUE)).
+-define(wxLANGUAGE_BELARUSIAN, wxe_util:get_const(wxLANGUAGE_BELARUSIAN)).
+-define(wxLANGUAGE_BENGALI, wxe_util:get_const(wxLANGUAGE_BENGALI)).
+-define(wxLANGUAGE_BHUTANI, wxe_util:get_const(wxLANGUAGE_BHUTANI)).
+-define(wxLANGUAGE_BIHARI, wxe_util:get_const(wxLANGUAGE_BIHARI)).
+-define(wxLANGUAGE_BISLAMA, wxe_util:get_const(wxLANGUAGE_BISLAMA)).
+-define(wxLANGUAGE_BRETON, wxe_util:get_const(wxLANGUAGE_BRETON)).
+-define(wxLANGUAGE_BULGARIAN, wxe_util:get_const(wxLANGUAGE_BULGARIAN)).
+-define(wxLANGUAGE_BURMESE, wxe_util:get_const(wxLANGUAGE_BURMESE)).
+-define(wxLANGUAGE_CAMBODIAN, wxe_util:get_const(wxLANGUAGE_CAMBODIAN)).
+-define(wxLANGUAGE_CATALAN, wxe_util:get_const(wxLANGUAGE_CATALAN)).
+-define(wxLANGUAGE_CHINESE, wxe_util:get_const(wxLANGUAGE_CHINESE)).
+-define(wxLANGUAGE_CHINESE_SIMPLIFIED, wxe_util:get_const(wxLANGUAGE_CHINESE_SIMPLIFIED)).
+-define(wxLANGUAGE_CHINESE_TRADITIONAL, wxe_util:get_const(wxLANGUAGE_CHINESE_TRADITIONAL)).
+-define(wxLANGUAGE_CHINESE_HONGKONG, wxe_util:get_const(wxLANGUAGE_CHINESE_HONGKONG)).
+-define(wxLANGUAGE_CHINESE_MACAU, wxe_util:get_const(wxLANGUAGE_CHINESE_MACAU)).
+-define(wxLANGUAGE_CHINESE_SINGAPORE, wxe_util:get_const(wxLANGUAGE_CHINESE_SINGAPORE)).
+-define(wxLANGUAGE_CHINESE_TAIWAN, wxe_util:get_const(wxLANGUAGE_CHINESE_TAIWAN)).
+-define(wxLANGUAGE_CORSICAN, wxe_util:get_const(wxLANGUAGE_CORSICAN)).
+-define(wxLANGUAGE_CROATIAN, wxe_util:get_const(wxLANGUAGE_CROATIAN)).
+-define(wxLANGUAGE_CZECH, wxe_util:get_const(wxLANGUAGE_CZECH)).
+-define(wxLANGUAGE_DANISH, wxe_util:get_const(wxLANGUAGE_DANISH)).
+-define(wxLANGUAGE_DUTCH, wxe_util:get_const(wxLANGUAGE_DUTCH)).
+-define(wxLANGUAGE_DUTCH_BELGIAN, wxe_util:get_const(wxLANGUAGE_DUTCH_BELGIAN)).
+-define(wxLANGUAGE_ENGLISH, wxe_util:get_const(wxLANGUAGE_ENGLISH)).
+-define(wxLANGUAGE_ENGLISH_UK, wxe_util:get_const(wxLANGUAGE_ENGLISH_UK)).
+-define(wxLANGUAGE_ENGLISH_US, wxe_util:get_const(wxLANGUAGE_ENGLISH_US)).
+-define(wxLANGUAGE_ENGLISH_AUSTRALIA, wxe_util:get_const(wxLANGUAGE_ENGLISH_AUSTRALIA)).
+-define(wxLANGUAGE_ENGLISH_BELIZE, wxe_util:get_const(wxLANGUAGE_ENGLISH_BELIZE)).
+-define(wxLANGUAGE_ENGLISH_BOTSWANA, wxe_util:get_const(wxLANGUAGE_ENGLISH_BOTSWANA)).
+-define(wxLANGUAGE_ENGLISH_CANADA, wxe_util:get_const(wxLANGUAGE_ENGLISH_CANADA)).
+-define(wxLANGUAGE_ENGLISH_CARIBBEAN, wxe_util:get_const(wxLANGUAGE_ENGLISH_CARIBBEAN)).
+-define(wxLANGUAGE_ENGLISH_DENMARK, wxe_util:get_const(wxLANGUAGE_ENGLISH_DENMARK)).
+-define(wxLANGUAGE_ENGLISH_EIRE, wxe_util:get_const(wxLANGUAGE_ENGLISH_EIRE)).
+-define(wxLANGUAGE_ENGLISH_JAMAICA, wxe_util:get_const(wxLANGUAGE_ENGLISH_JAMAICA)).
+-define(wxLANGUAGE_ENGLISH_NEW_ZEALAND, wxe_util:get_const(wxLANGUAGE_ENGLISH_NEW_ZEALAND)).
+-define(wxLANGUAGE_ENGLISH_PHILIPPINES, wxe_util:get_const(wxLANGUAGE_ENGLISH_PHILIPPINES)).
+-define(wxLANGUAGE_ENGLISH_SOUTH_AFRICA, wxe_util:get_const(wxLANGUAGE_ENGLISH_SOUTH_AFRICA)).
+-define(wxLANGUAGE_ENGLISH_TRINIDAD, wxe_util:get_const(wxLANGUAGE_ENGLISH_TRINIDAD)).
+-define(wxLANGUAGE_ENGLISH_ZIMBABWE, wxe_util:get_const(wxLANGUAGE_ENGLISH_ZIMBABWE)).
+-define(wxLANGUAGE_ESPERANTO, wxe_util:get_const(wxLANGUAGE_ESPERANTO)).
+-define(wxLANGUAGE_ESTONIAN, wxe_util:get_const(wxLANGUAGE_ESTONIAN)).
+-define(wxLANGUAGE_FAEROESE, wxe_util:get_const(wxLANGUAGE_FAEROESE)).
+-define(wxLANGUAGE_FARSI, wxe_util:get_const(wxLANGUAGE_FARSI)).
+-define(wxLANGUAGE_FIJI, wxe_util:get_const(wxLANGUAGE_FIJI)).
+-define(wxLANGUAGE_FINNISH, wxe_util:get_const(wxLANGUAGE_FINNISH)).
+-define(wxLANGUAGE_FRENCH, wxe_util:get_const(wxLANGUAGE_FRENCH)).
+-define(wxLANGUAGE_FRENCH_BELGIAN, wxe_util:get_const(wxLANGUAGE_FRENCH_BELGIAN)).
+-define(wxLANGUAGE_FRENCH_CANADIAN, wxe_util:get_const(wxLANGUAGE_FRENCH_CANADIAN)).
+-define(wxLANGUAGE_FRENCH_LUXEMBOURG, wxe_util:get_const(wxLANGUAGE_FRENCH_LUXEMBOURG)).
+-define(wxLANGUAGE_FRENCH_MONACO, wxe_util:get_const(wxLANGUAGE_FRENCH_MONACO)).
+-define(wxLANGUAGE_FRENCH_SWISS, wxe_util:get_const(wxLANGUAGE_FRENCH_SWISS)).
+-define(wxLANGUAGE_FRISIAN, wxe_util:get_const(wxLANGUAGE_FRISIAN)).
+-define(wxLANGUAGE_GALICIAN, wxe_util:get_const(wxLANGUAGE_GALICIAN)).
+-define(wxLANGUAGE_GEORGIAN, wxe_util:get_const(wxLANGUAGE_GEORGIAN)).
+-define(wxLANGUAGE_GERMAN, wxe_util:get_const(wxLANGUAGE_GERMAN)).
+-define(wxLANGUAGE_GERMAN_AUSTRIAN, wxe_util:get_const(wxLANGUAGE_GERMAN_AUSTRIAN)).
+-define(wxLANGUAGE_GERMAN_BELGIUM, wxe_util:get_const(wxLANGUAGE_GERMAN_BELGIUM)).
+-define(wxLANGUAGE_GERMAN_LIECHTENSTEIN, wxe_util:get_const(wxLANGUAGE_GERMAN_LIECHTENSTEIN)).
+-define(wxLANGUAGE_GERMAN_LUXEMBOURG, wxe_util:get_const(wxLANGUAGE_GERMAN_LUXEMBOURG)).
+-define(wxLANGUAGE_GERMAN_SWISS, wxe_util:get_const(wxLANGUAGE_GERMAN_SWISS)).
+-define(wxLANGUAGE_GREEK, wxe_util:get_const(wxLANGUAGE_GREEK)).
+-define(wxLANGUAGE_GREENLANDIC, wxe_util:get_const(wxLANGUAGE_GREENLANDIC)).
+-define(wxLANGUAGE_GUARANI, wxe_util:get_const(wxLANGUAGE_GUARANI)).
+-define(wxLANGUAGE_GUJARATI, wxe_util:get_const(wxLANGUAGE_GUJARATI)).
+-define(wxLANGUAGE_HAUSA, wxe_util:get_const(wxLANGUAGE_HAUSA)).
+-define(wxLANGUAGE_HEBREW, wxe_util:get_const(wxLANGUAGE_HEBREW)).
+-define(wxLANGUAGE_HINDI, wxe_util:get_const(wxLANGUAGE_HINDI)).
+-define(wxLANGUAGE_HUNGARIAN, wxe_util:get_const(wxLANGUAGE_HUNGARIAN)).
+-define(wxLANGUAGE_ICELANDIC, wxe_util:get_const(wxLANGUAGE_ICELANDIC)).
+-define(wxLANGUAGE_INDONESIAN, wxe_util:get_const(wxLANGUAGE_INDONESIAN)).
+-define(wxLANGUAGE_INTERLINGUA, wxe_util:get_const(wxLANGUAGE_INTERLINGUA)).
+-define(wxLANGUAGE_INTERLINGUE, wxe_util:get_const(wxLANGUAGE_INTERLINGUE)).
+-define(wxLANGUAGE_INUKTITUT, wxe_util:get_const(wxLANGUAGE_INUKTITUT)).
+-define(wxLANGUAGE_INUPIAK, wxe_util:get_const(wxLANGUAGE_INUPIAK)).
+-define(wxLANGUAGE_IRISH, wxe_util:get_const(wxLANGUAGE_IRISH)).
+-define(wxLANGUAGE_ITALIAN, wxe_util:get_const(wxLANGUAGE_ITALIAN)).
+-define(wxLANGUAGE_ITALIAN_SWISS, wxe_util:get_const(wxLANGUAGE_ITALIAN_SWISS)).
+-define(wxLANGUAGE_JAPANESE, wxe_util:get_const(wxLANGUAGE_JAPANESE)).
+-define(wxLANGUAGE_JAVANESE, wxe_util:get_const(wxLANGUAGE_JAVANESE)).
+-define(wxLANGUAGE_KANNADA, wxe_util:get_const(wxLANGUAGE_KANNADA)).
+-define(wxLANGUAGE_KASHMIRI, wxe_util:get_const(wxLANGUAGE_KASHMIRI)).
+-define(wxLANGUAGE_KASHMIRI_INDIA, wxe_util:get_const(wxLANGUAGE_KASHMIRI_INDIA)).
+-define(wxLANGUAGE_KAZAKH, wxe_util:get_const(wxLANGUAGE_KAZAKH)).
+-define(wxLANGUAGE_KERNEWEK, wxe_util:get_const(wxLANGUAGE_KERNEWEK)).
+-define(wxLANGUAGE_KINYARWANDA, wxe_util:get_const(wxLANGUAGE_KINYARWANDA)).
+-define(wxLANGUAGE_KIRGHIZ, wxe_util:get_const(wxLANGUAGE_KIRGHIZ)).
+-define(wxLANGUAGE_KIRUNDI, wxe_util:get_const(wxLANGUAGE_KIRUNDI)).
+-define(wxLANGUAGE_KONKANI, wxe_util:get_const(wxLANGUAGE_KONKANI)).
+-define(wxLANGUAGE_KOREAN, wxe_util:get_const(wxLANGUAGE_KOREAN)).
+-define(wxLANGUAGE_KURDISH, wxe_util:get_const(wxLANGUAGE_KURDISH)).
+-define(wxLANGUAGE_LAOTHIAN, wxe_util:get_const(wxLANGUAGE_LAOTHIAN)).
+-define(wxLANGUAGE_LATIN, wxe_util:get_const(wxLANGUAGE_LATIN)).
+-define(wxLANGUAGE_LATVIAN, wxe_util:get_const(wxLANGUAGE_LATVIAN)).
+-define(wxLANGUAGE_LINGALA, wxe_util:get_const(wxLANGUAGE_LINGALA)).
+-define(wxLANGUAGE_LITHUANIAN, wxe_util:get_const(wxLANGUAGE_LITHUANIAN)).
+-define(wxLANGUAGE_MACEDONIAN, wxe_util:get_const(wxLANGUAGE_MACEDONIAN)).
+-define(wxLANGUAGE_MALAGASY, wxe_util:get_const(wxLANGUAGE_MALAGASY)).
+-define(wxLANGUAGE_MALAY, wxe_util:get_const(wxLANGUAGE_MALAY)).
+-define(wxLANGUAGE_MALAYALAM, wxe_util:get_const(wxLANGUAGE_MALAYALAM)).
+-define(wxLANGUAGE_MALAY_BRUNEI_DARUSSALAM, wxe_util:get_const(wxLANGUAGE_MALAY_BRUNEI_DARUSSALAM)).
+-define(wxLANGUAGE_MALAY_MALAYSIA, wxe_util:get_const(wxLANGUAGE_MALAY_MALAYSIA)).
+-define(wxLANGUAGE_MALTESE, wxe_util:get_const(wxLANGUAGE_MALTESE)).
+-define(wxLANGUAGE_MANIPURI, wxe_util:get_const(wxLANGUAGE_MANIPURI)).
+-define(wxLANGUAGE_MAORI, wxe_util:get_const(wxLANGUAGE_MAORI)).
+-define(wxLANGUAGE_MARATHI, wxe_util:get_const(wxLANGUAGE_MARATHI)).
+-define(wxLANGUAGE_MOLDAVIAN, wxe_util:get_const(wxLANGUAGE_MOLDAVIAN)).
+-define(wxLANGUAGE_MONGOLIAN, wxe_util:get_const(wxLANGUAGE_MONGOLIAN)).
+-define(wxLANGUAGE_NAURU, wxe_util:get_const(wxLANGUAGE_NAURU)).
+-define(wxLANGUAGE_NEPALI, wxe_util:get_const(wxLANGUAGE_NEPALI)).
+-define(wxLANGUAGE_NEPALI_INDIA, wxe_util:get_const(wxLANGUAGE_NEPALI_INDIA)).
+-define(wxLANGUAGE_NORWEGIAN_BOKMAL, wxe_util:get_const(wxLANGUAGE_NORWEGIAN_BOKMAL)).
+-define(wxLANGUAGE_NORWEGIAN_NYNORSK, wxe_util:get_const(wxLANGUAGE_NORWEGIAN_NYNORSK)).
+-define(wxLANGUAGE_OCCITAN, wxe_util:get_const(wxLANGUAGE_OCCITAN)).
+-define(wxLANGUAGE_ORIYA, wxe_util:get_const(wxLANGUAGE_ORIYA)).
+-define(wxLANGUAGE_OROMO, wxe_util:get_const(wxLANGUAGE_OROMO)).
+-define(wxLANGUAGE_PASHTO, wxe_util:get_const(wxLANGUAGE_PASHTO)).
+-define(wxLANGUAGE_POLISH, wxe_util:get_const(wxLANGUAGE_POLISH)).
+-define(wxLANGUAGE_PORTUGUESE, wxe_util:get_const(wxLANGUAGE_PORTUGUESE)).
+-define(wxLANGUAGE_PORTUGUESE_BRAZILIAN, wxe_util:get_const(wxLANGUAGE_PORTUGUESE_BRAZILIAN)).
+-define(wxLANGUAGE_PUNJABI, wxe_util:get_const(wxLANGUAGE_PUNJABI)).
+-define(wxLANGUAGE_QUECHUA, wxe_util:get_const(wxLANGUAGE_QUECHUA)).
+-define(wxLANGUAGE_RHAETO_ROMANCE, wxe_util:get_const(wxLANGUAGE_RHAETO_ROMANCE)).
+-define(wxLANGUAGE_ROMANIAN, wxe_util:get_const(wxLANGUAGE_ROMANIAN)).
+-define(wxLANGUAGE_RUSSIAN, wxe_util:get_const(wxLANGUAGE_RUSSIAN)).
+-define(wxLANGUAGE_RUSSIAN_UKRAINE, wxe_util:get_const(wxLANGUAGE_RUSSIAN_UKRAINE)).
+-define(wxLANGUAGE_SAMOAN, wxe_util:get_const(wxLANGUAGE_SAMOAN)).
+-define(wxLANGUAGE_SANGHO, wxe_util:get_const(wxLANGUAGE_SANGHO)).
+-define(wxLANGUAGE_SANSKRIT, wxe_util:get_const(wxLANGUAGE_SANSKRIT)).
+-define(wxLANGUAGE_SCOTS_GAELIC, wxe_util:get_const(wxLANGUAGE_SCOTS_GAELIC)).
+-define(wxLANGUAGE_SERBIAN, wxe_util:get_const(wxLANGUAGE_SERBIAN)).
+-define(wxLANGUAGE_SERBIAN_CYRILLIC, wxe_util:get_const(wxLANGUAGE_SERBIAN_CYRILLIC)).
+-define(wxLANGUAGE_SERBIAN_LATIN, wxe_util:get_const(wxLANGUAGE_SERBIAN_LATIN)).
+-define(wxLANGUAGE_SERBO_CROATIAN, wxe_util:get_const(wxLANGUAGE_SERBO_CROATIAN)).
+-define(wxLANGUAGE_SESOTHO, wxe_util:get_const(wxLANGUAGE_SESOTHO)).
+-define(wxLANGUAGE_SETSWANA, wxe_util:get_const(wxLANGUAGE_SETSWANA)).
+-define(wxLANGUAGE_SHONA, wxe_util:get_const(wxLANGUAGE_SHONA)).
+-define(wxLANGUAGE_SINDHI, wxe_util:get_const(wxLANGUAGE_SINDHI)).
+-define(wxLANGUAGE_SINHALESE, wxe_util:get_const(wxLANGUAGE_SINHALESE)).
+-define(wxLANGUAGE_SISWATI, wxe_util:get_const(wxLANGUAGE_SISWATI)).
+-define(wxLANGUAGE_SLOVAK, wxe_util:get_const(wxLANGUAGE_SLOVAK)).
+-define(wxLANGUAGE_SLOVENIAN, wxe_util:get_const(wxLANGUAGE_SLOVENIAN)).
+-define(wxLANGUAGE_SOMALI, wxe_util:get_const(wxLANGUAGE_SOMALI)).
+-define(wxLANGUAGE_SPANISH, wxe_util:get_const(wxLANGUAGE_SPANISH)).
+-define(wxLANGUAGE_SPANISH_ARGENTINA, wxe_util:get_const(wxLANGUAGE_SPANISH_ARGENTINA)).
+-define(wxLANGUAGE_SPANISH_BOLIVIA, wxe_util:get_const(wxLANGUAGE_SPANISH_BOLIVIA)).
+-define(wxLANGUAGE_SPANISH_CHILE, wxe_util:get_const(wxLANGUAGE_SPANISH_CHILE)).
+-define(wxLANGUAGE_SPANISH_COLOMBIA, wxe_util:get_const(wxLANGUAGE_SPANISH_COLOMBIA)).
+-define(wxLANGUAGE_SPANISH_COSTA_RICA, wxe_util:get_const(wxLANGUAGE_SPANISH_COSTA_RICA)).
+-define(wxLANGUAGE_SPANISH_DOMINICAN_REPUBLIC, wxe_util:get_const(wxLANGUAGE_SPANISH_DOMINICAN_REPUBLIC)).
+-define(wxLANGUAGE_SPANISH_ECUADOR, wxe_util:get_const(wxLANGUAGE_SPANISH_ECUADOR)).
+-define(wxLANGUAGE_SPANISH_EL_SALVADOR, wxe_util:get_const(wxLANGUAGE_SPANISH_EL_SALVADOR)).
+-define(wxLANGUAGE_SPANISH_GUATEMALA, wxe_util:get_const(wxLANGUAGE_SPANISH_GUATEMALA)).
+-define(wxLANGUAGE_SPANISH_HONDURAS, wxe_util:get_const(wxLANGUAGE_SPANISH_HONDURAS)).
+-define(wxLANGUAGE_SPANISH_MEXICAN, wxe_util:get_const(wxLANGUAGE_SPANISH_MEXICAN)).
+-define(wxLANGUAGE_SPANISH_MODERN, wxe_util:get_const(wxLANGUAGE_SPANISH_MODERN)).
+-define(wxLANGUAGE_SPANISH_NICARAGUA, wxe_util:get_const(wxLANGUAGE_SPANISH_NICARAGUA)).
+-define(wxLANGUAGE_SPANISH_PANAMA, wxe_util:get_const(wxLANGUAGE_SPANISH_PANAMA)).
+-define(wxLANGUAGE_SPANISH_PARAGUAY, wxe_util:get_const(wxLANGUAGE_SPANISH_PARAGUAY)).
+-define(wxLANGUAGE_SPANISH_PERU, wxe_util:get_const(wxLANGUAGE_SPANISH_PERU)).
+-define(wxLANGUAGE_SPANISH_PUERTO_RICO, wxe_util:get_const(wxLANGUAGE_SPANISH_PUERTO_RICO)).
+-define(wxLANGUAGE_SPANISH_URUGUAY, wxe_util:get_const(wxLANGUAGE_SPANISH_URUGUAY)).
+-define(wxLANGUAGE_SPANISH_US, wxe_util:get_const(wxLANGUAGE_SPANISH_US)).
+-define(wxLANGUAGE_SPANISH_VENEZUELA, wxe_util:get_const(wxLANGUAGE_SPANISH_VENEZUELA)).
+-define(wxLANGUAGE_SUNDANESE, wxe_util:get_const(wxLANGUAGE_SUNDANESE)).
+-define(wxLANGUAGE_SWAHILI, wxe_util:get_const(wxLANGUAGE_SWAHILI)).
+-define(wxLANGUAGE_SWEDISH, wxe_util:get_const(wxLANGUAGE_SWEDISH)).
+-define(wxLANGUAGE_SWEDISH_FINLAND, wxe_util:get_const(wxLANGUAGE_SWEDISH_FINLAND)).
+-define(wxLANGUAGE_TAGALOG, wxe_util:get_const(wxLANGUAGE_TAGALOG)).
+-define(wxLANGUAGE_TAJIK, wxe_util:get_const(wxLANGUAGE_TAJIK)).
+-define(wxLANGUAGE_TAMIL, wxe_util:get_const(wxLANGUAGE_TAMIL)).
+-define(wxLANGUAGE_TATAR, wxe_util:get_const(wxLANGUAGE_TATAR)).
+-define(wxLANGUAGE_TELUGU, wxe_util:get_const(wxLANGUAGE_TELUGU)).
+-define(wxLANGUAGE_THAI, wxe_util:get_const(wxLANGUAGE_THAI)).
+-define(wxLANGUAGE_TIBETAN, wxe_util:get_const(wxLANGUAGE_TIBETAN)).
+-define(wxLANGUAGE_TIGRINYA, wxe_util:get_const(wxLANGUAGE_TIGRINYA)).
+-define(wxLANGUAGE_TONGA, wxe_util:get_const(wxLANGUAGE_TONGA)).
+-define(wxLANGUAGE_TSONGA, wxe_util:get_const(wxLANGUAGE_TSONGA)).
+-define(wxLANGUAGE_TURKISH, wxe_util:get_const(wxLANGUAGE_TURKISH)).
+-define(wxLANGUAGE_TURKMEN, wxe_util:get_const(wxLANGUAGE_TURKMEN)).
+-define(wxLANGUAGE_TWI, wxe_util:get_const(wxLANGUAGE_TWI)).
+-define(wxLANGUAGE_UIGHUR, wxe_util:get_const(wxLANGUAGE_UIGHUR)).
+-define(wxLANGUAGE_UKRAINIAN, wxe_util:get_const(wxLANGUAGE_UKRAINIAN)).
+-define(wxLANGUAGE_URDU, wxe_util:get_const(wxLANGUAGE_URDU)).
+-define(wxLANGUAGE_URDU_INDIA, wxe_util:get_const(wxLANGUAGE_URDU_INDIA)).
+-define(wxLANGUAGE_URDU_PAKISTAN, wxe_util:get_const(wxLANGUAGE_URDU_PAKISTAN)).
+-define(wxLANGUAGE_UZBEK, wxe_util:get_const(wxLANGUAGE_UZBEK)).
+-define(wxLANGUAGE_UZBEK_CYRILLIC, wxe_util:get_const(wxLANGUAGE_UZBEK_CYRILLIC)).
+-define(wxLANGUAGE_UZBEK_LATIN, wxe_util:get_const(wxLANGUAGE_UZBEK_LATIN)).
+-define(wxLANGUAGE_VIETNAMESE, wxe_util:get_const(wxLANGUAGE_VIETNAMESE)).
+-define(wxLANGUAGE_VOLAPUK, wxe_util:get_const(wxLANGUAGE_VOLAPUK)).
+-define(wxLANGUAGE_WELSH, wxe_util:get_const(wxLANGUAGE_WELSH)).
+-define(wxLANGUAGE_WOLOF, wxe_util:get_const(wxLANGUAGE_WOLOF)).
+-define(wxLANGUAGE_XHOSA, wxe_util:get_const(wxLANGUAGE_XHOSA)).
+-define(wxLANGUAGE_YIDDISH, wxe_util:get_const(wxLANGUAGE_YIDDISH)).
+-define(wxLANGUAGE_YORUBA, wxe_util:get_const(wxLANGUAGE_YORUBA)).
+-define(wxLANGUAGE_ZHUANG, wxe_util:get_const(wxLANGUAGE_ZHUANG)).
+-define(wxLANGUAGE_ZULU, wxe_util:get_const(wxLANGUAGE_ZULU)).
+-define(wxLANGUAGE_USER_DEFINED, wxe_util:get_const(wxLANGUAGE_USER_DEFINED)).
+-define(wxLANGUAGE_VALENCIAN, wxe_util:get_const(wxLANGUAGE_VALENCIAN)).
+-define(wxLANGUAGE_SAMI, wxe_util:get_const(wxLANGUAGE_SAMI)).
 % From "intl.h": wxLayoutDirection
 -define(wxLayout_Default, 0).
 -define(wxLayout_LeftToRight, 1).
 -define(wxLayout_RightToLeft, 2).
+% From "intl.h": wxLocaleCategory
+-define(wxLOCALE_CAT_NUMBER, 0).
+-define(wxLOCALE_CAT_DATE, 1).
+-define(wxLOCALE_CAT_MONEY, 2).
+-define(wxLOCALE_CAT_MAX, 3).
+% From "intl.h": wxLocaleInfo
+-define(wxLOCALE_THOUSANDS_SEP, 0).
+-define(wxLOCALE_DECIMAL_POINT, 1).
+% From "intl.h": wxLocaleInitFlags
+-define(wxLOCALE_LOAD_DEFAULT, 1).
+-define(wxLOCALE_CONV_ENCODING, 2).
 % From "layout.h"
 -define(wxLAYOUT_DEFAULT_MARGIN, 0).
 % From "layout.h": wxEdge
@@ -2091,7 +2395,6 @@
 -define(wxLB_TOP, ?wxBK_TOP).
 -define(wxLB_DEFAULT, ?wxBK_DEFAULT).
 % From "log.h"
--define(wxTRACE_OleCalls, ?wxEmptyString).
 -define(wxTraceRefCount, 8).
 -define(wxTraceResAlloc, 4).
 -define(wxTraceMessages, 2).
@@ -2195,7 +2498,8 @@
 -define(wxSYS_COLOUR_MENUHILIGHT, (?wxSYS_COLOUR_BTNHIGHLIGHT+9)).
 -define(wxSYS_COLOUR_MENUBAR, (?wxSYS_COLOUR_BTNHIGHLIGHT+10)).
 -define(wxSYS_COLOUR_LISTBOXTEXT, (?wxSYS_COLOUR_BTNHIGHLIGHT+11)).
--define(wxSYS_COLOUR_MAX, (?wxSYS_COLOUR_BTNHIGHLIGHT+12)).
+-define(wxSYS_COLOUR_LISTBOXHIGHLIGHTTEXT, (?wxSYS_COLOUR_BTNHIGHLIGHT+12)).
+-define(wxSYS_COLOUR_MAX, (?wxSYS_COLOUR_BTNHIGHLIGHT+13)).
 % From "settings.h": wxSystemFeature
 -define(wxSYS_CAN_DRAW_FRAME_DECORATIONS, 1).
 -define(wxSYS_CAN_ICONIZE_FRAME, 2).
@@ -2266,7 +2570,7 @@
 -define(wxSL_RIGHT, 256).
 -define(wxSL_TOP, 128).
 -define(wxSL_LEFT, 64).
--define(wxSL_LABELS, 32).
+-define(wxSL_LABELS, wxe_util:get_const(wxSL_LABELS)).
 -define(wxSL_AUTOTICKS, ?wxSL_TICKS).
 -define(wxSL_TICKS, 16).
 -define(wxSL_VERTICAL, ?wxVERTICAL).
@@ -3797,6 +4101,7 @@
 -define(wxRELEASE_NUMBER, wxe_util:get_const(wxRELEASE_NUMBER)).
 -define(wxMINOR_VERSION, wxe_util:get_const(wxMINOR_VERSION)).
 -define(wxMAJOR_VERSION, wxe_util:get_const(wxMAJOR_VERSION)).
+% From "window.h"
 % From "window.h": wxWindowVariant
 -define(wxWINDOW_VARIANT_NORMAL, 0).
 -define(wxWINDOW_VARIANT_SMALL, 1).

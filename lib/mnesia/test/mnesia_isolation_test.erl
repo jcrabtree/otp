@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1997-2010. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2018. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -21,7 +22,36 @@
 -module(mnesia_isolation_test).
 -author('hakan@erix.ericsson.se').
 
--compile([export_all]).
+-export([init_per_testcase/2, end_per_testcase/2,
+         init_per_group/2, end_per_group/2,
+         all/0, groups/0]).
+
+-export([no_conflict/1, simple_queue_conflict/1,
+         advanced_queue_conflict/1, simple_deadlock_conflict/1,
+         advanced_deadlock_conflict/1, schema_deadlock/1, lock_burst/1,
+         nasty/1, basic_sticky_functionality/1,
+         unbound1/1, unbound2/1,
+         create_table/1, delete_table/1, move_table_copy/1,
+         add_table_index/1, del_table_index/1, transform_table/1,
+         snmp_open_table/1, snmp_close_table/1,
+         change_table_copy_type/1, change_table_access/1,
+         add_table_copy/1, del_table_copy/1, dump_tables/1,
+         del_table_copy_1/1, del_table_copy_2/1, del_table_copy_3/1,
+         add_table_copy_1/1, add_table_copy_2/1, add_table_copy_3/1,
+         add_table_copy_4/1, move_table_copy_1/1, move_table_copy_2/1,
+         move_table_copy_3/1, move_table_copy_4/1,
+         dirty_updates_visible_direct/1,
+         dirty_reads_regardless_of_trans/1,
+         trans_update_invisibible_outside_trans/1,
+         trans_update_visible_inside_trans/1, write_shadows/1,
+         delete_shadows/1, write_delete_shadows_bag/1,
+         write_delete_shadows_bag2/1,
+         shadow_search/1, snmp_shadows/1,
+         rr_kill_copy/1, foldl/1, first_next/1]).
+
+-export([do_fun/4, burst_counter/3, burst_incr/2, get_held/0, get_info/1,
+         get_sticky/0, op/4, update_own/3, update_shared/3]).
+
 -include("mnesia_test_lib.hrl").
 
 init_per_testcase(Func, Conf) ->
@@ -38,7 +68,7 @@ groups() ->
     [{locking, [],
       [no_conflict, simple_queue_conflict,
        advanced_queue_conflict, simple_deadlock_conflict,
-       advanced_deadlock_conflict, lock_burst,
+       advanced_deadlock_conflict, schema_deadlock, lock_burst,
        {group, sticky_locks}, {group, unbound_locking},
        {group, admin_conflict}, nasty]},
      {sticky_locks, [], [basic_sticky_functionality]},
@@ -147,20 +177,32 @@ simple_queue_conflict(Config) when is_list(Config) ->
     fun_loop(Fun, AllSharedLocks, OneExclusiveLocks), 
     ok.
 
-wait_for_lock(Pid, _Nodes, 0) ->
+wait_for_lock(Pid, Nodes, Retry) ->
+    wait_for_lock(Pid, Nodes, Retry, queue).
+
+wait_for_lock(Pid, _Nodes, 0, queue) ->
     Queue = mnesia:system_info(lock_queue),
     ?error("Timeout while waiting for lock on Pid ~p in queue ~p~n", [Pid, Queue]);
-wait_for_lock(Pid, Nodes, N) ->
-    rpc:multicall(Nodes, sys, get_status, [mnesia_locker]), 
-    List = [rpc:call(Node, mnesia, system_info, [lock_queue]) || Node <- Nodes],
+wait_for_lock(Pid, _Nodes, 0, held) ->
+    Held = mnesia:system_info(held_locks),
+    ?error("Timeout while waiting for lock on Pid ~p (held) ~p~n", [Pid, Held]);
+wait_for_lock(Pid, Nodes, N, Where) ->
+    rpc:multicall(Nodes, sys, get_status, [mnesia_locker]),
+    List = case Where of
+	       queue ->
+		   [rpc:call(Node, mnesia, system_info, [lock_queue]) || Node <- Nodes];
+	       held ->
+		   [rpc:call(Node, mnesia, system_info, [held_locks]) || Node <- Nodes]
+           end,
     Q = lists:append(List),
-    check_q(Pid, Q, Nodes, N).
+    check_q(Pid, Q, Nodes, N, Where).
 
-check_q(Pid, [{_Oid, _Op, Pid, _Tid, _WFT} | _Tail], _N, _Count) -> ok;
-check_q(Pid, [_ | Tail], N, Count) -> check_q(Pid, Tail, N, Count);
-check_q(Pid, [], N, Count) ->
-    timer:sleep(500),
-    wait_for_lock(Pid, N, Count - 1).
+check_q(Pid, [{_Oid, _Op, Pid, _Tid, _WFT} | _Tail], _N, _Count, _Where) -> ok;
+check_q(Pid, [{_Oid, _Op, {tid,_,Pid}} | _Tail], _N, _Count, _Where) -> ok;
+check_q(Pid, [_ | Tail], N, Count, Where) -> check_q(Pid, Tail, N, Count, Where);
+check_q(Pid, [], N, Count, Where) ->
+    timer:sleep(200),
+    wait_for_lock(Pid, N, Count - 1, Where).
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -268,6 +310,43 @@ advanced_deadlock_conflict(Config) when is_list(Config) ->
     ?match([], mnesia:system_info(held_locks)), 
     ?match([], mnesia:system_info(lock_queue)), 
     ok.
+
+%%  Verify (and regression test) deadlock in del_table_copy(schema, Node)
+schema_deadlock(Config) when is_list(Config) ->
+    Ns = [Node1, Node2] = ?acquire_nodes(2, Config),
+    ?match({atomic, ok}, mnesia:create_table(a, [{disc_copies, Ns}])),
+    ?match({atomic, ok}, mnesia:create_table(b, [{disc_copies, Ns}])),
+
+    Tester = self(),
+
+    Deadlocker = fun() ->
+			 mnesia:write({a,1,1}),  %% grab write lock on A
+			 receive
+			     continue ->
+				 mnesia:write({b,1,1}), %% grab write lock on B
+				 end_trans
+			 end
+		 end,
+
+    ?match(stopped, rpc:call(Node2, mnesia, stop, [])),
+    timer:sleep(500), %% Let Node1 reconfigure
+    sys:get_status(mnesia_monitor),
+
+    DoingTrans = spawn_link(fun() ->  Tester ! {self(),mnesia:transaction(Deadlocker)} end),
+    wait_for_lock(DoingTrans, [Node1], 10, held),
+    %% Will grab write locks on schema, a, and b
+    DoingSchema = spawn_link(fun() -> Tester ! {self(), mnesia:del_table_copy(schema, Node2)} end),
+    timer:sleep(500), %% Let schema trans start, and try to grab locks
+    DoingTrans ! continue,
+
+    ?match(ok, receive {DoingTrans,  {atomic, end_trans}} -> ok after 5000 -> timeout end),
+    ?match(ok, receive {DoingSchema,  {atomic, ok}} -> ok after 5000 -> timeout end),
+
+    sys:get_status(whereis(mnesia_locker)), % Explicit sync, release locks is async
+    ?match([], mnesia:system_info(held_locks)),
+    ?match([], mnesia:system_info(lock_queue)),
+    ok.
+
 
 one_oid(Tab) -> {Tab, 1}.
 other_oid(Tab) -> {Tab, 2}.
@@ -613,21 +692,11 @@ unbound2(Config) when is_list(Config) ->
     ?match_receive({B, continuing}),
 
     %% B should now be in lock queue.
-    A ! continue,    
-    ?match_receive({A, {atomic, ok}}),    
-    ?match_receive({B, {atomic, [{ul,{key,{17,42}},val}]}}),
+    A ! continue,
+    ?match_multi_receive([{A, {atomic, ok}},
+			  {B, {atomic, [{ul,{key,{17,42}},val}]}}]),
     ok.
-    
-receiver() ->
-    receive 
-	{_Pid, begin_trans} ->
-	    receiver();
-	Else ->
-	    Else
-    after 
-	10000 ->
-	    timeout
-    end.   
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -1126,7 +1195,9 @@ update_shared(Tab, Me, Acc) ->
 	0 -> 
 	    case mnesia:transaction(Update) of
 		{atomic, {ok,Term,W2}} ->
-		    io:format("~p:~p:(~p,~p) ~w@~w~n", [erlang:now(),node(),Me,Acc,Term,W2]),
+		    io:format("~p:~p:(~p,~p) ~w@~w~n",
+			      [erlang:unique_integer([monotonic,positive]),
+			       node(),Me,Acc,Term,W2]),
 		    update_shared(Tab, Me, Acc+1);
 		Else -> 
 		    ?error("Trans failed on ~p with ~p~n"
@@ -1492,7 +1563,8 @@ trans_update_visible_inside_trans(Config) when is_list(Config) ->
     ?match({atomic, ok},  mnesia:create_table([{name, Tab}, 
 					     {ram_copies, [Node1]}])), 
     ValPos = 3, 
-    RecA = {Tab, a, 1}, 
+    RecA = {Tab, a, 1},
+    RecA2 = {Tab, a, 2},
     PatA = {Tab, '$1', 1}, 
     RecB = {Tab, b, 3}, 
     PatB = {Tab, '$1', 3}, 
@@ -1527,6 +1599,14 @@ trans_update_visible_inside_trans(Config) when is_list(Config) ->
 		  ?match([], mnesia:index_read(Tab, 3, ValPos)), 
 
 		  %% delete_object
+		  ?match(ok, mnesia:delete_object(RecA2)),
+		  ?match([RecA], mnesia:read({Tab, a})),
+		  ?match([RecA], mnesia:wread({Tab, a})),
+		  ?match([RecA], mnesia:match_object(PatA)),
+		  ?match([a], mnesia:all_keys(Tab)),
+		  ?match([RecA], mnesia:index_match_object(PatA, ValPos)),
+		  ?match([RecA], mnesia:index_read(Tab, 1, ValPos)),
+
 		  ?match(ok, mnesia:delete_object(RecA)), 
 		  ?match([], mnesia:read({Tab, a})), 
 		  ?match([], mnesia:wread({Tab, a})), 
@@ -1584,7 +1664,8 @@ write_shadows(Config) when is_list(Config) ->
 
 		  ?match([RecA2], mnesia:read({Tab, a})), 
 		  ?match([RecA2], mnesia:wread({Tab, a})), 
-		  ?match([RecA2], mnesia:match_object(PatA2)), 		  %% delete shadow old but not new write - is the new value visable
+		   ?match([],      mnesia:match_object(PatA1)), %% delete shadow old but not new write
+		   ?match([RecA2], mnesia:match_object(PatA2)), %% is the new value visable
 
 		  ?match([a], mnesia:all_keys(Tab)), 
 		  ?match([RecA2], mnesia:index_match_object(PatA2, ValPos)), 
@@ -1643,6 +1724,7 @@ delete_shadows(Config) when is_list(Config) ->
 
 		  ?match([RecA2], mnesia:read({Tab, a})), 
 		  ?match([RecA2], mnesia:wread({Tab, a})), 
+		  ?match([],  mnesia:match_object(PatA1)),
 		  ?match([RecA2], mnesia:match_object(PatA2)), 
 		  ?match([a], mnesia:all_keys(Tab)), 
 		  ?match([RecA2], mnesia:index_match_object(PatA2, ValPos)), 

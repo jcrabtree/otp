@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2011. All Rights Reserved.
+%% Copyright Ericsson AB 2011-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -32,6 +33,9 @@
 
 -import(lists, [reverse/1]).
 
+-spec module(beam_utils:module_code(), [compile:option()]) ->
+                    {'ok',beam_utils:module_code()}.
+
 module({Mod,Exp,Attr,Fs0,Lc}, _Opt) ->
     Fs = [function(F) || F <- Fs0],
     {ok,{Mod,Exp,Attr,Fs,Lc}}.
@@ -41,21 +45,21 @@ function({function,Name,Arity,CLabel,Is0}) ->
 	Is = function_1(Is0),
 	{function,Name,Arity,CLabel,Is}
     catch
-	Class:Error ->
-	    Stack = erlang:get_stacktrace(),
+        Class:Error:Stack ->
 	    io:fwrite("Function: ~w/~w\n", [Name,Arity]),
 	    erlang:raise(Class, Error, Stack)
     end.
 
 -record(st,
-	{lbl,					%func_info label
-	 loc					%location for func_info
+	{lbl :: beam_asm:label(),              %func_info label
+	 loc :: [_],                           %location for func_info
+	 arity :: arity()                       %arity for function
 	 }).
 
 function_1(Is0) ->
     case Is0 of
-	[{label,Lbl},{line,Loc}|_] ->
-	    St = #st{lbl=Lbl,loc=Loc},
+	[{label,Lbl},{line,Loc},{func_info,_,_,Arity}|_] ->
+	    St = #st{lbl=Lbl,loc=Loc,arity=Arity},
 	    translate(Is0, St, []);
 	[{label,_}|_] ->
 	    %% No line numbers. The source must be a .S file.
@@ -64,10 +68,6 @@ function_1(Is0) ->
     end.
 
 translate([{call_ext,Ar,{extfunc,erlang,error,Ar}}=I|Is], St, Acc) ->
-    translate_1(Ar, I, Is, St, Acc);
-translate([{call_ext_only,Ar,{extfunc,erlang,error,Ar}}=I|Is], St, Acc) ->
-    translate_1(Ar, I, Is, St, Acc);
-translate([{call_ext_last,Ar,{extfunc,erlang,error,Ar},_}=I|Is], St, Acc) ->
     translate_1(Ar, I, Is, St, Acc);
 translate([I|Is], St, Acc) ->
     translate(Is, St, [I|Acc]);
@@ -78,14 +78,14 @@ translate_1(Ar, I, Is, St, [{line,_}=Line|Acc1]=Acc0) ->
     case dig_out(Ar, Acc1) of
 	no ->
 	    translate(Is, St, [I|Acc0]);
-	{yes,function_clause,Acc2} ->
+	{yes,{function_clause,Arity},Acc2} ->
 	    case {Line,St} of
-		{{line,Loc},#st{lbl=Fi,loc=Loc}} ->
+		{{line,Loc},#st{lbl=Fi,loc=Loc,arity=Arity}} ->
 		    Instr = {jump,{f,Fi}},
 		    translate(Is, St, [Instr|Acc2]);
 		{_,_} ->
 		    %% This must be "error(function_clause, Args)" in
-		    %% the Erlang source code. Don't translate.
+		    %% the Erlang source code or a fun. Don't translate.
 		    translate(Is, St, [I|Acc0])
 	    end;
 	{yes,Instr,Acc2} ->
@@ -134,16 +134,27 @@ translate_exception(_, _, _, _) -> no.
 
 fix_block(Is, 0) ->
     reverse(Is);
-fix_block(Is0, Words) ->
-    [{set,[],[],{alloc,Live,{F1,F2,Needed,F3}}}|Is] = reverse(Is0),
-    [{set,[],[],{alloc,Live,{F1,F2,Needed-Words,F3}}}|Is].
+fix_block(Is, Words) ->
+    reverse(fix_block_1(Is, Words)).
+
+fix_block_1([{set,[],[],{alloc,Live,{F1,F2,Needed0,F3}}}|Is], Words) ->
+    Needed = Needed0 - Words,
+    true = Needed >= 0,				%Assertion.
+    [{set,[],[],{alloc,Live,{F1,F2,Needed,F3}}}|Is];
+fix_block_1([I|Is], Words) ->
+    [I|fix_block_1(Is, Words)].
 
 dig_out_block_fc([{set,[],[],{alloc,Live,_}}|Bl]) ->
-    dig_out_fc(Bl, Live-1, nil);
+    case dig_out_fc(Bl, Live-1, nil) of
+	no ->
+	    no;
+	yes ->
+	    {yes,{function_clause,Live}}
+    end;
 dig_out_block_fc(_) -> no.
 
 dig_out_fc([{set,[Dst],[{x,Reg},Dst0],put_list}|Is], Reg, Dst0) ->
     dig_out_fc(Is, Reg-1, Dst);
 dig_out_fc([{set,[{x,0}],[{atom,function_clause}],move}], -1, {x,1}) ->
-    {yes,function_clause};
+    yes;
 dig_out_fc(_, _, _) -> no.

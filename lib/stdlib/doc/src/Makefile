@@ -1,18 +1,19 @@
 #
 # %CopyrightBegin%
 #
-# Copyright Ericsson AB 1997-2011. All Rights Reserved.
+# Copyright Ericsson AB 1997-2018. All Rights Reserved.
 #
-# The contents of this file are subject to the Erlang Public License,
-# Version 1.1, (the "License"); you may not use this file except in
-# compliance with the License. You should have received a copy of the
-# Erlang Public License along with this software. If not, it can be
-# retrieved online at http://www.erlang.org/.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-# Software distributed under the License is distributed on an "AS IS"
-# basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-# the License for the specific language governing rights and limitations
-# under the License.
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 #
 # %CopyrightEnd%
 #
@@ -48,6 +49,7 @@ XML_REF3_FILES = \
 	digraph.xml \
 	digraph_utils.xml \
 	epp.xml \
+	erl_anno.xml \
 	erl_eval.xml \
 	erl_expand_records.xml \
 	erl_id_trans.xml \
@@ -66,21 +68,22 @@ XML_REF3_FILES = \
 	gen_event.xml \
 	gen_fsm.xml \
 	gen_server.xml \
+	gen_statem.xml \
 	io.xml \
 	io_lib.xml \
-	lib.xml \
 	lists.xml \
 	log_mf_h.xml \
+	maps.xml \
 	math.xml \
 	ms_transform.xml \
 	orddict.xml \
 	ordsets.xml \
-	pg.xml \
 	pool.xml \
 	proc_lib.xml \
 	proplists.xml \
 	qlc.xml \
 	queue.xml \
+	rand.xml \
 	random.xml \
 	re.xml \
 	sets.xml \
@@ -94,14 +97,15 @@ XML_REF3_FILES = \
 	sys.xml \
 	timer.xml \
 	unicode.xml \
+	uri_string.xml \
 	win32reg.xml \
 	zip.xml
 
 XML_REF6_FILES = stdlib_app.xml
 
-XML_PART_FILES = part.xml part_notes.xml part_notes_history.xml
-XML_CHAPTER_FILES = io_protocol.xml unicode_usage.xml notes.xml notes_history.xml
-GIF_FILES = ushell1.gif ushell2.gif ushell3.gif
+XML_PART_FILES = part.xml
+XML_CHAPTER_FILES = introduction.xml io_protocol.xml unicode_usage.xml \
+	notes.xml assert_hrl.xml
 
 BOOK_FILES = book.xml
 
@@ -112,8 +116,7 @@ XML_FILES = \
 # ----------------------------------------------------
 
 HTML_FILES = $(XML_APPLICATION_FILES:%.xml=$(HTMLDIR)/%.html) \
-	$(XML_PART_FILES:%.xml=$(HTMLDIR)/%.html) \
-	$(GIF_FILES:%.gif=$(HTMLDIR)/%.gif)
+	$(XML_PART_FILES:%.xml=$(HTMLDIR)/%.html)
 
 INFO_FILE = ../../info
 
@@ -129,47 +132,43 @@ SPECS_FILES = $(XML_REF3_FILES:%.xml=$(SPECDIR)/specs_%.xml)
 TOP_SPECS_FILE = specs.xml
 
 # ----------------------------------------------------
-# FLAGS 
+# FLAGS
 # ----------------------------------------------------
-XML_FLAGS += 
+XML_FLAGS +=
 
 SPECS_FLAGS = -I../../include -I../../../kernel/include
 
 # ----------------------------------------------------
 # Targets
 # ----------------------------------------------------
-$(HTMLDIR)/%.gif: %.gif
-	$(INSTALL_DATA) $< $@
-
 docs: man pdf html
 
 $(TOP_PDF_FILE): $(XML_FILES)
 
 pdf: $(TOP_PDF_FILE)
 
-html: gifs $(HTML_REF_MAN_FILE)
+html: $(HTML_REF_MAN_FILE)
 
 man: $(MAN3_FILES) $(MAN6_FILES)
 
-gifs: $(GIF_FILES:%=$(HTMLDIR)/%)
-
-debug opt: 
+debug opt:
 
 clean clean_docs:
 	rm -rf $(HTMLDIR)/*
+	rm -rf $(XMLDIR)
 	rm -f $(MAN3DIR)/*
 	rm -f $(MAN6DIR)/*
 	rm -f $(TOP_PDF_FILE) $(TOP_PDF_FILE:%.pdf=%.fo)
 	rm -f $(SPECDIR)/*
-	rm -f errs core *~ 
+	rm -f errs core *~
 
 $(SPECDIR)/specs_erl_id_trans.xml:
-	escript $(SPECS_EXTRACTOR) $(SPECS_FLAGS) \
+	$(gen_verbose)escript $(SPECS_EXTRACTOR) $(SPECS_FLAGS) \
 		-o$(dir $@) -module erl_id_trans
 
 # ----------------------------------------------------
 # Release Target
-# ---------------------------------------------------- 
+# ----------------------------------------------------
 include $(ERL_TOP)/make/otp_release_targets.mk
 
 release_docs_spec: docs

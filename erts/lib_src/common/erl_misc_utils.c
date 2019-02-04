@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2006-2012. All Rights Reserved.
+ * Copyright Ericsson AB 2006-2017. All Rights Reserved.
  *
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  * %CopyrightEnd%
  */
@@ -25,6 +26,7 @@
 #  include <windows.h>
 #endif
 
+#include "ethread_inline.h"
 #include "erl_misc_utils.h"
 
 #if defined(__WIN32__)
@@ -124,6 +126,12 @@
 #include <sys/sysctl.h>
 #endif
 
+/* Simplify include for static functions */
+
+#if defined(__linux__) || defined(HAVE_KSTAT) || defined(__WIN32__) || defined(__FreeBSD__)
+#  define ERTS_CPU_TOPOLOGY_ENABLED (1)
+#endif
+
 static int read_topology(erts_cpu_info_t *cpuinfo);
 
 #if defined(ERTS_HAVE_MISC_UTIL_AFFINITY_MASK__)
@@ -183,10 +191,11 @@ struct erts_cpu_info_t_ {
 
 #if defined(__WIN32__)
 
-static __forceinline int
+static ETHR_FORCE_INLINE int
 get_proc_affinity(erts_cpu_info_t *cpuinfo, cpu_set_t *cpuset)
 {
-    DWORD pamask, samask;
+    DWORD_PTR pamask;
+    DWORD_PTR samask;
     if (GetProcessAffinityMask(GetCurrentProcess(), &pamask, &samask)) {
 	*cpuset = (cpu_set_t) pamask;
 	return 0;
@@ -197,7 +206,7 @@ get_proc_affinity(erts_cpu_info_t *cpuinfo, cpu_set_t *cpuset)
     }
 }
 
-static __forceinline int
+static ETHR_FORCE_INLINE int
 set_thr_affinity(cpu_set_t *set)
 {
     if (*set == (cpu_set_t) 0)
@@ -669,6 +678,7 @@ erts_unbind_from_cpu_str(char *str)
 }
 
 
+#if defined(ERTS_CPU_TOPOLOGY_ENABLED)
 static int
 pn_cmp(const void *vx, const void *vy)
 {
@@ -759,6 +769,7 @@ adjust_processor_nodes(erts_cpu_info_t *cpuinfo, int no_nodes)
 	}
     }
 }
+#endif
 
 
 #ifdef __linux__
@@ -831,7 +842,7 @@ read_topology(erts_cpu_info_t *cpuinfo)
 	cpuinfo->topology[ix].logical = -1;
     }
 
-    ix = -1;
+    ix = 0;
 
     if (realpath(ERTS_SYS_NODE_PATH, npath)) {
 	ndir = opendir(npath);
@@ -875,6 +886,7 @@ read_topology(erts_cpu_info_t *cpuinfo)
 		cdir = NULL;
 		break;
 	    }
+
 	    if (sscanf(cde->d_name, "cpu%d", &cpu_id) == 1) {
 		char buf[50]; /* Much more than enough for an integer */
 		int processor_id, core_id;
@@ -895,23 +907,33 @@ read_topology(erts_cpu_info_t *cpuinfo)
 		if (sscanf(buf, "%d", &core_id) != 1)
 		    continue;
 
+                /*
+                 * The number of CPUs that proc fs presents is greater
+                 * then the number of CPUs configured in sysconf.
+                 * This has been known to happen in docker. When this
+                 * happens we refuse to give a CPU topology.
+                 */
+                if (ix >= cpuinfo->configured)
+                    goto error;
+
 		/*
 		 * We now know node id, processor id, and
 		 * core id of the logical processor with
 		 * the cpu id 'cpu_id'.
 		 */
-		ix++;
 		cpuinfo->topology[ix].node	= node_id;
 		cpuinfo->topology[ix].processor	= processor_id;
 		cpuinfo->topology[ix].processor_node = -1; /* Fixed later */
 		cpuinfo->topology[ix].core	= core_id;
 		cpuinfo->topology[ix].thread	= 0; /* we'll numerate later */
 		cpuinfo->topology[ix].logical	= cpu_id;
+		ix++;
+
 	    }
 	}
     } while (got_nodes);
 
-    res = ix+1;
+    res = ix;
 
     if (!res || res < cpuinfo->online)
 	res = 0;
@@ -1142,7 +1164,7 @@ read_topology(erts_cpu_info_t *cpuinfo)
 #define ERTS_MU_RELATION_CACHE                2 /* RelationCache */
 #define ERTS_MU_RELATION_PROCESSOR_PACKAGE    3 /* RelationProcessorPackage */
 
-static __forceinline int
+static ETHR_FORCE_INLINE int
 rel_cmp_val(int r)
 {
     switch (r) {
@@ -1499,7 +1521,7 @@ const char* parse_topology_spec_group(erts_cpu_info_t *cpuinfo, const char* xml,
 		if (is_thread_group) {
 		    thread++;
 		} else {
-		    *core_p = (*core_p)++;
+		    *core_p = (*core_p) + 1;
 		}
 		index_procs++;
 	    }
@@ -1519,9 +1541,9 @@ const char* parse_topology_spec_group(erts_cpu_info_t *cpuinfo, const char* xml,
 
     if (parentCacheLevel == 0) {
 	*core_p = 0;
-	*processor_p = (*processor_p)++;
+	*processor_p = (*processor_p) + 1;
     } else {
-	*core_p = (*core_p)++;
+	*core_p = (*core_p) + 1;
     }
 
     if (error)

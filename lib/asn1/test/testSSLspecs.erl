@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2004-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2004-2016. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -20,13 +21,13 @@
 
 -module(testSSLspecs).
 
--export([compile/2,run/1,compile_inline/2,run_inline/1]).
+-export([compile/2,run/1,compile_combined/2,run_combined/1]).
 
--include_lib("test_server/include/test_server.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 compile(Config, Options) ->
-    DataDir = ?config(data_dir, Config),
-    CaseDir = ?config(case_dir, Config),
+    DataDir = proplists:get_value(data_dir, Config),
+    CaseDir = proplists:get_value(case_dir, Config),
     NewOptions = [{i, DataDir}, {i, CaseDir}|Options],
 
     asn1_test_lib:compile_all(["SSL-PKIX", "PKIXAttributeCertificate"],
@@ -42,19 +43,17 @@ compile(Config, Options) ->
     asn1_test_lib:compile_all(["PKIX1Explicit93", "PKIX1Implicit93"],
                               Config, NewOptions).
 
-compile_inline(Config, Rule) when Rule == ber_bin; Rule == ber_bin_v2 ->
-    DataDir = ?config(data_dir, Config),
-    CaseDir = ?config(case_dir, Config),
+compile_combined(Config, ber=Rule) ->
+    DataDir = proplists:get_value(data_dir, Config),
+    CaseDir = proplists:get_value(case_dir, Config),
     Options = [{i, CaseDir}, {i, DataDir}, Rule,
-               der, compact_bit_string, optimize, asn1config, inline],
-    ok = remove_db_file_inline(CaseDir),
-    asn1_test_lib:compile("OTP-PKIX.set.asn", Config, Options);
-compile_inline(_Config, _Rule) ->
-    ok.
+               der, compact_bit_string, asn1config],
+    ok = remove_db_files_combined(CaseDir),
+    asn1_test_lib:compile("OTP-PKIX.set.asn", Config, Options).
 
 remove_db_files(Dir) ->
-    ?line ok = remove_db_file(Dir ++ "PKIX1Explicit93.asn1db"),
-    ?line ok = remove_db_file(Dir ++ "PKIX1Implicit93.asn1db").
+    ok = remove_db_file(Dir ++ "PKIX1Explicit93.asn1db"),
+    ok = remove_db_file(Dir ++ "PKIX1Implicit93.asn1db").
 remove_db_file(File) ->
     case file:delete(File) of
 	ok ->
@@ -65,27 +64,24 @@ remove_db_file(File) ->
 	    Err
     end.
 
-remove_db_file_inline(Dir) ->
-    ?line ok = remove_db_file(Dir ++ "OTP-PKIX.asn1db"),
-    ?line ok = remove_db_file(Dir ++ "SSL-PKIX.asn1db"),
-    ?line ok = remove_db_file(Dir ++ "PKIXAttributeCertificate.asn1db"),
-    ?line ok = remove_db_file(Dir ++ "PKIX1Algorithms88.asn1db"),
-    ?line ok = remove_db_file(Dir ++ "PKIX1Explicit88.asn1db"),
-    ?line ok = remove_db_file(Dir ++ "PKIX1Implicit88.asn1db").
+remove_db_files_combined(Dir) ->
+    ok = remove_db_file(Dir ++ "OTP-PKIX.asn1db"),
+    ok = remove_db_file(Dir ++ "SSL-PKIX.asn1db"),
+    ok = remove_db_file(Dir ++ "PKIXAttributeCertificate.asn1db"),
+    ok = remove_db_file(Dir ++ "PKIX1Algorithms88.asn1db"),
+    ok = remove_db_file(Dir ++ "PKIX1Explicit88.asn1db"),
+    ok = remove_db_file(Dir ++ "PKIX1Implicit88.asn1db").
 
-run(BER) when BER==ber_bin;BER==ber_bin_v2 ->
-    run1(1);
-run(_) ->
-    ok.
+run(ber) ->
+    run1(1).
 
 run1(6) ->
-    ?line f1(6),
-    ?line f2(6),
-%%    ?line transform3(ex(7)),
-    ?line transform4(ex(7));
+    f1(6),
+    f2(6),
+    transform4(ex(7));
 run1(N) ->
-    ?line f1(N),
-    ?line f2(N),
+    f1(N),
+    f2(N),
     run1(N+1).
 
 
@@ -97,23 +93,23 @@ f2(N) ->
 
 
 transform1(ATAV) ->
-    ?line {ok, ATAVEnc} = 'PKIX1Explicit88':encode('AttributeTypeAndValue',
+    {ok, ATAVEnc} = 'PKIX1Explicit88':encode('AttributeTypeAndValue',
 ATAV),
-    ?line {ok, _ATAVDec} = 'SSL-PKIX':decode('AttributeTypeAndValue',
-                                      list_to_binary(ATAVEnc)).
+    {ok, _ATAVDec} = 'SSL-PKIX':decode('AttributeTypeAndValue',
+                                      ATAVEnc).
 
 transform2(ATAV) ->
-    ?line {ok, ATAVEnc} = 'PKIX1Explicit88':encode('AttributeTypeAndValue',
+    {ok, ATAVEnc} = 'PKIX1Explicit88':encode('AttributeTypeAndValue',
 ATAV),
-    ?line {ok, _ATAVDec} = 'PKIX1Explicit88':decode('AttributeTypeAndValue',
-                                             list_to_binary(ATAVEnc)).
+    {ok, _ATAVDec} = 'PKIX1Explicit88':decode('AttributeTypeAndValue',
+                                             ATAVEnc).
 
 
 transform4(ATAV) ->
-    ?line {ok, ATAVEnc} = 'PKIX1Explicit88':encode('Attribute',
+    {ok, ATAVEnc} = 'PKIX1Explicit88':encode('Attribute',
 ATAV),
-    ?line {ok, _ATAVDec} = 'PKIX1Explicit88':decode('Attribute',
-                                             list_to_binary(ATAVEnc)).
+    {ok, _ATAVDec} = 'PKIX1Explicit88':decode('Attribute',
+                                             ATAVEnc).
 
 
 ex(1) ->
@@ -146,12 +142,10 @@ ex(7) ->
      {1,2,840,113549,1,9,1},
      [[19,5,111,116,112,67,65]]}.
 
-run_inline(Rule) when Rule==ber_bin;Rule==ber_bin_v2 ->
+run_combined(ber) ->
     Cert = cert(),
-    ?line {ok,{'CertificatePKIX1Explicit88',{Type,UnDec},_,_}} = 'OTP-PKIX':decode_TBSCert_exclusive(Cert),
-    ?line {ok,_} = 'OTP-PKIX':decode_part(Type,UnDec),
-    ok;
-run_inline(_) ->
+    {ok,{'CertificatePKIX1Explicit88',{Type,UnDec},_,_}} = 'OTP-PKIX':decode_TBSCert_exclusive(Cert),
+    {ok,_} = 'OTP-PKIX':decode_part(Type,UnDec),
     ok.
 
 cert() ->

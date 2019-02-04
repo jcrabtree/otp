@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1999-2010. All Rights Reserved.
+%% Copyright Ericsson AB 1999-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -23,6 +24,9 @@
 -export([module/2]).
 
 -import(lists, [reverse/1,reverse/2]).
+
+-spec module(beam_utils:module_code(), [compile:option()]) ->
+                    {'ok',beam_utils:module_code()}.
 
 module({Mod,Exp,Attr,Fs,Lc}, _Opt) ->
     {ok,{Mod,Exp,Attr,[function(F) || F <- Fs],Lc}}.
@@ -46,11 +50,15 @@ norm_block([{set,[],[],{alloc,R,Alloc}}|Is], Acc0) ->
 	Acc ->
 	    norm_block(Is, Acc)
     end;
+norm_block([{set,[D1],[S],get_hd},{set,[D2],[S],get_tl}|Is], Acc) ->
+    I = {get_list,S,D1,D2},
+    norm_block(Is, [I|Acc]);
 norm_block([I|Is], Acc) -> norm_block(Is, [norm(I)|Acc]);
 norm_block([], Acc) -> Acc.
     
 norm({set,[D],As,{bif,N,F}})      -> {bif,N,F,As,D};
 norm({set,[D],As,{alloc,R,{gc_bif,N,F}}}) -> {gc_bif,N,F,R,As,D};
+norm({set,[D],[],init})           -> {init,D};
 norm({set,[D],[S],move})          -> {move,S,D};
 norm({set,[D],[S],fmove})         -> {fmove,S,D};
 norm({set,[D],[S],fconv})         -> {fconv,S,D};
@@ -59,10 +67,14 @@ norm({set,[D],[],{put_tuple,A}})  -> {put_tuple,A,D};
 norm({set,[],[S],put})            -> {put,S};
 norm({set,[D],[S],{get_tuple_element,I}}) -> {get_tuple_element,S,I,D};
 norm({set,[],[S,D],{set_tuple_element,I}}) -> {set_tuple_element,S,D,I};
-norm({set,[D1,D2],[S],get_list})          -> {get_list,S,D1,D2};
+norm({set,[D],[S],get_hd})        -> {get_hd,S,D};
+norm({set,[D],[S],get_tl})        -> {get_tl,S,D};
+norm({set,[D],[S|Puts],{alloc,R,{put_map,Op,F}}}) ->
+    {put_map,F,Op,S,D,R,{list,Puts}};
 norm({set,[],[],remove_message})   -> remove_message;
 norm({set,[],[],fclearerror}) -> fclearerror;
-norm({set,[],[],fcheckerror}) -> {fcheckerror,{f,0}}.
+norm({set,[],[],fcheckerror}) -> {fcheckerror,{f,0}};
+norm({set,[],[],{line,_}=Line}) -> Line.
 
 norm_allocate({_Zero,nostack,Nh,[]}, Regs) ->
     [{test_heap,Nh,Regs}];
@@ -79,48 +91,27 @@ norm_allocate({nozero,Ns,Nh,Inits}, Regs) ->
 
 %% insert_alloc_in_bs_init(ReverseInstructionStream, AllocationInfo) ->
 %%                                  impossible | ReverseInstructionStream'
-%%   A bs_init2/6 instruction should not be followed by a test heap instruction.
+%%   A bs_init/6 instruction should not be followed by a test heap instruction.
 %%   Given the AllocationInfo from a test heap instruction, merge the
-%%   allocation amounts into the previous bs_init2/6 instruction (if any).
+%%   allocation amounts into the previous bs_init/6 instruction (if any).
 %%
-insert_alloc_in_bs_init([I|_]=Is, Alloc) ->
-    case is_bs_constructor(I) of
-	false -> impossible;
-	true -> insert_alloc_1(Is, Alloc, [])
-    end.
+insert_alloc_in_bs_init([{bs_put,_,_,_}=I|Is], Alloc) ->
+    %% The instruction sequence ends with an bs_put/4 instruction.
+    %% We'll need to search backwards for the bs_init/6 instruction.
+    insert_alloc_1(Is, Alloc, [I]);
+insert_alloc_in_bs_init(_, _) -> impossible.
 
-insert_alloc_1([{bs_init2=Op,Fail,Bs,Ws1,Regs,F,Dst}|Is], {_,nostack,Ws2,[]}, Acc) ->
+insert_alloc_1([{bs_init=Op,Fail,Info0,Live,Ss,Dst}|Is],
+	       {_,nostack,Ws2,[]}, Acc) when is_integer(Live) ->
+    %% The number of extra heap words is always in the second position
+    %% in the Info tuple.
+    Ws1 = element(2, Info0),
     Al = beam_utils:combine_heap_needs(Ws1, Ws2),
-    I = {Op,Fail,Bs,Al,Regs,F,Dst},
+    Info = setelement(2, Info0, Al),
+    I = {Op,Fail,Info,Live,Ss,Dst},
     reverse(Acc, [I|Is]);
-insert_alloc_1([{bs_init_bits=Op,Fail,Bs,Ws1,Regs,F,Dst}|Is], {_,nostack,Ws2,[]}, Acc) ->
-    Al = beam_utils:combine_heap_needs(Ws1, Ws2),
-    I = {Op,Fail,Bs,Al,Regs,F,Dst},
-    reverse(Acc, [I|Is]);
-insert_alloc_1([{bs_append,Fail,Sz,Ws1,Regs,U,Bin,Fl,Dst}|Is],
-	       {_,nostack,Ws2,[]}, Acc) ->
-    Al = beam_utils:combine_heap_needs(Ws1, Ws2),
-    I = {bs_append,Fail,Sz,Al,Regs,U,Bin,Fl,Dst},
-    reverse(Acc, [I|Is]);
-insert_alloc_1([I|Is], Alloc, Acc) ->
+insert_alloc_1([{bs_put,_,_,_}=I|Is], Alloc, Acc) ->
     insert_alloc_1(Is, Alloc, [I|Acc]).
-
-
-%% is_bs_constructor(Instruction) -> true|false.
-%%  Test whether the instruction is a bit syntax construction
-%%  instruction that can occur at the end of a bit syntax
-%%  construction. (Since an empty binary would be expressed
-%%  as a literal, the bs_init2/6 instruction will not occur
-%%  at the end and therefore it is no need to test for it here.)
-%%
-is_bs_constructor({bs_put_integer,_,_,_,_,_}) -> true;
-is_bs_constructor({bs_put_utf8,_,_,_}) -> true;
-is_bs_constructor({bs_put_utf16,_,_,_}) -> true;
-is_bs_constructor({bs_put_utf32,_,_,_}) -> true;
-is_bs_constructor({bs_put_float,_,_,_,_,_}) -> true;
-is_bs_constructor({bs_put_binary,_,_,_,_,_}) -> true;
-is_bs_constructor({bs_put_string,_,_}) -> true;
-is_bs_constructor(_) -> false.
 
 %% opt(Is0) -> Is
 %%  Simple peep-hole optimization to move a {move,Any,{x,0}} past

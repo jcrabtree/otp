@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2007-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2007-2018. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -20,7 +21,7 @@
 -module(beam_bsm).
 -export([module/2,format_error/1]).
 
--import(lists, [member/2,foldl/3,reverse/1,sort/1,all/2,dropwhile/2]).
+-import(lists, [member/2,foldl/3,reverse/1,sort/1,all/2]).
 
 %%%
 %%% We optimize bit syntax matching where the tail end of a binary is
@@ -59,19 +60,26 @@
 %%% data structures or passed to BIFs.
 %%%
 
+-type label() :: beam_asm:label().
+-type func_info() :: {beam_asm:reg(),boolean()}.
+
 -record(btb,
-	{f,					%Gbtrees for all functions.
-	 index,					%{Label,Code} index (for liveness).
-	 ok_br,					%Labels that are OK.
-	 must_not_save,				%Must not save position when
-						% optimizing (reaches
-						% bs_context_to_binary).
-	 must_save				%Must save position when optimizing.
+	{f :: gb_trees:tree(label(), func_info()),
+	 index :: beam_utils:code_index(), %{Label,Code} index (for liveness).
+	 ok_br=gb_sets:empty() :: gb_sets:set(label()), %Labels that are OK.
+	 must_not_save=false :: boolean(), %Must not save position when
+					   % optimizing (reaches
+                                           % bs_context_to_binary).
+	 must_save=false :: boolean() %Must save position when optimizing.
 	}).
 
+
+-spec module(beam_utils:module_code(), [compile:option()]) ->
+                    {'ok',beam_utils:module_code()}.
+
 module({Mod,Exp,Attr,Fs0,Lc}, Opts) ->
-    D = #btb{f=btb_index(Fs0)},
-    Fs = [function(F, D) || F <- Fs0],
+    FIndex = btb_index(Fs0),
+    Fs = [function(F, FIndex) || F <- Fs0],
     Code = {Mod,Exp,Attr,Fs,Lc},
     case proplists:get_bool(bin_opt_info, Opts) of
 	true ->
@@ -91,14 +99,13 @@ format_error({no_bin_opt,Reason}) ->
 %%% Local functions.
 %%% 
 
-function({function,Name,Arity,Entry,Is}, D0) ->
+function({function,Name,Arity,Entry,Is}, FIndex) ->
     try
 	Index = beam_utils:index_labels(Is),
-	D = D0#btb{index=Index},
+	D = #btb{f=FIndex,index=Index},
 	{function,Name,Arity,Entry,btb_opt_1(Is, D, [])}
     catch
-	Class:Error ->
-	    Stack = erlang:get_stacktrace(),
+        Class:Error:Stack ->
 	    io:fwrite("Function: ~w/~w\n", [Name,Arity]),
 	    erlang:raise(Class, Error, Stack)
     end.
@@ -117,20 +124,21 @@ btb_opt_1([{test,bs_get_binary2,F,_,[Reg,{atom,all},U,Fs],Reg}=I0|Is], D, Acc0) 
 		  end,
 	    btb_opt_1(Is, D, Acc)
     end;
-btb_opt_1([{test,bs_get_binary2,F,_,[Ctx,{atom,all},U,Fs],Dst}=I0|Is], D, Acc0) ->
-    case btb_reaches_match(Is, [Ctx,Dst], D) of
+btb_opt_1([{test,bs_get_binary2,F,_,[Ctx,{atom,all},U,Fs],Dst}=I0|Is0], D, Acc0) ->
+    case btb_reaches_match(Is0, [Ctx,Dst], D) of
 	{error,Reason} ->
 	    Comment = btb_comment_no_opt(Reason, Fs),
-	    btb_opt_1(Is, D, [Comment,I0|Acc0]);
+	    btb_opt_1(Is0, D, [Comment,I0|Acc0]);
 	{ok,MustSave} when U =:= 1 ->
 	    Comment = btb_comment_opt(Fs),
-	    Acc1 = btb_gen_save(MustSave, Ctx, [Comment|Acc0]),
-	    Acc = [{move,Ctx,Dst}|Acc1],
+            Acc = btb_gen_save(MustSave, Ctx, [Comment|Acc0]),
+            Is = prepend_move(Ctx, Dst, Is0),
 	    btb_opt_1(Is, D, Acc);
 	{ok,MustSave} ->
 	    Comment = btb_comment_opt(Fs),
 	    Acc1 = btb_gen_save(MustSave, Ctx, [Comment|Acc0]),
-	    Acc = [{move,Ctx,Dst},{test,bs_test_unit,F,[Ctx,U]}|Acc1],
+            Acc = [{test,bs_test_unit,F,[Ctx,U]}|Acc1],
+            Is = prepend_move(Ctx, Dst, Is0),
 	    btb_opt_1(Is, D, Acc)
     end;
 btb_opt_1([I|Is], D, Acc) ->
@@ -142,6 +150,12 @@ btb_opt_1([], _, Acc) ->
 btb_gen_save(true, Reg, Acc) ->
     [{bs_save2,Reg,{atom,start}}|Acc];
 btb_gen_save(false, _, Acc) -> Acc.
+
+prepend_move(Ctx, Dst, [{block,Bl0}|Is]) ->
+    Bl = [{set,[Dst],[Ctx],move}|Bl0],
+    [{block,Bl}|Is];
+prepend_move(Ctx, Dst, Is) ->
+    [{move,Ctx,Dst}|Is].
 
 %% btb_reaches_match([Instruction], [Register], D) ->
 %%   {ok,MustSave}|{error,Reason}
@@ -178,15 +192,14 @@ btb_gen_save(false, _, Acc) -> Acc.
 %%  a bs_context_to_binary instruction.
 %% 
 
-btb_reaches_match(Is, RegList, D0) ->
+btb_reaches_match(Is, RegList, D) ->
     try
 	Regs = btb_regs_from_list(RegList),
-	D = D0#btb{ok_br=gb_sets:empty(),must_not_save=false,must_save=false},
 	#btb{must_not_save=MustNotSave,must_save=MustSave} =
-	btb_reaches_match_1(Is, Regs, D),
-	case MustNotSave and MustSave of
+            btb_reaches_match_1(Is, Regs, D),
+	case MustNotSave andalso MustSave of
 	    true -> btb_error(must_and_must_not_save);
-	    _    -> {ok,MustSave}
+	    false -> {ok,MustSave}
 	end
     catch
 	throw:{error,_}=Error -> Error
@@ -204,37 +217,32 @@ btb_reaches_match_1(Is, Regs, D) ->
 btb_reaches_match_2([{block,Bl}|Is], Regs0, D) ->
     Regs = btb_reaches_match_block(Bl, Regs0),
     btb_reaches_match_1(Is, Regs, D);
-btb_reaches_match_2([{call_only,Arity,{f,Lbl}}|_], Regs0, D) ->
-    Regs = btb_kill_not_live(Arity, Regs0),
-    btb_tail_call(Lbl, Regs, D);
-btb_reaches_match_2([{call_ext_only,Arity,Func}|_], Regs0, D) ->
-    Regs = btb_kill_not_live(Arity, Regs0),
-    btb_tail_call(Func, Regs, D);
-btb_reaches_match_2([{call_last,Arity,{f,Lbl},_}|_], Regs0, D) ->
-    Regs1 = btb_kill_not_live(Arity, Regs0),
-    Regs = btb_kill_yregs(Regs1),
-    btb_tail_call(Lbl, Regs, D);
-btb_reaches_match_2([{call,Arity,{f,Lbl}}|Is], Regs, D) ->
-    btb_call(Arity, Lbl, Regs, Is, D);
+btb_reaches_match_2([{call,Arity,{f,Lbl}}|Is], Regs0, D) ->
+    case is_tail_call(Is) of
+	true ->
+	    Regs1 = btb_kill_not_live(Arity, Regs0),
+	    Regs = btb_kill_yregs(Regs1),
+	    btb_tail_call(Lbl, Regs, D);
+	false ->
+	    btb_call(Arity, Lbl, Regs0, Is, D)
+    end;
 btb_reaches_match_2([{apply,Arity}|Is], Regs, D) ->
     btb_call(Arity+2, apply, Regs, Is, D);
 btb_reaches_match_2([{call_fun,Live}=I|Is], Regs, D) ->
+    btb_ensure_not_used([{x,Live}], I, Regs),
     btb_call(Live, I, Regs, Is, D);
 btb_reaches_match_2([{make_fun2,_,_,_,Live}|Is], Regs, D) ->
     btb_call(Live, make_fun2, Regs, Is, D);
-btb_reaches_match_2([{call_ext,Arity,{extfunc,Mod,Name,Arity}=Func}|Is], Regs0, D) ->
+btb_reaches_match_2([{call_ext,Arity,Func}=I|Is], Regs0, D) ->
     %% Allow us scanning beyond the call in case the match
     %% context is saved on the stack.
-    case erl_bifs:is_exit_bif(Mod, Name, Arity) of
+    case beam_jump:is_exit_instruction(I) of
 	false ->
 	    btb_call(Arity, Func, Regs0, Is, D);
 	true ->
 	    Regs = btb_kill_not_live(Arity, Regs0),
 	    btb_tail_call(Func, Regs, D)
     end;
-btb_reaches_match_2([{call_ext_last,Arity,_,_}=I|_], Regs, D) ->
-    btb_ensure_not_used(btb_regs_from_arity(Arity), I, Regs),
-    D;
 btb_reaches_match_2([{kill,Y}|Is], Regs, D) ->
     btb_reaches_match_1(Is, btb_kill([Y], Regs), D);
 btb_reaches_match_2([{deallocate,_}|Is], Regs0, D) ->
@@ -254,21 +262,51 @@ btb_reaches_match_2([{bif,_,{f,F},Ss,Dst}=I|Is], Regs0, D0) ->
     Regs = btb_kill([Dst], Regs0),
     D = btb_follow_branch(F, Regs, D0),
     btb_reaches_match_1(Is, Regs, D);
-btb_reaches_match_2([{test,bs_start_match2,_,_,[Ctx,_],Ctx}|Is], Regs, D) ->
-    case btb_context_regs(Regs) of
-	[Ctx] ->
-	    D;
-	CtxRegs ->
-	    case member(Ctx, CtxRegs) of
-		false -> btb_reaches_match_2(Is, Regs, D);
-		true -> btb_error(unsuitable_bs_start_match)
+btb_reaches_match_2([{get_map_elements,{f,F},Src,{list,Ls}}=I|Is], Regs0, D0) ->
+    {Ss,Ds} = beam_utils:split_even(Ls),
+    btb_ensure_not_used([Src|Ss], I, Regs0),
+    Regs = btb_kill(Ds, Regs0),
+    D = btb_follow_branch(F, Regs, D0),
+    btb_reaches_match_1(Is, Regs, D);
+btb_reaches_match_2([{test,bs_start_match2,{f,F},Live,[Ctx,_],Ctx}=I|Is],
+		    Regs0, D0) ->
+    CtxRegs = btb_context_regs(Regs0),
+    case member(Ctx, CtxRegs) of
+	false ->
+	    %% This bs_start_match2 instruction does not use "our"
+	    %% match state. Therefore we can continue the search
+	    %% for another bs_start_match2 instruction.
+	    D = btb_follow_branch(F, Regs0, D0),
+	    Regs = btb_kill_not_live(Live, Regs0),
+	    btb_reaches_match_2(Is, Regs, D);
+	true ->
+	    %% OK. This instruction will use "our" match state,
+	    %% but we must make sure that all other copies of the
+	    %% match state are killed in the code that follows
+	    %% the instruction. (We know that the fail branch cannot
+	    %% be taken in this case.)
+	    OtherCtxRegs = CtxRegs -- [Ctx],
+	    case btb_are_all_unused(OtherCtxRegs, Is, D0) of
+		false -> btb_error({OtherCtxRegs,not_all_unused_after,I});
+		true -> D0
 	    end
     end;
-btb_reaches_match_2([{test,bs_start_match2,_,_,[Bin,_],Ctx}|Is], Regs, D) ->
-    CtxRegs = btb_context_regs(Regs),
+btb_reaches_match_2([{test,bs_start_match2,{f,F},Live,[Bin,_],Ctx}|Is],
+		    Regs0, D0) ->
+    CtxRegs = btb_context_regs(Regs0),
     case member(Bin, CtxRegs) orelse member(Ctx, CtxRegs) of
-	false -> btb_reaches_match_2(Is, Regs, D);
-	true -> btb_error(unsuitable_bs_start_match)
+	false ->
+	    %% This bs_start_match2 does not reference any copy of the
+	    %% match state. Therefore it can safely be passed on the
+	    %% way to another (perhaps more suitable) bs_start_match2
+	    %% instruction.
+	    D = btb_follow_branch(F, Regs0, D0),
+	    Regs = btb_kill_not_live(Live, Regs0),
+	    btb_reaches_match_2(Is, Regs, D);
+	true ->
+	    %% This variant of the bs_start_match2 instruction does
+	    %% not accept a match state as source.
+	    btb_error(unsuitable_bs_start_match)
     end;
 btb_reaches_match_2([{test,_,{f,F},Ss}=I|Is], Regs, D0) ->
     btb_ensure_not_used(Ss, I, Regs),
@@ -278,12 +316,7 @@ btb_reaches_match_2([{test,_,{f,F},_,Ss,_}=I|Is], Regs, D0) ->
     btb_ensure_not_used(Ss, I, Regs),
     D = btb_follow_branch(F, Regs, D0),
     btb_reaches_match_1(Is, Regs, D);
-btb_reaches_match_2([{select_val,Src,{f,F},{list,Conds}}=I|Is], Regs, D0) ->
-    btb_ensure_not_used([Src], I, Regs),
-    D1 = btb_follow_branch(F, Regs, D0),
-    D = btb_follow_branches(Conds, Regs, D1),
-    btb_reaches_match_1(Is, Regs, D);
-btb_reaches_match_2([{select_tuple_arity,Src,{f,F},{list,Conds}}=I|Is], Regs, D0) ->
+btb_reaches_match_2([{select,_,Src,{f,F},Conds}=I|Is], Regs, D0) ->
     btb_ensure_not_used([Src], I, Regs),
     D1 = btb_follow_branch(F, Regs, D0),
     D = btb_follow_branches(Conds, Regs, D1),
@@ -293,46 +326,11 @@ btb_reaches_match_2([{jump,{f,Lbl}}|_], Regs, #btb{index=Li}=D) ->
     btb_reaches_match_2(Is, Regs, D);
 btb_reaches_match_2([{label,_}|Is], Regs, D) ->
     btb_reaches_match_2(Is, Regs, D);
-btb_reaches_match_2([{bs_add,{f,0},_,Dst}|Is], Regs, D) ->
+btb_reaches_match_2([{bs_init,{f,0},_,_,Ss,Dst}=I|Is], Regs, D) ->
+    btb_ensure_not_used(Ss, I, Regs),
     btb_reaches_match_1(Is, btb_kill([Dst], Regs), D);
-btb_reaches_match_2([bs_init_writable|Is], Regs0, D) ->
-    Regs = btb_kill_not_live(0, Regs0),
-    btb_reaches_match_1(Is, Regs, D);
-btb_reaches_match_2([{bs_init2,{f,0},_,_,_,_,Dst}|Is], Regs, D) ->
-    btb_reaches_match_1(Is, btb_kill([Dst], Regs), D);
-btb_reaches_match_2([{bs_init_bits,{f,0},_,_,_,_,Dst}|Is], Regs, D) ->
-    btb_reaches_match_1(Is, btb_kill([Dst], Regs), D);
-btb_reaches_match_2([{bs_append,{f,0},_,_,_,_,Src,_,Dst}=I|Is], Regs, D) ->
-    btb_ensure_not_used([Src], I, Regs),
-    btb_reaches_match_1(Is, btb_kill([Dst], Regs), D);
-btb_reaches_match_2([{bs_private_append,{f,0},_,_,Src,_,Dst}=I|Is], Regs, D) ->
-    btb_ensure_not_used([Src], I, Regs),
-    btb_reaches_match_1(Is, btb_kill([Dst], Regs), D);
-btb_reaches_match_2([{bs_put_integer,{f,0},_,_,_,Src}=I|Is], Regs, D) ->
-    btb_ensure_not_used([Src], I, Regs),
-    btb_reaches_match_1(Is, Regs, D);
-btb_reaches_match_2([{bs_put_float,{f,0},_,_,_,Src}=I|Is], Regs, D) ->
-    btb_ensure_not_used([Src], I, Regs),
-    btb_reaches_match_1(Is, Regs, D);
-btb_reaches_match_2([{bs_put_binary,{f,0},_,_,_,Src}=I|Is], Regs, D) ->
-    btb_ensure_not_used([Src], I, Regs),
-    btb_reaches_match_1(Is, Regs, D);
-btb_reaches_match_2([{bs_put_string,_,_}|Is], Regs, D) ->
-    btb_reaches_match_1(Is, Regs, D);
-btb_reaches_match_2([{bs_utf8_size,_,Src,Dst}=I|Is], Regs, D) ->
-    btb_ensure_not_used([Src], I, Regs),
-    btb_reaches_match_1(Is, btb_kill([Dst], Regs), D);
-btb_reaches_match_2([{bs_utf16_size,_,Src,Dst}=I|Is], Regs, D) ->
-    btb_ensure_not_used([Src], I, Regs),
-    btb_reaches_match_1(Is, btb_kill([Dst], Regs), D);
-btb_reaches_match_2([{bs_put_utf8,_,_,Src}=I|Is], Regs, D) ->
-    btb_ensure_not_used([Src], I, Regs),
-    btb_reaches_match_1(Is, Regs, D);
-btb_reaches_match_2([{bs_put_utf16,_,_,Src}=I|Is], Regs, D) ->
-    btb_ensure_not_used([Src], I, Regs),
-    btb_reaches_match_1(Is, Regs, D);
-btb_reaches_match_2([{bs_put_utf32,_,_,Src}=I|Is], Regs, D) ->
-    btb_ensure_not_used([Src], I, Regs),
+btb_reaches_match_2([{bs_put,{f,0},_,Ss}=I|Is], Regs, D) ->
+    btb_ensure_not_used(Ss, I, Regs),
     btb_reaches_match_1(Is, Regs, D);
 btb_reaches_match_2([{bs_restore2,Src,_}=I|Is], Regs0, D) ->
     case btb_contains_context(Src, Regs0) of
@@ -340,11 +338,11 @@ btb_reaches_match_2([{bs_restore2,Src,_}=I|Is], Regs0, D) ->
 	    btb_reaches_match_1(Is, Regs0, D);
 	true ->
 	    %% Check that all other copies of the context registers
-	    %% are killed by the following instructions.
+	    %% are unused by the following instructions.
 	    Regs = btb_kill([Src], Regs0),
 	    CtxRegs = btb_context_regs(Regs),
-	    case btb_are_all_killed(CtxRegs, Is, D) of
-		false -> btb_error({CtxRegs,not_all_killed_after,I});
+	    case btb_are_all_unused(CtxRegs, Is, D) of
+		false -> btb_error({CtxRegs,not_all_unused_after,I});
 		true -> D#btb{must_not_save=true}
 	    end
     end;
@@ -354,11 +352,11 @@ btb_reaches_match_2([{bs_context_to_binary,Src}=I|Is], Regs0, D) ->
 	    btb_reaches_match_1(Is, Regs0, D);
 	true ->
 	    %% Check that all other copies of the context registers
-	    %% are killed by the following instructions.
+	    %% are unused by the following instructions.
 	    Regs = btb_kill([Src], Regs0),
 	    CtxRegs = btb_context_regs(Regs),
-	    case btb_are_all_killed(CtxRegs, Is, D) of
-		false -> btb_error({CtxRegs,not_all_killed_after,I});
+	    case btb_are_all_unused(CtxRegs, Is, D) of
+		false -> btb_error({CtxRegs,not_all_unused_after,I});
 		true -> D#btb{must_not_save=true}
 	    end
     end;
@@ -381,6 +379,10 @@ btb_reaches_match_2([{line,_}|Is], Regs, D) ->
 btb_reaches_match_2([I|_], Regs, _) ->
     btb_error({btb_context_regs(Regs),I,not_handled}).
 
+is_tail_call([{deallocate,_}|_]) -> true;
+is_tail_call([return|_]) -> true;
+is_tail_call(_) -> false.
+
 btb_call(Arity, Lbl, Regs0, Is, D0) ->
     Regs = btb_kill_not_live(Arity, Regs0),
     case btb_are_x_registers_empty(Regs) of
@@ -389,13 +391,16 @@ btb_call(Arity, Lbl, Regs0, Is, D0) ->
 	    %% First handle the call as if it were a tail call.
 	    D = btb_tail_call(Lbl, Regs, D0),
 
-	    %% No problem so far, but now we must make sure that
-	    %% we don't have any copies of the match context
-	    %% tucked away in an y register.
+	    %% No problem so far (the called function can handle a
+	    %% match context). Now we must make sure that we don't
+	    %% have any copies of the match context tucked away in an
+	    %% y register.
 	    RegList = btb_context_regs(Regs),
 	    case [R || {y,_}=R <- RegList] of
-		[] -> D;
-		[_|_] -> btb_error({multiple_uses,RegList})
+		[] ->
+		    D;
+		[_|_] ->
+		    btb_error({multiple_uses,RegList})
 	    end;
 	true ->
 	    %% No match context in any x register. It could have been
@@ -439,7 +444,8 @@ btb_follow_branches([], _, D) -> D.
 
 btb_follow_branch(0, _Regs, D) -> D;
 btb_follow_branch(Lbl, Regs, #btb{ok_br=Br0,index=Li}=D) ->
-    case gb_sets:is_member(Lbl, Br0) of
+    Key = {Lbl,Regs},
+    case gb_sets:is_member(Key, Br0) of
 	true ->
 	    %% We have already followed this branch and it was OK.
 	    D;
@@ -450,7 +456,7 @@ btb_follow_branch(Lbl, Regs, #btb{ok_br=Br0,index=Li}=D) ->
 		btb_reaches_match_1(Is, Regs, D),
 
 	    %% Since we got back, this branch is OK.
-	    D#btb{ok_br=gb_sets:insert(Lbl, Br),must_not_save=MustNotSave,
+	    D#btb{ok_br=gb_sets:insert(Key, Br),must_not_save=MustNotSave,
 		  must_save=MustSave}
     end.
 
@@ -475,21 +481,12 @@ btb_reaches_match_block([{set,Ds,Ss,_}=I|Is], Regs0) ->
 btb_reaches_match_block([], Regs) ->
     Regs.
 
-%% btb_regs_from_arity(Arity) -> [Register])
-%%  Create a list of x registers from a function arity.
-
-btb_regs_from_arity(Arity) ->
-    btb_regs_from_arity_1(Arity, []).
-
-btb_regs_from_arity_1(0, Acc) -> Acc;
-btb_regs_from_arity_1(N, Acc) -> btb_regs_from_arity_1(N-1, [{x,N-1}|Acc]).
-
 %% btb_are_all_killed([Register], [Instruction], D) -> true|false
-%%  Test whether all of the register are killed in the instruction stream.
+%%  Test whether all of the register are unused in the instruction stream.
 
-btb_are_all_killed(RegList, Is, #btb{index=Li}) ->
+btb_are_all_unused(RegList, Is, #btb{index=Li}) ->
     all(fun(R) ->
-		beam_utils:is_killed(R, Is, Li)
+		beam_utils:is_not_used(R, Is, Li)
 	end, RegList).
 
 %% btp_regs_from_list([Register]) -> RegisterSet.
@@ -576,16 +573,13 @@ btb_context_regs_1(Regs, N, Tag, Acc) ->
 %%  a binary. MustSave is true if the function may pass the match
 %%  context to the bs_context_to_binary instruction (in which case
 %%  the current position in the binary must have saved into the
-%%  start position using "bs_save_2 Ctx start".
+%%  start position using "bs_save_2 Ctx start").
 
 btb_index(Fs) ->
     btb_index_1(Fs, []).
 
 btb_index_1([{function,_,_,Entry,Is0}|Fs], Acc0) ->
-    [{label,Entry}|Is] =
-	dropwhile(fun({label,L}) when L =:= Entry -> false;
-		     (_) -> true
-		  end, Is0),
+    Is = drop_to_label(Is0, Entry),
     Acc = btb_index_2(Is, Entry, false, Acc0),
     btb_index_1(Fs, Acc);
 btb_index_1([], Acc) -> gb_trees:from_orddict(sort(Acc)).
@@ -599,6 +593,9 @@ btb_index_2(Is0, Entry, _, Acc) ->
     catch
 	throw:none -> Acc
     end.
+
+drop_to_label([{label,L}|Is], L) -> Is;
+drop_to_label([_|Is], L) -> drop_to_label(Is, L).
 
 btb_index_find_start_match([{test,_,{f,F},_},{bs_context_to_binary,_}|Is]) ->
     btb_index_find_label(Is, F);
@@ -649,7 +646,7 @@ collect_warnings_instr([_|Is], D, Acc) ->
 collect_warnings_instr([], _, Acc) -> Acc.
 
 add_warning(Term, Anno, Ws) ->
-    Line = abs(get_line(Anno)),
+    Line = get_line(Anno),
     File = get_file(Anno),
     [{File,[{Line,?MODULE,Term}]}|Ws].
 

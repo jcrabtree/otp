@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2010-2011. All Rights Reserved.
+ * Copyright Ericsson AB 2010-2017. All Rights Reserved.
  *
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  * %CopyrightEnd%
  */
@@ -40,8 +41,8 @@
 #include <unistd.h>
 #endif
 
-#define ERTS_TS_EV_ALLOC_DEFAULT_POOL_SIZE 4000
-#define ERTS_TS_EV_ALLOC_POOL_SIZE 25
+#define ERTS_TS_EV_ALLOC_DEFAULT_POOL_SIZE 2048
+#define ERTS_TS_EV_ALLOC_POOL_SIZE 32
 
 erts_cpu_info_t *ethr_cpu_info__;
 
@@ -66,6 +67,8 @@ size_t ethr_max_stack_size__; /* kilo words */
 
 ethr_rwmutex xhndl_rwmtx;
 ethr_xhndl_list *xhndl_list;
+
+static ethr_tsd_key ethr_stacklimit_key__;
 
 static int main_threads;
 
@@ -138,6 +141,38 @@ x86_init(void)
 #endif
     /* bit 26 of edx is set if we have sse2 */
     ethr_runtime__.conf.have_sse2 = (edx & (1 << 26));
+
+    /* check if we have extended feature set */
+    eax = 0x80000000;
+    ethr_x86_cpuid__(&eax, &ebx, &ecx, &edx);
+
+    if (eax < 0x80000001)
+        return;
+
+    if (eax >= 0x80000007) {
+        /* Advanced Power Management Information */
+        eax = 0x80000007;
+	ethr_x86_cpuid__(&eax, &ebx, &ecx, &edx);
+
+        /* I got the values below from:
+           http://lxr.free-electrons.com/source/arch/x86/include/asm/cpufeature.h
+           They can be gotten from the intel/amd manual as well.
+        */
+
+        ethr_runtime__.conf.have_constant_tsc  = (edx & (1 <<  8));
+        ethr_runtime__.conf.have_tsc_reliable   = (edx & (1 << 23));
+        ethr_runtime__.conf.have_nonstop_tsc    = (edx & (1 << 24));
+        ethr_runtime__.conf.have_nonstop_tsc_s3 = (edx & (1 << 30));
+
+    }
+
+    /* Extended Processor Info and Feature Bits */
+    eax = 0x80000001;
+    ethr_x86_cpuid__(&eax, &ebx, &ecx, &edx);
+
+    /* bit 27 of edx is set if we have rdtscp */
+    ethr_runtime__.conf.have_rdtscp = (edx & (1 << 27));
+
 }
 
 #endif /* ETHR_X86_RUNTIME_CONF__ */
@@ -147,6 +182,8 @@ int
 ethr_init_common__(ethr_init_data *id)
 {
     int res;
+
+    ethr_init_event__();
 
 #if defined(ETHR_X86_RUNTIME_CONF__)
     x86_init();
@@ -185,7 +222,7 @@ ethr_init_common__(ethr_init_data *id)
     ethr_min_stack_size__ += ethr_pagesize__;
 #endif
     /* The system may think that we need more stack */
-#if defined(PTHREAD_STACK_MIN)
+#if defined(ETHR_HAVE_USABLE_PTHREAD_STACK_MIN)
     if (ethr_min_stack_size__ < PTHREAD_STACK_MIN)
 	ethr_min_stack_size__ = PTHREAD_STACK_MIN;
 #elif defined(_SC_THREAD_STACK_MIN)
@@ -202,13 +239,11 @@ ethr_init_common__(ethr_init_data *id)
 #endif
     ethr_min_stack_size__ = ETHR_PAGE_ALIGN(ethr_min_stack_size__);
 
-    ethr_min_stack_size__ = ETHR_B2KW(ethr_min_stack_size__);
-
     ethr_max_stack_size__ = 32*1024*1024;
 #if SIZEOF_VOID_P == 8
     ethr_max_stack_size__ *= 2;
 #endif
-    ethr_max_stack_size__ = ETHR_B2KW(ethr_max_stack_size__);
+    ethr_max_stack_size__ = ETHR_PAGE_ALIGN(ethr_max_stack_size__);
 
     res = ethr_init_atomics();
     if (res != 0)
@@ -217,6 +252,10 @@ ethr_init_common__(ethr_init_data *id)
     res = ethr_mutex_lib_init(erts_get_cpu_configured(ethr_cpu_info__));
     if (res != 0)
 	return res;
+
+    res = ethr_tsd_key_create(&ethr_stacklimit_key__, "stacklimit");
+    if (res != 0)
+        return res;
 
     xhndl_list = NULL;
 
@@ -276,6 +315,60 @@ ethr_late_init_common__(ethr_late_init_data *lid)
     if (res != 0)
 	return res;
     return 0;
+}
+
+/*
+ * Stack limit
+ */
+
+void *ethr_get_stacklimit(void)
+{
+    return ethr_tsd_get(ethr_stacklimit_key__);
+}
+
+int ethr_set_stacklimit(void *limit)
+{
+    void *prev = ethr_tsd_get(ethr_stacklimit_key__);
+    if (prev)
+        return EACCES;
+    if (!limit)
+        return EINVAL;
+    return ethr_tsd_set(ethr_stacklimit_key__, limit);
+}
+
+/* internal stacklimit (thread creation) */
+
+void
+ethr_set_stacklimit__(char *prev_c, size_t stacksize)
+{
+    /*
+     * We *don't* want this function inlined, i.e., it is
+     * risky to call this function from another function
+     * in ethr_aux.c
+     */
+    void *limit = NULL;
+    char c;
+    int res;
+
+    if (stacksize) {
+        char *start;
+        if (&c > prev_c) {
+            start = (char *) ((((ethr_uint_t) prev_c)
+                               / ethr_pagesize__)
+                              * ethr_pagesize__);
+            limit = start + stacksize;
+        }
+        else {
+            start = (char *) (((((ethr_uint_t) prev_c) - 1)
+                               / ethr_pagesize__ + 1)
+                              * ethr_pagesize__);
+            limit = start - stacksize;
+        }
+    }
+
+    res = ethr_tsd_set(ethr_stacklimit_key__, limit);
+    if (res != 0)
+        ethr_abort__();
 }
 
 int
@@ -349,10 +442,10 @@ static ethr_ts_event *ts_event_pool(int size, ethr_ts_event **endpp)
     int i;
     ethr_aligned_ts_event *atsev;
     atsev = ethr_mem__.std.alloc(sizeof(ethr_aligned_ts_event) * size
-				 + ETHR_CACHE_LINE_SIZE);
+				 + ETHR_CACHE_LINE_SIZE - 1);
     if (!atsev)
 	return NULL;
-    if ((((ethr_uint_t) atsev) & ETHR_CACHE_LINE_MASK) == 0)
+    if ((((ethr_uint_t) atsev) & ETHR_CACHE_LINE_MASK) != 0)
 	atsev = ((ethr_aligned_ts_event *)
 		 ((((ethr_uint_t) atsev) & ~ETHR_CACHE_LINE_MASK)
 		  + ETHR_CACHE_LINE_SIZE));

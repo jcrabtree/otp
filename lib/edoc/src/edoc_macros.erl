@@ -1,18 +1,23 @@
 %% =====================================================================
-%% This library is free software; you can redistribute it and/or modify
-%% it under the terms of the GNU Lesser General Public License as
-%% published by the Free Software Foundation; either version 2 of the
-%% License, or (at your option) any later version.
+%% Licensed under the Apache License, Version 2.0 (the "License"); you may
+%% not use this file except in compliance with the License. You may obtain
+%% a copy of the License at <http://www.apache.org/licenses/LICENSE-2.0>
 %%
-%% This library is distributed in the hope that it will be useful, but
-%% WITHOUT ANY WARRANTY; without even the implied warranty of
-%% MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-%% Lesser General Public License for more details.
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
-%% You should have received a copy of the GNU Lesser General Public
-%% License along with this library; if not, write to the Free Software
-%% Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307
-%% USA
+%% Alternatively, you may use this file under the terms of the GNU Lesser
+%% General Public License (the "LGPL") as published by the Free Software
+%% Foundation; either version 2.1, or (at your option) any later version.
+%% If you wish to allow use of your version of this file only under the
+%% terms of the LGPL, you should delete the provisions above and replace
+%% them with the notice and other provisions required by the LGPL; see
+%% <http://www.gnu.org/licenses/>. If you do not delete the provisions
+%% above, a recipient may use your version of this file under the terms of
+%% either the Apache License or the LGPL.
 %%
 %% @private
 %% @copyright 2001-2005 Richard Carlsson
@@ -38,10 +43,6 @@
 std_macros(Env) ->
     (if Env#env.module =:= [] -> [];
 	true -> [{module, atom_to_list(Env#env.module)}]
-     end
-     ++
-     if Env#env.package =:= [] -> [];
-	true -> [{package, atom_to_list(Env#env.package)}]
      end
      ++
      [{date, fun date_macro/3},
@@ -88,13 +89,13 @@ link_macro(S, Line, Env) ->
 		 true -> " target=\"_top\""; % note the initial space
 		 false -> ""
 	     end,
-    lists:flatten(io_lib:fwrite("<a href=\"~s\"~s>~s</a>",
+    lists:flatten(io_lib:fwrite("<a href=\"~ts\"~ts>~ts</a>",
 				[URI, Target, Txt])).
 
 section_macro(S, _Line, _Env) ->
     S1 = lists:reverse(edoc_lib:strip_space(
 			 lists:reverse(edoc_lib:strip_space(S)))),
-    lists:flatten(io_lib:format("<a href=\"#~s\">~s</a>",
+    lists:flatten(io_lib:format("<a href=\"#~ts\">~ts</a>",
 				[edoc_lib:to_label(S1), S1])).
 
 type_macro(S, Line, Env) ->
@@ -102,7 +103,7 @@ type_macro(S, Line, Env) ->
     Def = edoc_parser:parse_typedef(S1, Line),
     {#t_typedef{type = T}, _} = Def,
     Txt = edoc_layout:type(edoc_data:type(T, Env)),
-    lists:flatten(io_lib:fwrite("<code>~s</code>", [Txt])).
+    lists:flatten(io_lib:fwrite("<code>~ts</code>", [Txt])).
 
 
 %% Expand inline macros in tag content.
@@ -315,7 +316,7 @@ macro_content([C | Cs], As, L, N) ->
 macro_content([], _As, _L, _N) ->
     throw('end').
 
--type line() :: erl_scan:line().
+-type line() :: erl_anno:line().
 -type err()  :: 'unterminated_macro'
 	      | 'macro_name'
 	      | {'macro_name', string()}

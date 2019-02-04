@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2012. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -106,7 +107,7 @@ get_cookie() ->
 get_cookie(_Node) when node() =:= nonode@nohost ->
     nocookie;
 get_cookie(Node) ->
-    gen_server:call(auth, {get_cookie, Node}).
+    gen_server:call(auth, {get_cookie, Node}, infinity).
 
 -spec set_cookie(Cookie :: cookie()) -> 'true'.
 
@@ -118,12 +119,12 @@ set_cookie(Cookie) ->
 set_cookie(_Node, _Cookie) when node() =:= nonode@nohost ->
     erlang:error(distribution_not_started);
 set_cookie(Node, Cookie) ->
-    gen_server:call(auth, {set_cookie, Node, Cookie}).
+    gen_server:call(auth, {set_cookie, Node, Cookie}, infinity).
 
 -spec sync_cookie() -> any().
 
 sync_cookie() ->
-    gen_server:call(auth, sync_cookie).
+    gen_server:call(auth, sync_cookie, infinity).
 
 -spec print(Node :: node(), Format :: string(), Args :: [_]) -> 'ok'.
 
@@ -324,7 +325,7 @@ read_cookie(Name, Size) ->
 	{ok, File} ->
 	    case file:read(File, Size) of
 		{ok, List} ->
-		    file:close(File),
+		    ok = file:close(File),
 		    check_cookie(List, []);
 		{error, Reason} ->
 		    make_error(Name, Reason)
@@ -370,13 +371,13 @@ check_cookie1([], Result) ->
 %% Creates a new, random cookie. 
    
 create_cookie(Name) ->
-    {_, S1, S2} = now(),
-    Seed = S2*10000+S1,
+    Seed = abs(erlang:monotonic_time()
+	       bxor erlang:unique_integer()),
     Cookie = random_cookie(20, Seed, []),
     case file:open(Name, [write, raw]) of
 	{ok, File} ->
 	    R1 = file:write(File, Cookie),
-	    file:close(File),
+	    ok = file:close(File),
 	    R2 = file:raw_write_file_info(Name, make_info(Name)),
 	    case {R1, R2} of
 		{ok, ok} ->
@@ -384,14 +385,14 @@ create_cookie(Name) ->
 		{{error,Reason}, _} ->
 		    {error,
 		     lists:flatten(
-		       io_lib:format("Failed to write to cookie file '~s': ~p", [Name, Reason]))};
+		       io_lib:format("Failed to write to cookie file '~ts': ~p", [Name, Reason]))};
 		{ok, {error, Reason}} ->
 		    {error, "Failed to change mode: " ++ atom_to_list(Reason)}
 	    end;
 	{error,Reason} ->
 	    {error,
 	     lists:flatten(
-	       io_lib:format("Failed to create cookie file '~s': ~p", [Name, Reason]))}
+	       io_lib:format("Failed to create cookie file '~ts': ~p", [Name, Reason]))}
     end.
 
 random_cookie(0, _, Result) ->

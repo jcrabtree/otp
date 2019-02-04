@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2004-2011. All Rights Reserved.
+ * Copyright Ericsson AB 2004-2018. All Rights Reserved.
  *
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  * %CopyrightEnd%
  */
@@ -22,6 +23,9 @@
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
+
+#define ERL_WANT_GC_INTERNALS__
+
 #include "global.h"
 
 #include "erl_gc.h"
@@ -34,7 +38,7 @@ Eterm *fullsweep_nstack(Process *p, Eterm *n_htop)
     /* known nstack walk state */
     Eterm *nsp;
     Eterm *nsp_end;
-    const struct sdesc *sdesc;
+    const struct hipe_sdesc *sdesc;
     unsigned int sdesc_size;
     unsigned long ra;
     unsigned int i;
@@ -42,9 +46,7 @@ Eterm *fullsweep_nstack(Process *p, Eterm *n_htop)
     /* arch-specific nstack walk state */
     struct nstack_walk_state walk_state;
 
-    /* fullsweep-specific state */
-    char *src, *oh;
-    Uint src_size, oh_size;
+    ASSERT(!p->hipe.gc_is_unsafe);
 
     if (!p->hipe.nstack) {
 	ASSERT(!p->hipe.nsp && !p->hipe.nstend);
@@ -61,11 +63,6 @@ Eterm *fullsweep_nstack(Process *p, Eterm *n_htop)
     nsp_end = nstack_walk_nsp_end(p);
 
     sdesc = nstack_walk_init_sdesc(p, &walk_state);
-
-    src = (char*)HEAP_START(p);
-    src_size = (char*)HEAP_TOP(p) - src;
-    oh = (char*)OLD_HEAP(p);
-    oh_size = (char*)OLD_HTOP(p) - oh;
 
     for (;;) {
 	if (nstack_walk_nsp_reached_end(nsp, nsp_end)) {
@@ -93,19 +90,17 @@ Eterm *fullsweep_nstack(Process *p, Eterm *n_htop)
 		    if (IS_MOVED_BOXED(val)) {
 			ASSERT(is_boxed(val));
 			*nsp_i = val;
-		    } else if (in_area(ptr, src, src_size) ||
-			       in_area(ptr, oh, oh_size)) {
-			MOVE_BOXED(ptr, val, n_htop, nsp_i);
+		    } else if (!erts_is_literal(gval, ptr)) {
+			move_boxed(ptr, val, &n_htop, nsp_i);
 		    }
 		} else if (is_list(gval)) {
 		    Eterm *ptr = list_val(gval);
 		    Eterm val = *ptr;
 		    if (IS_MOVED_CONS(val)) {
 			*nsp_i = ptr[1];
-		    } else if (in_area(ptr, src, src_size) ||
-			       in_area(ptr, oh, oh_size)) {
-			ASSERT(within(ptr, p));
-			MOVE_CONS(ptr, val, n_htop, nsp_i);
+		    } else if (!erts_is_literal(gval, ptr)) {
+			ASSERT(erts_dbg_within_proc(ptr, p, NULL));
+			move_cons(ptr, val, &n_htop, nsp_i);
 		    }
 		}
 	    }
@@ -128,18 +123,22 @@ void gensweep_nstack(Process *p, Eterm **ptr_old_htop, Eterm **ptr_n_htop)
     /* known nstack walk state */
     Eterm *nsp;
     Eterm *nsp_end;
-    const struct sdesc *sdesc;
+    const struct hipe_sdesc *sdesc;
     unsigned int sdesc_size;
     unsigned long ra;
     unsigned int i;
     unsigned int mask;
     /* arch-specific nstack walk state */
     struct nstack_walk_state walk_state;
+    char *oh;
+    Uint oh_size;
 
     /* gensweep-specific state */
     Eterm *old_htop, *n_htop;
-    char *heap;
-    Uint heap_size, mature_size;
+    char *mature;
+    Uint mature_size;
+
+    ASSERT(!p->hipe.gc_is_unsafe);
 
     if (!p->hipe.nstack) {
 	ASSERT(!p->hipe.nsp && !p->hipe.nstend);
@@ -164,9 +163,10 @@ void gensweep_nstack(Process *p, Eterm **ptr_old_htop, Eterm **ptr_n_htop)
 
     old_htop = *ptr_old_htop;
     n_htop = *ptr_n_htop;
-    heap = (char*)HEAP_START(p);
-    heap_size = (char*)HEAP_TOP(p) - heap;
-    mature_size = (char*)HIGH_WATER(p) - heap;
+    mature = (char *) (p->abandoned_heap ? p->abandoned_heap : p->heap);
+    mature_size = (char*)HIGH_WATER(p) - mature;
+    oh = (char*)OLD_HEAP(p);
+    oh_size = (char*)OLD_HTOP(p) - oh;
 
     for (;;) {
 	if (nstack_walk_nsp_reached_end(nsp, nsp_end)) {
@@ -205,22 +205,22 @@ void gensweep_nstack(Process *p, Eterm **ptr_old_htop, Eterm **ptr_n_htop)
 		    if (IS_MOVED_BOXED(val)) {
 			ASSERT(is_boxed(val));
 			*nsp_i = val;
-		    } else if (in_area(ptr, heap, mature_size)) {
-			MOVE_BOXED(ptr, val, old_htop, nsp_i);
-		    } else if (in_area(ptr, heap, heap_size)) {
-			ASSERT(within(ptr, p));
-			MOVE_BOXED(ptr, val, n_htop, nsp_i);
+		    } else if (ErtsInArea(ptr, mature, mature_size)) {
+			move_boxed(ptr, val, &old_htop, nsp_i);
+		    } else if (ErtsInYoungGen(gval, ptr, oh, oh_size)) {
+			ASSERT(erts_dbg_within_proc(ptr, p, NULL));
+			move_boxed(ptr, val, &n_htop, nsp_i);
 		    }
 		} else if (is_list(gval)) {
 		    Eterm *ptr = list_val(gval);
 		    Eterm val = *ptr;
 		    if (IS_MOVED_CONS(val)) {
 			*nsp_i = ptr[1];
-		    } else if (in_area(ptr, heap, mature_size)) {
-			MOVE_CONS(ptr, val, old_htop, nsp_i);
-		    } else if (in_area(ptr, heap, heap_size)) {
-			ASSERT(within(ptr, p));
-			MOVE_CONS(ptr, val, n_htop, nsp_i);
+		    } else if (ErtsInArea(ptr, mature, mature_size)) {
+			move_cons(ptr, val, &old_htop, nsp_i);
+		    } else if (ErtsInYoungGen(gval, ptr, oh, oh_size)) {
+			ASSERT(erts_dbg_within_proc(ptr, p, NULL));
+			move_cons(ptr, val, &n_htop, nsp_i);
 		    }
 		}
 	    }
@@ -236,4 +236,156 @@ void gensweep_nstack(Process *p, Eterm **ptr_old_htop, Eterm **ptr_n_htop)
 	nsp = nstack_walk_next_frame(nsp, sdesc_size);
     }
     abort();
+}
+
+Eterm *sweep_literals_nstack(Process *p, Eterm *old_htop, char *area,
+			     Uint area_size)
+{
+    /* known nstack walk state */
+    Eterm *nsp;
+    Eterm *nsp_end;
+    const struct hipe_sdesc *sdesc;
+    /* arch-specific nstack walk state */
+    struct nstack_walk_state walk_state;
+
+    ASSERT(!p->hipe.gc_is_unsafe);
+
+    if (!p->hipe.nstack) {
+	ASSERT(!p->hipe.nsp && !p->hipe.nstend);
+	return old_htop;
+    }
+    if (!nstack_walk_init_check(p))
+	return old_htop;
+
+    ASSERT(p->hipe.nsp && p->hipe.nstend);
+    nsp = nstack_walk_nsp_begin(p);
+    nsp_end = nstack_walk_nsp_end(p);
+    sdesc = nstack_walk_init_sdesc_ignore_trap(p, &walk_state);
+
+    while (!nstack_walk_nsp_reached_end(nsp, nsp_end)) {
+	unsigned long ra;
+	unsigned sdesc_size = nstack_walk_frame_size(sdesc);
+	unsigned i = 0;
+	unsigned mask = sdesc->livebits[0];
+	for (;;) {
+	    if (mask & 1) {
+		Eterm *nsp_i = nstack_walk_frame_index(nsp, i);
+		Eterm gval = *nsp_i;
+		if (is_boxed(gval)) {
+		    Eterm *ptr = boxed_val(gval);
+		    Eterm val = *ptr;
+		    if (IS_MOVED_BOXED(val)) {
+			ASSERT(is_boxed(val));
+			*nsp_i = val;
+		    } else if (ErtsInArea(ptr, area, area_size)) {
+			move_boxed(ptr, val, &old_htop, nsp_i);
+		    }
+		} else if (is_list(gval)) {
+		    Eterm *ptr = list_val(gval);
+		    Eterm val = *ptr;
+		    if (IS_MOVED_CONS(val)) {
+			*nsp_i = ptr[1];
+		    } else if (ErtsInArea(ptr, area, area_size)) {
+			move_cons(ptr, val, &old_htop, nsp_i);
+		    }
+		}
+	    }
+	    if (++i >= sdesc_size)
+		break;
+	    if (i & 31)
+		mask >>= 1;
+	    else
+		mask = sdesc->livebits[i >> 5];
+	}
+	ra = nstack_walk_frame_ra(nsp, sdesc);
+	if (ra == (unsigned long)nbif_stack_trap_ra)
+	    ra = (unsigned long)p->hipe.ngra;
+	sdesc = hipe_find_sdesc(ra);
+	nsp = nstack_walk_next_frame(nsp, sdesc_size);
+    }
+    return old_htop;
+}
+
+int
+nstack_any_heap_ref_ptrs(Process *rp, char* mod_start, Uint mod_size)
+{
+    Eterm *nsp;
+    Eterm *nsp_end;
+    const struct hipe_sdesc *sdesc;
+    /* arch-specific nstack walk state */
+    struct nstack_walk_state walk_state;
+
+    ASSERT(!rp->hipe.gc_is_unsafe);
+
+    if (!rp->hipe.nstack || !nstack_walk_init_check(rp)) return 0;
+    ASSERT(rp->hipe.nsp && rp->hipe.nstend);
+    nsp = nstack_walk_nsp_begin(rp);
+    nsp_end = nstack_walk_nsp_end(rp);
+    sdesc = nstack_walk_init_sdesc_ignore_trap(rp, &walk_state);
+
+    while (!nstack_walk_nsp_reached_end(nsp, nsp_end)) {
+	unsigned long ra;
+	unsigned sdesc_size = nstack_walk_frame_size(sdesc);
+	unsigned i = 0;
+	unsigned mask = sdesc->livebits[0];
+	for (;;) {
+	    if (mask & 1) {
+		Eterm *nsp_i = nstack_walk_frame_index(nsp, i);
+		Eterm val = *nsp_i;
+		switch (primary_tag(val)) {
+		case TAG_PRIMARY_BOXED:
+		case TAG_PRIMARY_LIST:
+		    if (ErtsInArea(val, mod_start, mod_size)) {
+			return 1;
+		    }
+		    break;
+		}
+	    }
+	    if (++i >= sdesc_size)
+		break;
+	    if (i & 31)
+		mask >>= 1;
+	    else
+		mask = sdesc->livebits[i >> 5];
+	}
+	ra = nstack_walk_frame_ra(nsp, sdesc);
+	if (ra == (unsigned long)nbif_stack_trap_ra)
+	    ra = (unsigned long)rp->hipe.ngra;
+	sdesc = hipe_find_sdesc(ra);
+	nsp = nstack_walk_next_frame(nsp, sdesc_size);
+    }
+    return 0;
+}
+
+int
+nstack_any_cps_in_segment(Process *p, char* seg_start, Uint seg_size)
+{
+    Eterm *nsp;
+    Eterm *nsp_end;
+    const struct hipe_sdesc *sdesc;
+    /* arch-specific nstack walk state */
+    struct nstack_walk_state walk_state;
+
+    if (!p->hipe.nstack || !nstack_walk_init_check(p))
+	return 0;
+    ASSERT(p->hipe.nsp && p->hipe.nstend);
+    nsp = nstack_walk_nsp_begin(p);
+    nsp_end = nstack_walk_nsp_end(p);
+    sdesc = nstack_walk_init_sdesc_ignore_trap(p, &walk_state);
+
+    /* Check the topmost frame */
+    if (ErtsInArea(sdesc->bucket.hvalue, seg_start, seg_size))
+	return 1;
+
+    while (!nstack_walk_nsp_reached_end(nsp, nsp_end)) {
+	unsigned sdesc_size = nstack_walk_frame_size(sdesc);
+	unsigned long ra = nstack_walk_frame_ra(nsp, sdesc);
+	if (ra == (unsigned long)nbif_stack_trap_ra)
+	    ra = (unsigned long)p->hipe.ngra;
+	if (ErtsInArea(ra, seg_start, seg_size))
+            return 1;
+        sdesc = hipe_find_sdesc(ra);
+        nsp = nstack_walk_next_frame(nsp, sdesc_size);
+    }
+    return 0;
 }

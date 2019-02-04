@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2009-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2009-2018. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%%-------------------------------------------------------------------
@@ -27,7 +28,7 @@
 -export([init/1, handle_info/2, handle_call/3, handle_cast/2, handle_event/2,
 	 terminate/2, code_change/3]).
 
--compile(export_all).
+-export([new/1]).
 
 -behaviour(wx_object).
 
@@ -307,19 +308,19 @@ dialog(?PRINT_PAGE_SETUP, S = #gs{frame=Frame, print_psdd=PsDD0, print_d=PD0}) -
     wxPageSetupDialogData:destroy(PsDD0),
     wxPrintData:destroy(PD0),
     S#gs{print_psdd=PsDD, print_d=PD};
-dialog(?PRINT_PRE, S = #gs{frame=Frame, print_d=PD}) ->    
+dialog(?PRINT_PRE, S = #gs{frame=Frame, print_d=PD, board=Board}) ->
+    {ok, BoardS} = sudoku_board:get_state(Board),
     PDD = wxPrintDialogData:new(PD),
-    Printout1 = wxPrintout:new("Print", fun(This,Page) -> printout(This,Page,S) end,
+    Printout1 = wxPrintout:new("Print 1", fun(This,Page) -> printout(This,Page,BoardS, S) end,
 			       [{getPageInfo, fun getPageInfo/1}]),
-    Printout2 = wxPrintout:new("Print", fun(This,Page) -> printout(This,Page,S) end,
+    Printout2 = wxPrintout:new("Print 2", fun(This,Page) -> printout(This,Page,BoardS, S) end,
 			       [{getPageInfo, fun getPageInfo/1}]),
-    Preview = wxPrintPreview:new(Printout1, [{printoutForPrinting,Printout2},{data,PDD}]), 
+    Preview = wxPrintPreview:new(Printout1, [{printoutForPrinting,Printout2},{data,PDD}]),
     case wxPrintPreview:isOk(Preview) of
 	true ->
 	    PF = wxPreviewFrame:new(Preview, Frame, [{title, "Print Preview"}]),
 	    wxPreviewFrame:centre(PF, [{dir, ?wxBOTH}]),
 	    wxPreviewFrame:initialize(PF),
-	    wxPreviewFrame:centre(PF),
 	    wxPreviewFrame:show(PF);
 	false ->
 	    io:format("Could not create preview window.\n"
@@ -327,10 +328,11 @@ dialog(?PRINT_PRE, S = #gs{frame=Frame, print_d=PD}) ->
 	    wxPrintPreview:destroy(Preview)
     end,
     S;
-dialog(?PRINT, S = #gs{frame=Frame, print_d=PD}) ->    
+dialog(?PRINT, S = #gs{frame=Frame, print_d=PD, board=Board}) ->
+    {ok, BoardS} = sudoku_board:get_state(Board),
     PDD = wxPrintDialogData:new(PD),
     Printer = wxPrinter:new([{data,PDD}]),
-    Printout = wxPrintout:new("Print", fun(This,Page) -> printout(This,Page,S) end,
+    Printout = wxPrintout:new("Print", fun(This,Page) -> printout(This,Page,BoardS,S) end,
 			      [{getPageInfo, fun getPageInfo/1}]),
 
     case wxPrinter:print(Printer, Frame, Printout, [{prompt,true}]) of
@@ -374,16 +376,14 @@ init_printer(S) ->
 getPageInfo(_This) -> 
     {1,1,1,1}.
 
-printout(This, _Page, #gs{board=Board, print_psdd=PsDD}) ->
+printout(This, _Page, Board, #gs{print_psdd=PsDD}) ->
     MX = MY = 500,  
     wxPrintout:fitThisSizeToPageMargins(This, {MX,MY}, PsDD),
-    
+
     _DBG = {_X,_Y,W,H} = wxPrintout:getLogicalPageMarginsRect(This, PsDD),
     wxPrintout:offsetLogicalOrigin(This,(W-MX) div 2, (H-MY) div 2),
-%%    io:format("~p ->{~p,~p} ~n", [_DBG, (W-MX) div 2, (H-MY) div 2]),
-
     DC = wxPrintout:getDC(This),
-    sudoku_board:draw(Board, DC, {500,500}),
+    sudoku_board:redraw(DC, {500,500}, Board),
     true.
 
 set_val(Id, Val, Board, G) ->

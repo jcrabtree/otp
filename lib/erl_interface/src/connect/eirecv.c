@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  * 
- * Copyright Ericsson AB 1998-2010. All Rights Reserved.
+ * Copyright Ericsson AB 1998-2016. All Rights Reserved.
  * 
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
- * 
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  * 
  * %CopyrightEnd%
  */
@@ -59,22 +60,36 @@ ei_recv_internal (int fd,
   int arity;
   int version;
   int index = 0;
-  int i = 0;
-  int res;
+  int err;
   int show_this_msg = 0;
+  ei_socket_callbacks *cbs;
+  void *ctx;
+  ssize_t rlen;
+  unsigned tmo = ms == 0 ? EI_SCLBK_INF_TMO : ms;
 
-  /* get length field */
-  if ((res = ei_read_fill_t(fd, header, 4, ms)) != 4) 
-  {
-      erl_errno = (res == -2) ? ETIMEDOUT : EIO;
+  err = EI_GET_CBS_CTX__(&cbs, &ctx, fd);
+  if (err) {
+      EI_CONN_SAVE_ERRNO__(err);
       return -1;
   }
+
+  /* get length field */
+  rlen = 4;
+  err = ei_read_fill_ctx_t__(cbs, ctx, header, &rlen, tmo);
+  if (!err && rlen != 4)
+      err = EIO;
+  if (err) {
+      EI_CONN_SAVE_ERRNO__(err);
+      return -1;
+  }
+  
   len = get32be(s);
 
   /* got tick - respond and return */
   if (!len) {
     char tock[] = {0,0,0,0};
-    ei_write_fill_t(fd, tock, sizeof(tock), ms); /* Failure no problem */
+    ssize_t wlen = sizeof(tock);
+    ei_write_fill_ctx_t__(cbs, ctx, tock, &wlen, tmo); /* Failure no problem */
     *msglenp = 0;
     return 0;			/* maybe flag ERL_EAGAIN [sverkerw] */
   }
@@ -85,9 +100,12 @@ ei_recv_internal (int fd,
   ei_trace(-1,NULL);
   
   /* read enough to get at least entire header */
-  bytesread = (len > EIRECVBUF ? EIRECVBUF : len); 
-  if ((i = ei_read_fill_t(fd,header,bytesread,ms)) != bytesread) {
-      erl_errno = (i == -2) ? ETIMEDOUT : EIO;
+  rlen = bytesread = (len > EIRECVBUF ? EIRECVBUF : len);
+  err = ei_read_fill_ctx_t__(cbs, ctx, header, &rlen, tmo);
+  if (!err && rlen != bytesread)
+      err = EIO;
+  if (err) {
+      EI_CONN_SAVE_ERRNO__(err);
       return -1;
   }
 
@@ -108,7 +126,7 @@ ei_recv_internal (int fd,
   switch (msg->msgtype) {
   case ERL_SEND:          /* { SEND, Cookie, ToPid } */
     if (ei_tracelevel >= 4) show_this_msg = 1;
-    if (ei_decode_atom(header,&index,msg->cookie) 
+    if (ei_decode_atom_as(header,&index,msg->cookie,sizeof(msg->cookie),ERLANG_UTF8,NULL,NULL) 
 	|| ei_decode_pid(header,&index,&msg->to))
     {
 	erl_errno = EIO;
@@ -120,8 +138,8 @@ ei_recv_internal (int fd,
   case ERL_REG_SEND:     /* { REG_SEND, From, Cookie, ToName } */
     if (ei_tracelevel >= 4) show_this_msg = 1;
     if (ei_decode_pid(header,&index,&msg->from) 
-	|| ei_decode_atom(header,&index,msg->cookie) 
-	|| ei_decode_atom(header,&index,msg->toname))
+	|| ei_decode_atom_as(header,&index,msg->cookie,sizeof(msg->cookie),ERLANG_UTF8,NULL,NULL) 
+	|| ei_decode_atom_as(header,&index,msg->toname,sizeof(msg->toname),ERLANG_UTF8,NULL,NULL))
     {
 	erl_errno = EIO;
 	return -1;
@@ -157,7 +175,7 @@ ei_recv_internal (int fd,
     
   case ERL_SEND_TT:      /* { SEND_TT, Cookie, ToPid, TraceToken } */
     if (ei_tracelevel >= 4) show_this_msg = 1;
-    if (ei_decode_atom(header,&index,msg->cookie) 
+    if (ei_decode_atom_as(header,&index,msg->cookie,sizeof(msg->cookie),ERLANG_UTF8,NULL,NULL) 
 	|| ei_decode_pid(header,&index,&msg->to)
 	|| ei_decode_trace(header,&index,&msg->token))
     {
@@ -171,8 +189,8 @@ ei_recv_internal (int fd,
   case ERL_REG_SEND_TT: /* { REG_SEND_TT, From, Cookie, ToName, TraceToken } */
     if (ei_tracelevel >= 4) show_this_msg = 1;
     if (ei_decode_pid(header,&index,&msg->from) 
-	|| ei_decode_atom(header,&index,msg->cookie) 
-	|| ei_decode_atom(header,&index,msg->toname)
+	|| ei_decode_atom_as(header,&index,msg->cookie,sizeof(msg->cookie),ERLANG_UTF8,NULL,NULL) 
+	|| ei_decode_atom_as(header,&index,msg->toname,sizeof(msg->toname),ERLANG_UTF8,NULL,NULL)
 	|| ei_decode_trace(header,&index,&msg->token))
     {
 	erl_errno = EIO;
@@ -211,12 +229,17 @@ ei_recv_internal (int fd,
    */
   if (msglen > *bufsz) {
     if (staticbufp) {
-      int sz = EIRECVBUF;
       /* flush in rest of packet */
       while (remain > 0) {
-	if (remain < sz) sz = remain;
-	if ((i=ei_read_fill_t(fd,header,sz,ms)) <= 0) break;
-	remain -= i;
+          rlen = remain > EIRECVBUF ? EIRECVBUF : remain;
+          err = ei_read_fill_ctx_t__(cbs, ctx, header, &rlen, tmo);
+          if (err) {
+              EI_CONN_SAVE_ERRNO__(err);
+              return -1;
+          }
+          if (rlen == 0)
+              break;
+          remain -= rlen;
       }
       erl_errno = EMSGSIZE;
       return -1;
@@ -246,11 +269,15 @@ ei_recv_internal (int fd,
 
   /* read the rest of the message into callers buffer */
   if (remain > 0) {
-    if ((i = ei_read_fill_t(fd,mbuf+bytesread-index,remain,ms)) != remain) {
-      *msglenp = bytesread-index+1; /* actual bytes in users buffer */
-      erl_errno = (i == -2) ? ETIMEDOUT : EIO;
-      return -1;
-    }
+      rlen = remain;
+      err = ei_read_fill_ctx_t__(cbs, ctx, mbuf+bytesread-index, &rlen, tmo);
+      if (!err && rlen != remain)
+          err = EIO;
+      if (err) {
+          *msglenp = bytesread-index+1; /* actual bytes in users buffer */
+          EI_CONN_SAVE_ERRNO__(err);
+          return -1;
+      }
   }
 
   if (show_this_msg)

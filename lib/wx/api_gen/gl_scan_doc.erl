@@ -2,18 +2,19 @@
 %%--------------------------------------------------------------------
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2012. All Rights Reserved.
+%% Copyright Ericsson AB 2012-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%----------------------------------------------------------------------
@@ -56,8 +57,10 @@ gen_output({characters, String0}, #state{gen_output=true, type=Type, str=Str} = 
 		      mi -> case hd(Str) of
 				"/" -> String;
 				"*" -> String;
+				[215] -> String;
 				"+" -> String;
 				"-" -> String;
+				"=" -> String;
 				{fenced,_,_} -> String;
 				_ ->
 				    [$ |String]
@@ -206,6 +209,10 @@ gen_output({startElement, _Uri, "para", _QName, _Attributes}, #state{gen_output=
 	    State#state{str=[para|Str]}
     end;
 
+gen_output({endElement, _Uri, "para", _QName}, #state{gen_output=true, str=Str} = State) ->
+    %% Pick only the first paragraph in the descriptions
+    State#state{gen_output=false};
+
 %% gen_output({startElement, _Uri, What, _QName, _Attributes}, State) ->
 %%     io:format("Skipped ~s~n",[What]),
 %%     State;
@@ -268,7 +275,9 @@ fix_str([$<|Str]) ->
 fix_str([$>|Str]) ->
     [$&,$g,$t,$;|fix_str(Str)];
 fix_str("&times;"++Str) ->
-    [$*|fix_str(Str)];
+    [215|fix_str(Str)];
+%% fix_str([215|Str]) ->
+%%     [$*|fix_str(Str)];
 fix_str("&Prime;"++Str) ->
     [$"|fix_str(Str)];
 fix_str("&CenterDot;"++Str) ->
@@ -277,10 +286,12 @@ fix_str("&af;"++Str) ->
     fix_str(Str);
 fix_str("&it;"++Str) ->
     [$ |fix_str(Str)];
+fix_str("&nbsp;"++Str) ->
+    [$ |fix_str(Str)];
 fix_str([$&|Str]) ->
     [$&,$a,$m,$p,$; |fix_str(Str)];
-fix_str([C|Str]) when C > 255 ->
-    fix_str(Str);
+%% fix_str([C|Str]) when C > 255 ->
+%%     fix_str(Str);
 fix_str([C|Str]) ->
     [C|fix_str(Str)];
 fix_str([]) -> [].

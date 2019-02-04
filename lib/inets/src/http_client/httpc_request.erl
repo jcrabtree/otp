@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2004-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2004-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -87,9 +88,11 @@ send(SendAddr, Socket, SocketType,
 	case Address of
 	    SendAddr ->
 		{TmpHdrs2, Path ++ Query};
-	    _Proxy ->
+	    _Proxy when SocketType == ip_comm ->
 		TmpHdrs3 = handle_proxy(HttpOptions, TmpHdrs2), 
-		{TmpHdrs3, AbsUri}
+		{TmpHdrs3, AbsUri};
+	    _  ->
+		{TmpHdrs2, Path ++ Query}	
 	end,
     
     FinalHeaders = 
@@ -185,33 +188,13 @@ is_client_closing(Headers) ->
 %%%========================================================================
 %%% Internal functions
 %%%========================================================================
-post_data(Method, Headers, {ContentType, Body}, HeadersAsIs) 
-  when (Method =:= post) orelse (Method =:= put) ->
-    NewBody = case Headers#http_request_h.expect of
-		  "100-continue" ->
-		      "";
-		  _ ->
-		      Body
-	      end,
-    
-    NewHeaders = case HeadersAsIs of
-        [] ->
-            Headers#http_request_h{
-                'content-type' = ContentType,
-                'content-length' = case body_length(Body) of
-                    undefined ->
-                        % on upload streaming the caller must give a
-                        % value to the Content-Length header
-                        % (or use chunked Transfer-Encoding)
-                        Headers#http_request_h.'content-length';
-                    Len when is_list(Len) ->
-                        Len
-                    end
-            };
-        _ ->
-            HeadersAsIs
-    end,
-    
+post_data(Method, Headers, {ContentType, Body}, HeadersAsIs)
+    when (Method =:= post)
+         orelse (Method =:= put)
+         orelse (Method =:= patch)
+         orelse (Method =:= delete) ->
+    NewBody = update_body(Headers, Body),
+    NewHeaders = update_headers(Headers, ContentType, Body, HeadersAsIs),
     {NewHeaders, NewBody};
 
 post_data(_, Headers, _, []) ->
@@ -219,14 +202,56 @@ post_data(_, Headers, _, []) ->
 post_data(_, _, _, HeadersAsIs = [_|_]) ->
     {HeadersAsIs, ""}.
 
+update_body(Headers, Body) ->
+    case Headers#http_request_h.expect of
+        "100-continue" ->
+            "";
+        _ ->
+            Body
+    end.
+
+update_headers(Headers, ContentType, Body, []) ->
+    case Body of
+        [] ->
+            Headers1 = Headers#http_request_h{'content-length' = "0"},
+            handle_content_type(Headers1, ContentType);
+        <<>> ->
+            Headers1 = Headers#http_request_h{'content-length' = "0"},
+            handle_content_type(Headers1, ContentType);
+        {Fun, _Acc} when is_function(Fun, 1) ->
+            %% A client MUST NOT generate a 100-continue expectation in a request
+            %% that does not include a message body. This implies that either the
+            %% Content-Length or the Transfer-Encoding header MUST be present.
+            %% DO NOT send content-type when Body is empty.
+            Headers1 = Headers#http_request_h{'content-type' = ContentType},
+            handle_transfer_encoding(Headers1);
+        _ ->
+            Headers#http_request_h{
+              'content-length' = body_length(Body),
+              'content-type' = ContentType}
+    end;
+update_headers(_, _, _, HeadersAsIs) ->
+    HeadersAsIs.
+
+handle_transfer_encoding(Headers = #http_request_h{'transfer-encoding' = undefined}) ->
+    Headers;
+handle_transfer_encoding(Headers) ->
+    %% RFC7230 3.3.2
+    %% A sender MUST NOT send a 'Content-Length' header field in any message
+    %% that contains a 'Transfer-Encoding' header field.
+    Headers#http_request_h{'content-length' = undefined}.
+
 body_length(Body) when is_binary(Body) ->
    integer_to_list(size(Body));
 
 body_length(Body) when is_list(Body) ->
-  integer_to_list(length(Body));
+  integer_to_list(length(Body)).
 
-body_length({DataFun, _Acc}) when is_function(DataFun, 1) ->
-  undefined.
+%% Set 'Content-Type' when it is explicitly set.
+handle_content_type(Headers, "") ->
+    Headers;
+handle_content_type(Headers, ContentType) ->
+    Headers#http_request_h{'content-type' = ContentType}.
 
 method(Method) ->
     http_util:to_upper(atom_to_list(Method)).

@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2009-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2009-2016. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 
@@ -25,7 +26,8 @@
 -include_lib("wx/include/wx.hrl").
 
 -behaviour(wx_object).
--export([start/1, init/1, terminate/2,  code_change/3,
+-export([start/1, init/1,
+	 terminate/2,  code_change/3,
 	 handle_info/2, handle_call/3, handle_cast/2, handle_event/2]).
 
 -record(state, 
@@ -120,6 +122,7 @@ do_init(Config) ->
     wxWindow:connect(Panel, command_button_clicked),
     wxWindow:setSizer(Panel, Sz),
     wxSizer:layout(Sz),
+    wxWindow:refresh(Panel),
     wxScrolledWindow:setScrollRate(Panel, 5, 5),
     {Panel, #state{parent=Panel, config=Config}}.
 
@@ -149,6 +152,10 @@ handle_info(Msg, State) ->
     demo:format(State#state.config, "Got Info ~p~n",[Msg]),
     {noreply,State}.
 
+handle_call(shutdown, _From, State=#state{parent=Panel}) ->
+    wxPanel:destroy(Panel),
+    {stop, normal, ok, State};
+
 handle_call(Msg, _From, State) ->
     demo:format(State#state.config,"Got Call ~p~n",[Msg]),
     {reply,ok,State}.
@@ -160,7 +167,7 @@ handle_cast(Msg, State) ->
 code_change(_, _, State) ->
     {stop, ignore, State}.
 
-terminate(_Reason, _State) ->
+terminate(_Reason, _) ->
     ok.
 
 %%%%%  a copy from wxwidgets samples.

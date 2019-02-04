@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2010. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -29,11 +30,8 @@
 %%%-----------------------------------------------------------------
 %%% This module implements a process that configures the kernel
 %%% application.
-%%% Its purpose is that in the init phase add an error_logger
-%%% and when it dies (when the kernel application dies) deleting the
-%%% previously installed error_logger.
-%%% Also, this process waits for other nodes at startup, if
-%%% specified.
+%%% Its purpose is that in the init phase waits for other nodes at startup,
+%%% if specified.
 %%%-----------------------------------------------------------------
 start_link() -> gen_server:start_link(kernel_config, [], []).
 
@@ -93,7 +91,7 @@ code_change(_OldVsn, State, _Extra) ->
 sync_nodes() ->
     case catch get_sync_data() of
 	{error, Reason} = Error ->
-	    error_logger:format("~p", [Reason]),
+	    error_logger:format("~tp", [Reason]),
 	    Error;
 	{infinity, MandatoryNodes, OptionalNodes} ->
 	    case wait_nodes(MandatoryNodes, OptionalNodes) of
@@ -121,7 +119,7 @@ send_timeout(Timeout, Pid) ->
     end.
 
 wait_nodes(Mandatory, Optional) ->
-    net_kernel:monitor_nodes(true),
+    ok = net_kernel:monitor_nodes(true),
     lists:foreach(fun(Node) -> 
 		     case net_adm:ping(Node) of
 			 pong -> self() ! {nodeup, Node};
@@ -129,7 +127,9 @@ wait_nodes(Mandatory, Optional) ->
 		     end
 		  end,
 		  Mandatory ++ Optional),
-    rec_nodes(Mandatory, Optional).
+    R = rec_nodes(Mandatory, Optional),
+    ok = net_kernel:monitor_nodes(false),
+    R.
 
 rec_nodes([], []) -> ok;
 rec_nodes(Mandatory, Optional) ->

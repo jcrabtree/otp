@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1996-2010. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2018. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -20,7 +21,15 @@
 %%
 -module(mnesia_measure_test).
 -author('hakan@erix.ericsson.se').
--compile([export_all]).
+
+-export([init_per_testcase/2, end_per_testcase/2,
+         init_per_group/2, end_per_group/2,
+         all/0, groups/0]).
+
+-export([cost/1, dbn_meters/1,
+         ram_tpcb/1, disc_tpcb/1, disc_only_tpcb/1,
+         ram_meter/1, disc_meter/1, disc_only_meter/1]).
+
 
 -include("mnesia_test_lib.hrl").
 
@@ -38,42 +47,12 @@ end_per_testcase(Func, Conf) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 all() -> 
-    [{group, prediction}, {group, consumption},
-     {group, scalability}, {group, benchmarks}].
+    [{group, benchmarks}].
 
 groups() -> 
-    [{prediction, [],
-      [reader_disturbed_by_node_down,
-       writer_disturbed_by_node_down,
-       reader_disturbed_by_node_up,
-       writer_disturbed_by_node_up,
-       reader_disturbed_by_schema_ops,
-       writer_disturbed_by_schema_ops,
-       reader_disturbed_by_checkpoint,
-       writer_disturbed_by_checkpoint,
-       reader_disturbed_by_dump_log,
-       writer_disturbed_by_dump_log,
-       reader_disturbed_by_backup, writer_disturbed_by_backup,
-       reader_disturbed_by_restore,
-       writer_disturbed_by_restore, {group, fairness}]},
-     {fairness, [],
-      [reader_competing_with_reader,
-       reader_competing_with_writer,
-       writer_competing_with_reader,
-       writer_competing_with_writer]},
-     {consumption, [],
-      [measure_resource_consumption,
-       determine_resource_leakage]},
-     {scalability, [],
-      [determine_system_limits, performance_at_min_config,
-       performance_at_max_config, performance_at_full_load,
-       resource_consumption_at_min_config,
-       resource_consumption_at_max_config,
-       resource_consumption_at_full_load]},
-     {benchmarks, [],
+    [{benchmarks, [],
       [{group, meter}, cost, dbn_meters,
-       measure_all_api_functions, {group, tpcb},
-       mnemosyne_vs_mnesia_kernel]},
+       {group, tpcb}]},
      {tpcb, [], [ram_tpcb, disc_tpcb, disc_only_tpcb]},
      {meter, [], [ram_meter, disc_meter, disc_only_meter]}].
 

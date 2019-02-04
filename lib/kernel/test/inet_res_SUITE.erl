@@ -1,25 +1,25 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2009-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2009-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
 -module(inet_res_SUITE).
 
 -include_lib("common_test/include/ct.hrl").
--include("test_server_line.hrl").
 
 -include_lib("kernel/include/inet.hrl").
 -include_lib("kernel/src/inet_dns.hrl").
@@ -42,7 +42,24 @@
 
 -define(RUN_NAMED, "run-named").
 
-suite() -> [{ct_hooks,[ts_install_cth]}].
+%% This test suite use a script ?RUN_NAMED that tries to start
+%% a temporary local nameserver BIND 8 or 9 that must be installed
+%% on your machine.
+%%
+%% For example, on Ubuntu 14.04, as root:
+%%     apt-get install bind9
+%% Now, that is not enough since Apparmor will not allow
+%% the nameserver daemon /usr/sbin/named to read from the test directory.
+%% Assuming that you run tests in /ldisk/daily_build, and still on
+%% Ubuntu 14.04, make /usr/apparmor.d/local/usr.sbin.named contain:
+%%     /ldisk/daily_build/** r,
+%% And yes; the trailing comma must be there...
+
+
+
+suite() ->
+    [{ct_hooks,[ts_install_cth]},
+     {timetrap,{minutes,1}}].
 
 all() -> 
     [basic, resolve, edns0, txt_record, files_monitor,
@@ -77,8 +94,8 @@ zone_dir(TC) ->
     end.
 
 init_per_testcase(Func, Config) ->
-    PrivDir = ?config(priv_dir, Config),
-    DataDir = ?config(data_dir, Config),
+    PrivDir = proplists:get_value(priv_dir, Config),
+    DataDir = proplists:get_value(data_dir, Config),
     try ns_init(zone_dir(Func), PrivDir, DataDir) of
 	NsSpec ->
 	    Lookup = inet_db:res_option(lookup),
@@ -88,29 +105,27 @@ init_per_testcase(Func, Config) ->
 		    inet_db:ins_alt_ns(IP, Port);
 		_ -> ok
 	    end,
-	    Dog = test_server:timetrap(test_server:seconds(20)),
-	    [{nameserver,NsSpec},{res_lookup,Lookup},{watchdog,Dog}|Config]
+	    [{nameserver,NsSpec},{res_lookup,Lookup}|Config]
     catch
 	SkipReason ->
 	    {skip,SkipReason}
     end.
 
 end_per_testcase(_Func, Config) ->
-    test_server:timetrap_cancel(?config(watchdog, Config)),
-    inet_db:set_lookup(?config(res_lookup, Config)),
-    NsSpec = ?config(nameserver, Config),
+    inet_db:set_lookup(proplists:get_value(res_lookup, Config)),
+    NsSpec = proplists:get_value(nameserver, Config),
     case NsSpec of
 	{_,{IP,Port},_} ->
 	    inet_db:del_alt_ns(IP, Port);
 	_ -> ok
     end,
-    ns_end(NsSpec, ?config(priv_dir, Config)).
+    ns_end(NsSpec, proplists:get_value(priv_dir, Config)).
 
 %% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Nameserver control
 
 ns(Config) ->
-    {_ZoneDir,NS,_P} = ?config(nameserver, Config),
+    {_ZoneDir,NS,_P} = proplists:get_value(nameserver, Config),
     NS.
 
 ns_init(ZoneDir, PrivDir, DataDir) ->
@@ -119,7 +134,7 @@ ns_init(ZoneDir, PrivDir, DataDir) ->
 	{unix,_} ->
 	    PortNum = case {os:type(),os:version()} of
 			  {{unix,solaris},{M,V,_}} when M =< 5, V < 10 ->
-			      11895 + random:uniform(100);
+			      11895 + rand:uniform(100);
 			  _ ->
 			      {ok,S} = gen_udp:open(0, [{reuseaddr,true}]),
 			      {ok,PNum} = inet:port(S),
@@ -202,10 +217,10 @@ proxy_start(TC, {NS,P}) ->
 	spawn_link(
 	  fun () ->
 		  try proxy_start(TC, NS, P, Parent, Tag)
-		  catch C:X ->
+		  catch C:X:Stacktrace ->
 			  io:format(
 			    "~w: ~w:~p ~p~n",
-			    [self(),C,X,erlang:get_stacktrace()])
+			    [self(),C,X,Stacktrace])
 		  end
 	  end),
     receive {started,Tag,Port} ->
@@ -277,11 +292,11 @@ proxy_ns({proxy,_,_,ProxyNS}) -> ProxyNS.
 %%
 %% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-basic(doc) ->
-    ["Lookup an A record with different API functions"];
+%% Lookup an A record with different API functions.
 basic(Config) when is_list(Config) ->
     NS = ns(Config),
     Name = "ns.otptest",
+    NameC = caseflip(Name),
     IP = {127,0,0,254},
     %%
     %% nslookup
@@ -292,6 +307,17 @@ basic(Config) when is_list(Config) ->
     Bin1 = inet_dns:encode(Msg1),
     %%io:format("Bin1 = ~w~n", [Bin1]),
     {ok,Msg1} = inet_dns:decode(Bin1),
+    %% Now with scrambled case
+    {ok,Msg1b} = inet_res:nslookup(NameC, in, a, [NS]),
+    io:format("~p~n", [Msg1b]),
+    [RR1b] = inet_dns:msg(Msg1b, anlist),
+    IP = inet_dns:rr(RR1b, data),
+    Bin1b = inet_dns:encode(Msg1b),
+    %%io:format("Bin1b = ~w~n", [Bin1b]),
+    {ok,Msg1b} = inet_dns:decode(Bin1b),
+    true =
+	(tolower(inet_dns:rr(RR1, domain))
+	 =:= tolower(inet_dns:rr(RR1b, domain))),
     %%
     %% resolve
     {ok,Msg2} = inet_res:resolve(Name, in, a, [{nameservers,[NS]},verbose]),
@@ -301,79 +327,144 @@ basic(Config) when is_list(Config) ->
     Bin2 = inet_dns:encode(Msg2),
     %%io:format("Bin2 = ~w~n", [Bin2]),
     {ok,Msg2} = inet_dns:decode(Bin2),
+    %% Now with scrambled case
+    {ok,Msg2b} = inet_res:resolve(NameC, in, a, [{nameservers,[NS]},verbose]),
+    io:format("~p~n", [Msg2b]),
+    [RR2b] = inet_dns:msg(Msg2b, anlist),
+    IP = inet_dns:rr(RR2b, data),
+    Bin2b = inet_dns:encode(Msg2b),
+    %%io:format("Bin2b = ~w~n", [Bin2b]),
+    {ok,Msg2b} = inet_dns:decode(Bin2b),
+    true =
+	(tolower(inet_dns:rr(RR2, domain))
+	  =:= tolower(inet_dns:rr(RR2b, domain))),
     %%
     %% lookup
     [IP] = inet_res:lookup(Name, in, a, [{nameservers,[NS]},verbose]),
+    [IP] = inet_res:lookup(NameC, in, a, [{nameservers,[NS]},verbose]),
     %%
     %% gethostbyname
     {ok,#hostent{h_addr_list=[IP]}} = inet_res:gethostbyname(Name),
+    {ok,#hostent{h_addr_list=[IP]}} = inet_res:gethostbyname(NameC),
     %%
     %% getbyname
     {ok,#hostent{h_addr_list=[IP]}} = inet_res:getbyname(Name, a),
+    {ok,#hostent{h_addr_list=[IP]}} = inet_res:getbyname(NameC, a),
     ok.
 
 %% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-resolve(doc) ->
-    ["Lookup different records using resolve/2..4"];
+%% Lookup different records using resolve/2..4.
 resolve(Config) when is_list(Config) ->
+    Class = in,
     NS = ns(Config),
     Domain = "otptest",
     RDomain4 = "0.0.127.in-addr.arpa",
     RDomain6 = "0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa",
     Name = "resolve."++Domain,
-    L = [{in,a,Name,[{127,0,0,28}],undefined},
-	 {in,aaaa,Name,[{0,0,0,0,0,0,32512,28}],undefined},
-	 {in,cname,"cname."++Name,[Name],undefined},
-	 {in,a,"cname."++Name,[Name,{127,0,0,28}],undefined},
-	 {in,ns,"ns."++Name,[],[Name]},
-	 {in,soa,Domain,[],[{"ns.otptest","lsa.otptest",1,60,10,300,30}]},
+    L = [{a,Name,[{a,{127,0,0,28}}],undefined},
+	 {aaaa,Name,[{aaaa,{0,0,0,0,0,0,32512,28}}],undefined},
+	 {cname,"cname."++Name,[{cname,Name}],undefined},
+	 {a,"cname."++Name,[{cname,Name},{a,{127,0,0,28}}],undefined},
+	 {ns,"ns."++Name,[],[{ns,Name}]},
+	 {soa,Domain,[],[{soa,{"ns.otptest","lsa.otptest",1,60,10,300,30}}]},
 	 %% WKS: protocol TCP (6), services (bits) TELNET (23) and SMTP (25)
-	 {in,wks,"wks."++Name,[{{127,0,0,28},6,<<0,0,1,64>>}],undefined},
-	 {in,ptr,"28."++RDomain4,[Name],undefined},
-	 {in,ptr,"c.1.0.0.0.0.f.7."++RDomain6,[Name],undefined},
-	 {in,hinfo,Name,[{"BEAM","Erlang/OTP"}],undefined},
-	 {in,mx,RDomain4,[{10,"mx."++Domain}],undefined},
-	 {in,srv,"_srv._tcp."++Name,[{10,3,4711,Name}],undefined},
-	 {in,naptr,"naptr."++Name,
-	  [{10,5,"s","http","","_srv._tcp."++Name}],undefined},
-	 {in,txt,"txt."++Name,
-	  [["Hej ","du ","glade "],["ta ","en ","spade!"]],undefined},
-	 {in,mb,"mb."++Name,["mx."++Name],undefined},
-	 {in,mg,"mg."++Name,["lsa."++Domain],undefined},
-	 {in,mr,"mr."++Name,["lsa."++Domain],undefined},
-	 {in,minfo,"minfo."++Name,
-	  [{"minfo-owner."++Name,"minfo-bounce."++Name}],undefined},
-	 {in,any,"cname."++Name,[Name],undefined},
-	 {in,any,Name,[{127,0,0,28},
-		       {0,0,0,0,0,0,32512,28},
-		       {"BEAM","Erlang/OTP"}],undefined}
+	 {wks,"wks."++Name,[{wks,{{127,0,0,28},6,<<0,0,1,64>>}}],undefined},
+	 {ptr,"28."++RDomain4,[{ptr,Name}],undefined},
+	 {ptr,"c.1.0.0.0.0.f.7."++RDomain6,[{ptr,Name}],undefined},
+	 {hinfo,Name,[{hinfo,{"BEAM","Erlang/OTP"}}],undefined},
+	 {mx,RDomain4,[{mx,{10,"mx."++Domain}}],undefined},
+	 {srv,"_srv._tcp."++Name,[{srv,{10,3,4711,Name}}],undefined},
+	 {naptr,"naptr."++Name,
+	  [{naptr,{10,5,"s","http","","_srv._tcp."++Name}}],
+	  undefined},
+	 {txt,"txt."++Name,
+	  [{txt,["Hej ","du ","glade "]},{txt,["ta ","en ","spade!"]}],
+	  undefined},
+	 {mb,"mb."++Name,[{mb,"mx."++Name}],undefined},
+	 {mg,"mg."++Name,[{mg,"Lsa."++Domain}],undefined},
+	 {mr,"mr."++Name,[{mr,"LSA."++Domain}],undefined},
+	 {minfo,"minfo."++Name,
+	  [{minfo,{"minfo-OWNER."++Name,"MinfoBounce."++Name}}],
+	  undefined},
+	 {any,"cname."++Name,[{cname,Name}],undefined},
+	 {any,Name,
+	  [{a,{127,0,0,28}},
+	   {aaaa,{0,0,0,0,0,0,32512,28}},
+	   {hinfo,{"BEAM","Erlang/OTP"}}],
+	  undefined}
 	],
-    resolve([{edns,false},{nameservers,[NS]}], L),
-    resolve([{edns,0},{nameservers,[NS]}], L).
+    resolve(Class, [{edns,0},{nameservers,[NS]}], L),
+    resolve(Class, [{edns,false},{nameservers,[NS]}], L),
+    %% Again, to see ensure the cache does not mess things up
+    resolve(Class, [{edns,0},{nameservers,[NS]}], L),
+    resolve(Class, [{edns,false},{nameservers,[NS]}], L).
 
-resolve(_Opts, []) -> ok;
-resolve(Opts, [{Class,Type,Name,Answers,Authority}=Q|Qs]) ->
+resolve(_Class, _Opts, []) ->
+    ok;
+resolve(Class, Opts, [{Type,Nm,Answers,Authority}=Q|Qs]) ->
     io:format("Query: ~p~nOptions: ~p~n", [Q,Opts]),
-    {ok,Msg} = inet_res:resolve(Name, Class, Type, Opts),
+    {Name,NameC} =
+	case erlang:phash2(Q) band 4 of
+	    0 ->
+		{Nm,caseflip(Nm)};
+	    _ ->
+		{caseflip(Nm),Nm}
+	end,
     AnList =
 	if
 	    Answers =/= undefined ->
-		lists:sort(Answers);
+		normalize_answers(Answers);
 	    true ->
 		undefined
 	end,
     NsList =
 	if
 	    Authority =/= undefined ->
-		lists:sort(Authority);
+		normalize_answers(Authority);
 	    true ->
 		undefined
 	end,
-    case {lists:sort
-	  ([inet_dns:rr(RR, data) || RR <- inet_dns:msg(Msg, anlist)]),
-	  lists:sort
-	  ([inet_dns:rr(RR, data) || RR <- inet_dns:msg(Msg, nslist)])} of
+    {ok,Msg} = inet_res:resolve(Name, Class, Type, Opts),
+    check_msg(Class, Type, Msg, AnList, NsList),
+    {ok,MsgC} = inet_res:resolve(NameC, Class, Type, Opts),
+    check_msg(Class, Type, MsgC, AnList, NsList),
+    resolve(Class, Opts, Qs).
+
+
+
+normalize_answers(AnList) ->
+    lists:sort([normalize_answer(Answer) || Answer <- AnList]).
+
+normalize_answer({soa,{NS,HM,Ser,Ref,Ret,Exp,Min}}) ->
+    {tolower(NS),tolower_email(HM),Ser,Ref,Ret,Exp,Min};
+normalize_answer({mx,{Prio,DN}}) ->
+    {Prio,tolower(DN)};
+normalize_answer({srv,{Prio,Weight,Port,DN}}) ->
+    {Prio,Weight,Port,tolower(DN)};
+normalize_answer({naptr,{Order,Pref,Flags,Service,RE,Repl}}) ->
+    {Order,Pref,Flags,Service,RE,tolower(Repl)};
+normalize_answer({minfo,{RespM,ErrM}}) ->
+    {tolower_email(RespM),tolower_email(ErrM)};
+normalize_answer({T,MN}) when T =:= mg; T =:= mr ->
+    tolower_email(MN);
+normalize_answer({T,DN}) when T =:= cname; T =:= ns; T =:= ptr; T =:= mb ->
+    tolower(DN);
+normalize_answer(Answer) ->
+    Answer.
+
+check_msg(Class, Type, Msg, AnList, NsList) ->
+    io:format("check_msg Type: ~p, Msg: ~p~n.", [Type,Msg]),
+    case {normalize_answers(
+	    [begin
+		 Class = inet_dns:rr(RR, class),
+		 {inet_dns:rr(RR, type),inet_dns:rr(RR, data)}
+	     end || RR <- inet_dns:msg(Msg, anlist)]),
+	  normalize_answers(
+	    [begin
+		 Class = inet_dns:rr(RR, class),
+		 {inet_dns:rr(RR, type),inet_dns:rr(RR, data)}
+	     end || RR <- inet_dns:msg(Msg, nslist)])} of
 	{AnList,NsList} ->
 	    ok;
 	{NsList,AnList} when Type =:= ns ->
@@ -389,12 +480,11 @@ resolve(Opts, [{Class,Type,Name,Answers,Authority}=Q|Qs]) ->
     end,
     Buf = inet_dns:encode(Msg),
     {ok,Msg} = inet_dns:decode(Buf),
-    resolve(Opts, Qs).
+    ok.
 
 %% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-edns0(doc) ->
-    ["Test EDNS and truncation"];
+%% Test EDNS and truncation.
 edns0(Config) when is_list(Config) ->
     NS = ns(Config),
     Domain = "otptest",
@@ -455,10 +545,7 @@ inet_res_filter(Anlist, Class, Type) ->
 
 %% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-txt_record(suite) ->
-    [];
-txt_record(doc) ->
-    ["Tests TXT records"];
+%% Tests TXT records.
 txt_record(Config) when is_list(Config) ->
     D1 = "cslab.ericsson.net",
     D2 = "mail1.cslab.ericsson.net",
@@ -477,10 +564,7 @@ txt_record(Config) when is_list(Config) ->
 
 %% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-files_monitor(suite) ->
-    [];
-files_monitor(doc) ->
-    ["Tests monitoring of /etc/hosts and /etc/resolv.conf, but not them"];
+%% Tests monitoring of /etc/hosts and /etc/resolv.conf, but not them.
 files_monitor(Config) when is_list(Config) ->
     Search = inet_db:res_option(search),
     HostsFile = inet_db:res_option(hosts_file),
@@ -495,8 +579,9 @@ files_monitor(Config) when is_list(Config) ->
     end.
 
 do_files_monitor(Config) ->
-    Dir = ?config(priv_dir, Config),
+    Dir = proplists:get_value(priv_dir, Config),
     {ok,Hostname} = inet:gethostname(),
+    io:format("Hostname = ~p.~n", [Hostname]),
     FQDN =
 	case inet_db:res_option(domain) of
 	    "" ->
@@ -504,11 +589,13 @@ do_files_monitor(Config) ->
 	    _ ->
 		Hostname++"."++inet_db:res_option(domain)
 	end,
+    io:format("FQDN = ~p.~n", [FQDN]),
     HostsFile = filename:join(Dir, "files_monitor_hosts"),
     ResolvConf = filename:join(Dir, "files_monitor_resolv.conf"),
     ok = inet_db:res_option(resolv_conf, ResolvConf),
     ok = inet_db:res_option(hosts_file, HostsFile),
     [] = inet_db:res_option(search),
+    %% The inet function will use its final fallback to find this host
     {ok,#hostent{h_name = Hostname,
 		 h_addrtype = inet,
 		 h_length = 4,
@@ -521,6 +608,7 @@ do_files_monitor(Config) ->
     {error,nxdomain} = inet_res:gethostbyname(FQDN),
     {ok,{127,0,0,10}} = inet:getaddr("mx.otptest", inet),
     {ok,{0,0,0,0,0,0,32512,28}} = inet:getaddr("resolve.otptest", inet6),
+    %% The inet function will use its final fallback to find this host
     {ok,#hostent{h_name = Hostname,
 		 h_addrtype = inet6,
 		 h_length = 16,
@@ -565,8 +653,7 @@ do_files_monitor(Config) ->
 
 %% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-last_ms_answer(doc) ->
-    ["Answer just when timeout is triggered (OTP-9221)"];
+%% Answer just when timeout is triggered (OTP-9221).
 last_ms_answer(Config) when is_list(Config) ->
     NS = ns(Config),
     Name = "ns.otptest",
@@ -603,3 +690,41 @@ ipv4_to_ipv6() -> inet_SUITE:ipv4_to_ipv6().
 ipv4_to_ipv6(Config) -> inet_SUITE:ipv4_to_ipv6(Config).
 host_and_addr() -> inet_SUITE:host_and_addr().
 host_and_addr(Config) -> inet_SUITE:host_and_addr(Config).
+
+
+
+%% Case flip helper
+
+caseflip([C|Cs]) when is_integer(C), $a =< C, C =< $z ->
+    [(C - $a + $A)|caseflip_skip(Cs)];
+caseflip([C|Cs]) when is_integer(C), $A =< C, C =< $Z ->
+    [(C - $A + $a)|caseflip_skip(Cs)];
+caseflip([C|Cs]) ->
+    [C|caseflip(Cs)];
+caseflip([]) ->
+    [].
+
+caseflip_skip([C|Cs]) when is_integer(C), $a =< C, C =< $z ->
+    [C|caseflip(Cs)];
+caseflip_skip([C|Cs]) when is_integer(C), $A =< C, C =< $Z ->
+    [C|caseflip(Cs)];
+caseflip_skip([C|Cs]) ->
+    [C|caseflip_skip(Cs)];
+caseflip_skip([]) ->
+    [].
+
+tolower_email([$.|Cs]) ->
+    [$.|tolower(Cs)];
+tolower_email([C|Cs]) ->
+    [C|tolower_email(Cs)].
+
+%% Case fold to lower case according to RFC 4343
+%%
+tolower([C|Cs]) when is_integer(C) ->
+    if  $A =< C, C =< $Z ->
+	    [(C - $A + $a)|tolower(Cs)];
+	true ->
+	    [C|tolower(Cs)]
+    end;
+tolower([]) ->
+    [].

@@ -1,31 +1,30 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2006-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2006-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
 
-%%% @doc Distributed test execution control for Common Test.
-%%% <p>This module exports functions for running Common Test nodes
-%%% on multiple hosts in parallel.</p>
 -module(ct_master).
 
 -export([run/1,run/3,run/4]).
 -export([run_on_node/2,run_on_node/3]).
 -export([run_test/1,run_test/2]).
--export([basic_html/1]).
+-export([get_event_mgr_ref/0]).
+-export([basic_html/1,esc_chars/1]).
 
 -export([abort/0,abort/1,progress/0]).
 
@@ -43,96 +42,56 @@
 		blocked=[]
 		}).
 
-%%%-----------------------------------------------------------------
-%%% @spec run_test(Node,Opts) -> ok
-%%%       Node = atom()
-%%%       Opts = [OptTuples]
-%%%   OptTuples = {config,CfgFiles} | {dir,TestDirs} | {suite,Suites} |
-%%%               {testcase,Cases} | {spec,TestSpecs} | {allow_user_terms,Bool} | 
-%%%               {logdir,LogDir} | {event_handler,EventHandlers} | 
-%%%               {silent_connections,Conns} | {cover,CoverSpecFile} |
-%%%		  {userconfig, UserCfgFiles}
-%%%       CfgFiles = string() | [string()]
-%%%       TestDirs = string() | [string()]
-%%%       Suites = atom() | [atom()]
-%%%       Cases = atom() | [atom()]
-%%%       TestSpecs = string() | [string()]
-%%%       LogDir = string()
-%%%       EventHandlers = EH | [EH]
-%%%       EH = atom() | {atom(),InitArgs} | {[atom()],InitArgs}
-%%%       InitArgs = [term()] 
-%%%       Conns = all | [atom()]
-%%%
-%%% @doc Tests are spawned on <code>Node</code> using <code>ct:run_test/1</code>.
 run_test(Node,Opts) ->
     run_test([{Node,Opts}]).
 
-%%% @hidden
 run_test({Node,Opts}) ->
     run_test([{Node,Opts}]);
 run_test(NodeOptsList) when is_list(NodeOptsList) ->
     start_master(NodeOptsList).
 
-%%%-----------------------------------------------------------------
-%%% @spec run(TestSpecs,AllowUserTerms,InclNodes,ExclNodes) -> ok
-%%%       TestSpecs = string() | [SeparateOrMerged]
-%%%       SeparateOrMerged = string() | [string()]
-%%%       AllowUserTerms = bool()
-%%%       InclNodes = [atom()]
-%%%       ExclNodes = [atom()]
-%%%
-%%% @doc Tests are spawned on the nodes as specified in <code>TestSpecs</code>.
-%%% Each specification in TestSpec will be handled separately. It is however possible
-%%% to also specify a list of specifications that should be merged into one before
-%%% the tests are executed. Any test without a particular node specification will 
-%%% also be executed on the nodes in <code>InclNodes</code>. Nodes in the 
-%%% <code>ExclNodes</code> list will be excluded from the test.
 run([TS|TestSpecs],AllowUserTerms,InclNodes,ExclNodes) when is_list(TS),
 							    is_list(InclNodes),
 							    is_list(ExclNodes) ->
-    TS1 =
-	case TS of
-	    List=[S|_] when is_list(S) -> List;
-	    Spec -> [Spec]
-	end,
-    Result =
-	case catch ct_testspec:collect_tests_from_file(TS1,InclNodes,AllowUserTerms) of
-	    {error,Reason} ->
-		{error,Reason};
-	    TSRec=#testspec{logdir=AllLogDirs,
-			    config=StdCfgFiles,
-			    userconfig=UserCfgFiles,
-			    include=AllIncludes,
-			    init=AllInitOpts,
-			    event_handler=AllEvHs} ->
-	        AllCfgFiles = {StdCfgFiles, UserCfgFiles},
-		RunSkipPerNode = ct_testspec:prepare_tests(TSRec),
-		RunSkipPerNode2 = exclude_nodes(ExclNodes,RunSkipPerNode),
-		run_all(RunSkipPerNode2,AllLogDirs,AllCfgFiles,AllEvHs,
-			AllIncludes,[],[],AllInitOpts,TS1)
-	end,
-    [{TS,Result} | run(TestSpecs,AllowUserTerms,InclNodes,ExclNodes)];
+    %% Note: [Spec] means run one test with Spec
+    %%       [Spec1,Spec2] means run two tests separately
+    %%       [[Spec1,Spec2]] means run one test, with the two specs merged
+    case catch ct_testspec:collect_tests_from_file([TS],InclNodes,
+						   AllowUserTerms) of
+	{error,Reason} ->
+	    [{error,Reason} | run(TestSpecs,AllowUserTerms,InclNodes,ExclNodes)];
+	Tests ->
+	    RunResult =
+		lists:map(
+		  fun({Specs,TSRec=#testspec{logdir=AllLogDirs,
+					      config=StdCfgFiles,
+					      userconfig=UserCfgFiles,
+					      include=AllIncludes,
+					      init=AllInitOpts,
+					      event_handler=AllEvHs}}) ->
+			  AllCfgFiles =
+			      {StdCfgFiles,UserCfgFiles},
+			  RunSkipPerNode =
+			      ct_testspec:prepare_tests(TSRec),
+			  RunSkipPerNode2 =
+			      exclude_nodes(ExclNodes,RunSkipPerNode),
+			  TSList = if is_integer(hd(TS)) -> [TS];
+				      true -> TS end,
+			  {Specs,run_all(RunSkipPerNode2,AllLogDirs,
+					 AllCfgFiles,AllEvHs,
+					 AllIncludes,[],[],AllInitOpts,TSList)}
+		  end, Tests),
+	    RunResult ++ run(TestSpecs,AllowUserTerms,InclNodes,ExclNodes)
+    end;
 run([],_,_,_) ->
     [];
-run(TS,AllowUserTerms,InclNodes,ExclNodes) when is_list(InclNodes), is_list(ExclNodes) ->
+run(TS,AllowUserTerms,InclNodes,ExclNodes) when is_list(InclNodes),
+						is_list(ExclNodes) ->
     run([TS],AllowUserTerms,InclNodes,ExclNodes).
 
-%%%-----------------------------------------------------------------
-%%% @spec run(TestSpecs,InclNodes,ExclNodes) -> ok
-%%%       TestSpecs = string() | [SeparateOrMerged]
-%%%       SeparateOrMerged = string() | [string()]
-%%%       InclNodes = [atom()]
-%%%       ExclNodes = [atom()]
-%%%
-%%% @equiv run(TestSpecs,false,InclNodes,ExclNodes)
 run(TestSpecs,InclNodes,ExclNodes) ->
     run(TestSpecs,false,InclNodes,ExclNodes).
 
-%%%-----------------------------------------------------------------
-%%% @spec run(TestSpecs) -> ok
-%%%       TestSpecs = string() | [SeparateOrMerged]
-%%%
-%%% @equiv run(TestSpecs,false,[],[]) 
 run(TestSpecs=[TS|_]) when is_list(TS) ->
     run(TestSpecs,false,[],[]);
 run(TS) ->
@@ -145,48 +104,35 @@ exclude_nodes([],RunSkipPerNode) ->
     RunSkipPerNode.
 
 
-%%%-----------------------------------------------------------------
-%%% @spec run_on_node(TestSpecs,AllowUserTerms,Node) -> ok
-%%%       TestSpecs = string() | [SeparateOrMerged]
-%%%       SeparateOrMerged = string() | [string()]
-%%%       AllowUserTerms = bool()
-%%%       Node = atom()
-%%%
-%%% @doc Tests are spawned on <code>Node</code> according to <code>TestSpecs</code>.
 run_on_node([TS|TestSpecs],AllowUserTerms,Node) when is_list(TS),is_atom(Node) ->
-    TS1 =
-	case TS of
-	    [List|_] when is_list(List) -> List;
-	    Spec -> [Spec]
-	end,
-    Result = 
-	case catch ct_testspec:collect_tests_from_file(TS1,[Node],AllowUserTerms) of
-	    {error,Reason} ->
-		{error,Reason};
-	    TSRec=#testspec{logdir=AllLogDirs,
-			    config=StdCfgFiles,
-			    init=AllInitOpts,
-			    include=AllIncludes,
-			    userconfig=UserCfgFiles,
-			    event_handler=AllEvHs} ->
-	        AllCfgFiles = {StdCfgFiles, UserCfgFiles},
-		{Run,Skip} = ct_testspec:prepare_tests(TSRec,Node),
-		run_all([{Node,Run,Skip}],AllLogDirs,AllCfgFiles,AllEvHs,
-			AllIncludes, [],[],AllInitOpts,TS1)
-	end,
-    [{TS,Result} | run_on_node(TestSpecs,AllowUserTerms,Node)];
+    case catch ct_testspec:collect_tests_from_file([TS],[Node],
+						   AllowUserTerms) of
+	{error,Reason} ->
+	    [{error,Reason} | run_on_node(TestSpecs,AllowUserTerms,Node)];
+	Tests ->
+	    RunResult =
+		lists:map(
+		  fun({Specs,TSRec=#testspec{logdir=AllLogDirs,
+					     config=StdCfgFiles,
+					     init=AllInitOpts,
+					     include=AllIncludes,
+					     userconfig=UserCfgFiles,
+					     event_handler=AllEvHs}}) ->
+			  AllCfgFiles = {StdCfgFiles,UserCfgFiles},
+			  {Run,Skip} = ct_testspec:prepare_tests(TSRec,Node),
+			  TSList = if is_integer(hd(TS)) -> [TS];
+				      true -> TS end,			  
+			  {Specs,run_all([{Node,Run,Skip}],AllLogDirs,
+					 AllCfgFiles,AllEvHs,
+					 AllIncludes, [],[],AllInitOpts,TSList)}
+		  end, Tests),
+	    RunResult ++ run_on_node(TestSpecs,AllowUserTerms,Node)
+    end;
 run_on_node([],_,_) ->
     [];
 run_on_node(TS,AllowUserTerms,Node) when is_atom(Node) ->
     run_on_node([TS],AllowUserTerms,Node).
 
-%%%-----------------------------------------------------------------
-%%% @spec run_on_node(TestSpecs,Node) -> ok
-%%%       TestSpecs = string() | [SeparateOrMerged]
-%%%       SeparateOrMerged = string() | [string()]
-%%%       Node = atom()
-%%%
-%%% @equiv run_on_node(TestSpecs,false,Node)
 run_on_node(TestSpecs,Node) ->
     run_on_node(TestSpecs,false,Node).
 
@@ -244,49 +190,33 @@ run_all([],AllLogDirs,_,AllEvHs,_AllIncludes,
 		       {value,{_,Dir}} -> Dir;
 		       false -> "."
 		   end,
-    log(tty,"Master Logdir","~s",[MasterLogDir]),
-    start_master(lists:reverse(NodeOpts),Handlers,MasterLogDir,LogDirs,InitOptions,Specs),
+    log(tty,"Master Logdir","~ts",[MasterLogDir]),
+    start_master(lists:reverse(NodeOpts),Handlers,MasterLogDir,
+		 LogDirs,InitOptions,Specs),
     ok.
     
 
-%%%-----------------------------------------------------------------
-%%% @spec abort() -> ok
-%%%
-%%% @doc Stops all running tests.
 abort() ->
     call(abort).
 
-%%%-----------------------------------------------------------------
-%%% @spec abort(Nodes) -> ok
-%%%       Nodes = atom() | [atom()]
-%%%
-%%% @doc Stops tests on specified nodes.
 abort(Nodes) when is_list(Nodes) ->
     call({abort,Nodes});
 
 abort(Node) when is_atom(Node) ->
     abort([Node]).
     
-%%%-----------------------------------------------------------------
-%%% @spec progress() -> [{Node,Status}]
-%%%       Node = atom()
-%%%       Status = finished_ok | ongoing | aborted | {error,Reason}
-%%%       Reason = term()
-%%%
-%%% @doc Returns test progress. If <code>Status</code> is <code>ongoing</code>,
-%%% tests are running on the node and have not yet finished.
 progress() ->
     call(progress).
 
-%%%-----------------------------------------------------------------
-%%% @spec basic_html(Bool) -> ok
-%%%       Bool = true | false
-%%%
-%%% @doc If set to true, the ct_master logs will be written on a
-%%%      primitive html format, not using the Common Test CSS style
-%%%      sheet.
+get_event_mgr_ref() ->
+    ?CT_MEVMGR_REF.
+
 basic_html(Bool) ->
     application:set_env(common_test_master, basic_html, Bool),
+    ok.
+
+esc_chars(Bool) ->
+    application:set_env(common_test_master, esc_chars, Bool),
     ok.
 
 %%%-----------------------------------------------------------------
@@ -297,16 +227,18 @@ start_master(NodeOptsList) ->
 
 start_master(NodeOptsList,EvHandlers,MasterLogDir,LogDirs,InitOptions,Specs) ->
     Master = spawn_link(?MODULE,init_master,[self(),NodeOptsList,EvHandlers,
-					     MasterLogDir,LogDirs,InitOptions,Specs]),
+					     MasterLogDir,LogDirs,
+					     InitOptions,Specs]),
     receive 
 	{Master,Result} -> Result
     end.	    
 
-%%% @hidden
-init_master(Parent,NodeOptsList,EvHandlers,MasterLogDir,LogDirs,InitOptions,Specs) ->
+init_master(Parent,NodeOptsList,EvHandlers,MasterLogDir,LogDirs,
+	    InitOptions,Specs) ->
     case whereis(ct_master) of
 	undefined ->
 	    register(ct_master,self()),
+            ct_util:mark_process(),
 	    ok;
 	_Pid ->
 	    io:format("~nWarning: ct_master already running!~n"),
@@ -325,22 +257,23 @@ init_master(Parent,NodeOptsList,EvHandlers,MasterLogDir,LogDirs,InitOptions,Spec
     {MLPid,_} = ct_master_logs:start(MasterLogDir,
 				     [N || {N,_} <- NodeOptsList]),
     log(all,"Master Logger process started","~w",[MLPid]),
+
     case Specs of
 	[] -> ok;
 	_ ->
 	    SpecsStr = lists:map(fun(Name) ->
 					 Name ++ " "
 				 end,Specs), 
-	    ct_master_logs:log("Test Specification file(s)","~s",
+	    ct_master_logs:log("Test Specification file(s)","~ts",
 			       [lists:flatten(SpecsStr)])
     end,
 
     %% start master event manager and add default handler
-    ct_master_event:start_link(),
+    {ok, _}  = start_ct_master_event(),
     ct_master_event:add_handler(),
     %% add user handlers for master event manager
     Add = fun({H,Args}) ->
-		  log(all,"Adding Event Handler","~p",[H]),
+		  log(all,"Adding Event Handler","~w",[H]),
 		  case gen_event:add_handler(?CT_MEVMGR_REF,H,Args) of
 		      ok -> ok;
 		      {'EXIT',Why} -> exit(Why);
@@ -358,8 +291,17 @@ init_master(Parent,NodeOptsList,EvHandlers,MasterLogDir,LogDirs,InitOptions,Spec
     end,
     init_master1(Parent,NodeOptsList,InitOptions,LogDirs).
 
+start_ct_master_event() ->
+    case ct_master_event:start_link() of
+        {error, {already_started, Pid}} ->
+            {ok, Pid};
+        Else ->
+            Else
+    end.
+
 init_master1(Parent,NodeOptsList,InitOptions,LogDirs) ->
-    {Inaccessible,NodeOptsList1,InitOptions1} = init_nodes(NodeOptsList,InitOptions),
+    {Inaccessible,NodeOptsList1,InitOptions1} = init_nodes(NodeOptsList,
+							   InitOptions),
     case Inaccessible of
 	[] ->
 	    init_master2(Parent,NodeOptsList,LogDirs);
@@ -385,14 +327,15 @@ init_master1(Parent,NodeOptsList,InitOptions,LogDirs) ->
 init_master2(Parent,NodeOptsList,LogDirs) ->
     process_flag(trap_exit,true),
     Cookie = erlang:get_cookie(),
-    log(all,"Cookie","~w",[Cookie]),
+    log(all,"Cookie","~tw",[Cookie]),
     log(all,"Starting Tests",
 	"Tests starting on: ~p",[[N || {N,_} <- NodeOptsList]]),
     SpawnAndMon = 
 	fun({Node,Opts}) ->
 		monitor_node(Node,true),
-		log(all,"Test Info","Starting test(s) on ~p...",[Node]),
-		{spawn_link(Node,?MODULE,init_node_ctrl,[self(),Cookie,Opts]),Node}
+		log(all,"Test Info","Starting test(s) on ~w...",[Node]),
+		{spawn_link(Node,?MODULE,init_node_ctrl,[self(),Cookie,Opts]),
+		 Node}
 	end,
     NodeCtrlPids = lists:map(SpawnAndMon,NodeOptsList),
     Result = master_loop(#state{node_ctrl_pids=NodeCtrlPids,
@@ -404,12 +347,13 @@ master_loop(#state{node_ctrl_pids=[],
 		   results=Finished}) ->
     Str =
 	lists:map(fun({Node,Result}) ->
-			  io_lib:format("~-40.40.*s~p\n",[$_,atom_to_list(Node),Result])
+			  io_lib:format("~-40.40.*ts~tp\n",
+					[$_,atom_to_list(Node),Result])
 		  end,lists:reverse(Finished)),
     log(all,"TEST RESULTS",Str,[]),
     log(all,"Info","Updating log files",[]),
     refresh_logs(LogDirs,[]),
-
+    
     ct_master_event:stop(),
     ct_master_logs:stop(),
     ok;
@@ -437,18 +381,20 @@ master_loop(State=#state{node_ctrl_pids=NodeCtrlPids,
 					Bad
 				end,
 			    log(all,"Test Info",
-				"Test on node ~w failed! Reason: ~p",[Node,Error]),
+				"Test on node ~w failed! Reason: ~tp",
+				[Node,Error]),
 			    {Locks1,Blocked1} = 
 				update_queue(exit,Node,Locks,Blocked),
 			    master_loop(State#state{node_ctrl_pids=NodeCtrlPids1,
-						    results=[{Node,Error}|Results],
+						    results=[{Node,
+							      Error}|Results],
 						    locks=Locks1,
 						    blocked=Blocked1})
 		    end;
 		undefined ->
 		    %% ignore (but report) exit from master_logger etc
 		    log(all,"Test Info",
-			"Warning! Process ~p has terminated. Reason: ~p",
+			"Warning! Process ~w has terminated. Reason: ~tp",
 			[Pid,Reason]),
 			master_loop(State)
 	    end;
@@ -531,7 +477,7 @@ update_queue(take,Node,From,Lock={Op,Resource},Locks,Blocked) ->
     %% Blocked: [{{Operation,Resource},Node,WaitingPid},...]
     case lists:keysearch(Lock,1,Locks) of
 	{value,{_Lock,Owner}} ->		% other node has lock
-	    log(html,"Lock Info","Node ~p blocked on ~w by ~w. Resource: ~p",
+	    log(html,"Lock Info","Node ~w blocked on ~w by ~w. Resource: ~tp",
 		[Node,Op,Owner,Resource]),
 	    Blocked1 = Blocked ++ [{Lock,Node,From}],
 	    {Locks,Blocked1};
@@ -546,7 +492,7 @@ update_queue(release,Node,_From,Lock={Op,Resource},Locks,Blocked) ->
     case lists:keysearch(Lock,1,Blocked) of
 	{value,E={Lock,SomeNode,WaitingPid}} ->
 	    Blocked1 = lists:delete(E,Blocked),
-	    log(html,"Lock Info","Node ~p proceeds with ~w. Resource: ~p",
+	    log(html,"Lock Info","Node ~w proceeds with ~w. Resource: ~tp",
 		[SomeNode,Op,Resource]),
 	    reply(ok,WaitingPid),		% waiting process may start
 	    {Locks1,Blocked1};
@@ -613,7 +559,7 @@ refresh_logs([D|Dirs],Refreshed) ->
 		    {ok,Cwd} = file:get_cwd(),
 		    case catch ct_run:refresh_logs(D) of
 			{'EXIT',Reason} ->
-			    file:set_cwd(Cwd),
+			    ok = file:set_cwd(Cwd),
 			    refresh_logs(Dirs,[{D,{error,Reason}}|Refreshed]);
 			Result -> 
 			    refresh_logs(Dirs,[{D,Result}|Refreshed])
@@ -625,20 +571,21 @@ refresh_logs([D|Dirs],Refreshed) ->
 refresh_logs([],Refreshed) ->
     Str =
 	lists:map(fun({D,Result}) ->
-			  io_lib:format("Refreshing logs in ~p... ~p",[D,Result])
+			  io_lib:format("Refreshing logs in ~tp... ~tp",
+					[D,Result])
 		  end,Refreshed),
     log(all,"Info",Str,[]).
 
 %%%-----------------------------------------------------------------
 %%% NODE CONTROLLER, runs and controls tests on a test node.
 %%%-----------------------------------------------------------------
-%%% @hidden
 init_node_ctrl(MasterPid,Cookie,Opts) ->
     %% make sure tests proceed even if connection to master is lost
     process_flag(trap_exit, true),
+    ct_util:mark_process(),
     MasterNode = node(MasterPid),
     group_leader(whereis(user),self()),
-    io:format("~n********** node_ctrl process ~p started on ~p **********~n",
+    io:format("~n********** node_ctrl process ~w started on ~w **********~n",
 	      [self(),node()]),
     %% initially this node must have the same cookie as the master node
     %% but now we set it explicitly for the connection so that test suites
@@ -655,10 +602,10 @@ init_node_ctrl(MasterPid,Cookie,Opts) ->
     end,
     
     %% start a local event manager
-    ct_event:start_link(),
+    {ok, _} = start_ct_event(),
     ct_event:add_handler([{master,MasterPid}]),
 
-    %% log("Running test with options: ~p~n", [Opts]),
+    %% log("Running test with options: ~tp~n", [Opts]),
     Result = case (catch ct:run_test(Opts)) of
 		 ok -> finished_ok;
 		 Other -> Other
@@ -671,14 +618,21 @@ init_node_ctrl(MasterPid,Cookie,Opts) ->
 	pong ->
 	    MasterPid ! {self(),{result,Result}};
 	pang ->
-	    io:format("Warning! Connection to master node ~p is lost. "
+	    io:format("Warning! Connection to master node ~w is lost. "
 		      "Can't report result!~n~n", [MasterNode])
+    end.
+
+start_ct_event() ->
+    case ct_event:start_link() of
+        {error, {already_started, Pid}} ->
+            {ok, Pid};
+        Else ->
+            Else
     end.
 
 %%%-----------------------------------------------------------------
 %%% Event handling
 %%%-----------------------------------------------------------------
-%%% @hidden
 status(MasterPid,Event=#event{name=start_make}) ->
     call(MasterPid,Event);
 status(MasterPid,Event=#event{name=finished_make}) ->
@@ -696,8 +650,9 @@ status(MasterPid,Event) ->
 
 log(To,Heading,Str,Args) ->
     if To == all ; To == tty ->
-	    Str1 = ["=== ",Heading," ===\n",io_lib:format(Str,Args),"\n"],
-	    io:format(Str1,[]);
+	    Chars = ["=== ",Heading," ===\n",
+		     io_lib:format(Str,Args),"\n"],
+	    io:put_chars(Chars);
        true ->
 	    ok
     end,
@@ -731,7 +686,7 @@ reply(Result,To) ->
     ok.
 
 init_nodes(NodeOptions, InitOptions)->
-    ping_nodes(NodeOptions),
+    _ = ping_nodes(NodeOptions),
     start_nodes(InitOptions),
     eval_on_nodes(InitOptions),
     {Inaccessible, NodeOptions1}=ping_nodes(NodeOptions),
@@ -744,28 +699,32 @@ filter_accessible(InitOptions, Inaccessible)->
 
 start_nodes(InitOptions)->
     lists:foreach(fun({NodeName, Options})->
-	[NodeS,HostS]=string:tokens(atom_to_list(NodeName), "@"),
+	[NodeS,HostS]=string:lexemes(atom_to_list(NodeName), "@"),
 	Node=list_to_atom(NodeS),
 	Host=list_to_atom(HostS),
 	HasNodeStart = lists:keymember(node_start, 1, Options),
 	IsAlive = lists:member(NodeName, nodes()),
 	case {HasNodeStart, IsAlive} of
 	    {false, false}->
-		io:format("WARNING: Node ~p is not alive but has no node_start option~n", [NodeName]);
+		io:format("WARNING: Node ~w is not alive but has no "
+			  "node_start option~n", [NodeName]);
 	    {false, true}->
-		io:format("Node ~p is alive~n", [NodeName]);
+		io:format("Node ~w is alive~n", [NodeName]);
 	    {true, false}->
 		{node_start, NodeStart} = lists:keyfind(node_start, 1, Options),
 		{value, {callback_module, Callback}, NodeStart2}=
 		    lists:keytake(callback_module, 1, NodeStart),
 		case Callback:start(Host, Node, NodeStart2) of
 		    {ok, NodeName} ->
-			io:format("Node ~p started successfully with callback ~p~n", [NodeName,Callback]);
+			io:format("Node ~w started successfully "
+				  "with callback ~w~n", [NodeName,Callback]);
 		    {error, Reason, _NodeName} ->
-			io:format("Failed to start node ~p with callback ~p! Reason: ~p~n", [NodeName, Callback, Reason])
+			io:format("Failed to start node ~w with callback ~w! "
+				  "Reason: ~tp~n", [NodeName, Callback, Reason])
 		end;
 	    {true, true}->
-		io:format("WARNING: Node ~p is alive but has node_start option~n", [NodeName])
+		io:format("WARNING: Node ~w is alive but has node_start "
+			  "option~n", [NodeName])
 	end
     end,
     InitOptions).
@@ -778,7 +737,8 @@ eval_on_nodes(InitOptions)->
 	    {false,_}->
 		ok;
 	    {true,false}->
-		io:format("WARNING: Node ~p is not alive but has eval option ~n", [NodeName]);
+		io:format("WARNING: Node ~w is not alive but has eval "
+			  "option~n", [NodeName]);
 	    {true,true}->
 		{eval, MFAs} = lists:keyfind(eval, 1, Options),
 		evaluate(NodeName, MFAs)
@@ -789,9 +749,11 @@ eval_on_nodes(InitOptions)->
 evaluate(Node, [{M,F,A}|MFAs])->
     case rpc:call(Node, M, F, A) of
         {badrpc,Reason}->
-	    io:format("WARNING: Failed to call ~p:~p/~p on node ~p due to ~p~n", [M,F,length(A),Node,Reason]);
+	    io:format("WARNING: Failed to call ~w:~tw/~w on node ~w "
+		      "due to ~tp~n", [M,F,length(A),Node,Reason]);
 	Result->
-	    io:format("Called ~p:~p/~p on node ~p, result: ~p~n", [M,F,length(A),Node,Result])
+	    io:format("Called ~w:~tw/~w on node ~w, result: ~tp~n",
+		      [M,F,length(A),Node,Result])
     end,
     evaluate(Node, MFAs);
 evaluate(_Node, [])->

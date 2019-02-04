@@ -1,23 +1,16 @@
 %% -*- erlang-indent-level: 2 -*-
 %%
-%% %CopyrightBegin%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Copyright Ericsson AB 2004-2011. All Rights Reserved.
+%%     http://www.apache.org/licenses/LICENSE-2.0
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
-%%
-%% %CopyrightEnd%
-%%
-
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 
 -module(hipe_ppc_assemble).
 -export([assemble/4]).
@@ -39,17 +32,17 @@ assemble(CompiledCode, Closures, Exports, Options) ->
 	  || {MFA, Defun} <- CompiledCode],
   %%
   {ConstAlign,ConstSize,ConstMap,RefsFromConsts} =
-    hipe_pack_constants:pack_constants(Code, hipe_rtl_arch:word_size()),
+    hipe_pack_constants:pack_constants(Code),
   %%
   {CodeSize,CodeBinary,AccRefs,LabelMap,ExportMap} =
     encode(translate(Code, ConstMap), Options),
   print("Total num bytes=~w\n", [CodeSize], Options),
   %%
   SC = hipe_pack_constants:slim_constmap(ConstMap),
-  DataRelocs = mk_data_relocs(RefsFromConsts, LabelMap),
-  SSE = slim_sorted_exportmap(ExportMap,Closures,Exports),
+  DataRelocs = hipe_pack_constants:mk_data_relocs(RefsFromConsts, LabelMap),
+  SSE = hipe_pack_constants:slim_sorted_exportmap(ExportMap,Closures,Exports),
   SlimRefs = hipe_pack_constants:slim_refs(AccRefs),
-  Bin = term_to_binary([{?VERSION_STRING(),?HIPE_SYSTEM_CRC},
+  Bin = term_to_binary([{?VERSION_STRING(),?HIPE_ERTS_CHECKSUM},
 			ConstAlign, ConstSize,
 			SC,
 			DataRelocs, % nee LM, LabelMap
@@ -174,7 +167,8 @@ do_slwi_opnds(Dst, Src1, {uimm,N}) when is_integer(N), 0 =< N, N < 32 ->
   {Dst, Src1, {sh,N}, {mb,0}, {me,31-N}}.
 
 do_srwi_opnds(Dst, Src1, {uimm,N}) when is_integer(N), 0 =< N, N < 32 ->
-  {Dst, Src1, {sh,32-N}, {mb,N}, {me,31}}.
+  %% SH should be 0 (not 32) when N is 0
+  {Dst, Src1, {sh,(32-N) band 31}, {mb,N}, {me,31}}.
 
 do_srawi_src2({uimm,N}) when  is_integer(N), 0 =< N, N < 32 -> {sh,N}.
 
@@ -183,7 +177,8 @@ do_sldi_opnds(Dst, Src1, {uimm,N}) when is_integer(N), 0 =< N, N < 64 ->
   {Dst, Src1, {sh6,N}, {me6,63-N}}.
 
 do_srdi_opnds(Dst, Src1, {uimm,N}) when is_integer(N), 0 =< N, N < 64 ->
-  {Dst, Src1, {sh6,64-N}, {mb6,N}}.
+  %% SH should be 0 (not 64) when N is 0
+  {Dst, Src1, {sh6,(64-N) band 63}, {mb6,N}}.
 
 do_sradi_src2({uimm,N}) when is_integer(N), 0 =< N, N < 64 -> {sh6,N}.
 
@@ -245,6 +240,7 @@ do_load(I) ->
     case LdOp of
       'ld' -> do_disp_ds(Disp);
       'ldu' -> do_disp_ds(Disp);
+      'lwa' -> do_disp_ds(Disp);
       _ -> do_disp(Disp)
     end,
   NewBase = do_reg(Base),
@@ -288,7 +284,7 @@ do_pseudo_li(I, MFA, ConstMap) ->
 %%%	  end,
 %%%	{load_address, {Tag,untag_mfa_or_prim(MFAorPrim)}};
       {Label,constant} ->
-	ConstNo = find_const({MFA,Label}, ConstMap),
+	ConstNo = hipe_pack_constants:find_const({MFA,Label}, ConstMap),
 	{load_address, {constant,ConstNo}};
       {Label,closure} ->
 	{load_address, {closure,Label}};
@@ -574,37 +570,6 @@ mk_y(Pred, BD) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-mk_data_relocs(RefsFromConsts, LabelMap) ->
-  lists:flatten(mk_data_relocs(RefsFromConsts, LabelMap, [])).
-
-mk_data_relocs([{MFA,Labels} | Rest], LabelMap, Acc) ->
-  Map = [case Label of
-	   {L,Pos} ->
-	     Offset = find({MFA,L}, LabelMap),
-	     {Pos,Offset};
-	   {sorted,Base,OrderedLabels} ->
-	     {sorted, Base, [begin
-			       Offset = find({MFA,L}, LabelMap),
-			       {Order, Offset}
-			     end
-			     || {L,Order} <- OrderedLabels]}
-	 end
-	 || Label <- Labels],
-  %% msg("Map: ~w Map\n",[Map]),
-  mk_data_relocs(Rest, LabelMap, [Map,Acc]);
-mk_data_relocs([],_,Acc) -> Acc.
-
-find({_MFA,_L} = MFAL,LabelMap) ->
-  gb_trees:get(MFAL, LabelMap).
-
-slim_sorted_exportmap([{Addr,M,F,A}|Rest], Closures, Exports) ->
-  IsClosure = lists:member({M,F,A}, Closures),
-  IsExported = is_exported(F, A, Exports),
-  [Addr,M,F,A,IsClosure,IsExported | slim_sorted_exportmap(Rest, Closures, Exports)];
-slim_sorted_exportmap([],_,_) -> [].
-
-is_exported(F, A, Exports) -> lists:member({F,A}, Exports).
-
 %%%
 %%% Assembly listing support (pp_asm option).
 %%%
@@ -642,14 +607,3 @@ fill_spaces(N) when N > 0 ->
   fill_spaces(N-1);
 fill_spaces(0) ->
   [].
-
-%%%
-%%% Lookup a constant in a ConstMap.
-%%%
-
-find_const({MFA,Label}, [{pcm_entry,MFA,Label,ConstNo,_,_,_}|_]) ->
-  ConstNo;
-find_const(N, [_|R]) ->
-  find_const(N, R);
-find_const(C, []) ->
-  ?EXIT({constant_not_found,C}).

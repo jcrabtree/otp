@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2004-2011. All Rights Reserved.
+ * Copyright Ericsson AB 2004-2018. All Rights Reserved.
  *
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  * %CopyrightEnd%
  */
@@ -70,6 +71,32 @@
  ****************************************************************/
 
 /*
+ * NOTE:
+ *  Beam BIFs have the prototype:
+ *    Eterm (*BIF)(Process *c_p, Eterm *regs, UWord *I)
+ *  Native BIFs have the prototype:
+ *    Eterm (*BIF)(Process *c_p, Eterm *regs)
+ *
+ * Beam BIFs expect 'I' to contain current instruction
+ * pointer when called from beam, and expect 'I' to
+ * contain a pointer to the export entry of the BIF
+ * when called from native code. In order to facilitate
+ * this, beam BIFs are called via wrapper functions
+ * when called from native code. These wrapper functions
+ * are auto-generated (by utils/make_tables) and have
+ * the function names nbif_impl_<BIF>.
+ *
+ * The standard_bif_interface_*() and
+ * gc_bif_interface_*() will add the prefix and
+ * thus call nbif_impl_<cbif_name>. That is, all
+ * functions (true BIFs as well as other c-functions)
+ * called via these interfaces have to be named
+ * nbif_impl_<FUNC>.
+ */
+
+/*
+ * See NOTE above!
+ *
  * standard_bif_interface_0(nbif_name, cbif_name)
  * standard_bif_interface_1(nbif_name, cbif_name)
  * standard_bif_interface_2(nbif_name, cbif_name)
@@ -92,9 +119,12 @@
  */
 
 /*
+ * See NOTE above!
+ *
  * gc_bif_interface_0(nbif_name, cbif_name)
  * gc_bif_interface_1(nbif_name, cbif_name)
  * gc_bif_interface_2(nbif_name, cbif_name)
+ * gc_bif_interface_3(nbif_name, cbif_name)
  *
  * A BIF which may do a GC or walk the native stack.
  * May read NSP, NSP_LIMIT, NRA, HP, HP_LIMIT, and FCALLS.
@@ -145,17 +175,18 @@
  * Zero-arity BIFs that can fail.
  */
 standard_bif_interface_0(nbif_processes_0, processes_0)
+standard_bif_interface_0(nbif_ports_0, ports_0)
 
 /*
  * BIFs and primops that may do a GC (change heap limit and walk the native stack).
  * XXX: erase/1 and put/2 cannot fail
  */
-gc_bif_interface_2(nbif_check_process_code_2, hipe_check_process_code_2)
+gc_bif_interface_1(nbif_erts_internal_check_process_code_1, hipe_erts_internal_check_process_code_1)
 gc_bif_interface_1(nbif_erase_1, erase_1)
-gc_bif_interface_0(nbif_garbage_collect_0, garbage_collect_0)
-gc_bif_interface_1(nbif_garbage_collect_1, hipe_garbage_collect_1)
+gc_bif_interface_1(nbif_erts_internal_garbage_collect_1, erts_internal_garbage_collect_1)
 gc_nofail_primop_interface_1(nbif_gc_1, hipe_gc)
 gc_bif_interface_2(nbif_put_2, put_2)
+gc_bif_interface_2(nbif_hipe_bifs_build_stacktrace, hipe_bifs_build_stacktrace_1)
 
 /*
  * Debug BIFs that need read access to the full state.
@@ -165,6 +196,7 @@ gc_bif_interface_2(nbif_put_2, put_2)
 gc_bif_interface_1(nbif_hipe_bifs_show_nstack_1, hipe_show_nstack_1)
 gc_bif_interface_1(nbif_hipe_bifs_show_pcb_1, hipe_bifs_show_pcb_1)
 gc_bif_interface_0(nbif_hipe_bifs_nstack_used_size_0, hipe_bifs_nstack_used_size_0)
+gc_bif_interface_2(nbif_hipe_bifs_debug_native_called, hipe_bifs_debug_native_called_2)
 
 /*
  * Arithmetic operators called indirectly by the HiPE compiler.
@@ -188,9 +220,12 @@ standard_bif_interface_1(nbif_bnot_1, bnot_1)
 standard_bif_interface_1(nbif_set_timeout, hipe_set_timeout)
 standard_bif_interface_1(nbif_conv_big_to_float, hipe_conv_big_to_float)
 standard_bif_interface_2(nbif_rethrow, hipe_rethrow)
+standard_bif_interface_3(nbif_raw_raise, hipe_raw_raise)
 standard_bif_interface_3(nbif_find_na_or_make_stub, hipe_find_na_or_make_stub)
 standard_bif_interface_2(nbif_nonclosure_address, hipe_nonclosure_address)
 nocons_nofail_primop_interface_0(nbif_fclearerror_error, hipe_fclearerror_error)
+noproc_primop_interface_2(nbif_is_divisible, hipe_is_divisible)
+noproc_primop_interface_1(nbif_is_unicode, hipe_is_unicode)
 
 /*
  * Mbox primops with implicit P parameter.
@@ -212,10 +247,9 @@ noproc_primop_interface_2(nbif_eq_2, eq)
 nofail_primop_interface_3(nbif_bs_get_integer_2, erts_bs_get_integer_2)
 nofail_primop_interface_3(nbif_bs_get_binary_2, erts_bs_get_binary_2)
 nofail_primop_interface_3(nbif_bs_get_float_2, erts_bs_get_float_2)
-standard_bif_interface_3(nbif_bs_put_utf8, hipe_bs_put_utf8)
+nocons_nofail_primop_interface_3(nbif_bs_put_utf8, hipe_bs_put_utf8)
 standard_bif_interface_3(nbif_bs_put_utf16be, hipe_bs_put_utf16be)
 standard_bif_interface_3(nbif_bs_put_utf16le, hipe_bs_put_utf16le)
-standard_bif_interface_1(nbif_bs_validate_unicode, hipe_bs_validate_unicode)
 
 /*
  * Bit-syntax primops without any P parameter.
@@ -230,39 +264,54 @@ noproc_primop_interface_2(nbif_bs_get_utf16, erts_bs_get_utf16)
 noproc_primop_interface_2(nbif_bs_validate_unicode_retract, hipe_bs_validate_unicode_retract)
 
 /*
- * Bit-syntax primops. The ERTS_SMP runtime system requires P,
+ * Bit-syntax primops. The runtime system requires P,
  * hence the use of nocons_nofail_primop_interface_N().
- * When ERTS_SMP is disabled, noproc_primop_interface_N()
- * should be used instead.
  */
 nocons_nofail_primop_interface_5(nbif_bs_put_small_float, hipe_bs_put_small_float)
 noproc_primop_interface_5(nbif_bs_put_bits, hipe_bs_put_bits)
-ifelse(ERTS_SMP,1,`
 nocons_nofail_primop_interface_5(nbif_bs_put_big_integer, hipe_bs_put_big_integer)
-',`
-noproc_primop_interface_5(nbif_bs_put_big_integer, hipe_bs_put_big_integer)
-')dnl
 
-gc_bif_interface_0(nbif_check_get_msg, hipe_check_get_msg)
+nofail_primop_interface_0(nbif_check_get_msg, hipe_check_get_msg)
 
-#ifdef NO_FPE_SIGNALS
+#`ifdef' NO_FPE_SIGNALS
 nocons_nofail_primop_interface_0(nbif_emulate_fpe, hipe_emulate_fpe)
 #endif
 
-/*
- * SMP-specific stuff
- */
-ifelse(ERTS_SMP,1,`
+noproc_primop_interface_1(nbif_emasculate_binary, hipe_emasculate_binary)
+
 nocons_nofail_primop_interface_0(nbif_clear_timeout, hipe_clear_timeout)
 noproc_primop_interface_1(nbif_atomic_inc, hipe_atomic_inc)
-',)dnl
+
+/*
+ * BIFs that disable GC while trapping are called via a wrapper
+ * to reserve stack space for the "trap frame".
+ * They occasionally need to call the garbage collector in order to make room
+ * for the trap frame on the BEAM stack.
+ */
+gc_bif_interface_1(nbif_term_to_binary_1, hipe_wrapper_term_to_binary_1)
+gc_bif_interface_2(nbif_term_to_binary_2, hipe_wrapper_term_to_binary_2)
+gc_bif_interface_1(nbif_binary_to_term_1, hipe_wrapper_binary_to_term_1)
+gc_bif_interface_2(nbif_binary_to_term_2, hipe_wrapper_binary_to_term_2)
+gc_bif_interface_1(nbif_binary_to_list_1, hipe_wrapper_binary_to_list_1)
+gc_bif_interface_3(nbif_binary_to_list_3, hipe_wrapper_binary_to_list_3)
+gc_bif_interface_1(nbif_bitstring_to_list_1, hipe_wrapper_bitstring_to_list_1)
+gc_bif_interface_1(nbif_list_to_binary_1, hipe_wrapper_list_to_binary_1)
+gc_bif_interface_1(nbif_iolist_to_binary_1, hipe_wrapper_iolist_to_binary_1)
+gc_bif_interface_1(nbif_binary_list_to_bin_1, hipe_wrapper_binary_list_to_bin_1)
+gc_bif_interface_1(nbif_list_to_bitstring_1, hipe_wrapper_list_to_bitstring_1)
+gc_bif_interface_2(nbif_send_2, hipe_wrapper_send_2)
+gc_bif_interface_3(nbif_send_3, hipe_wrapper_send_3)
+gc_bif_interface_2(nbif_ebif_bang_2, hipe_wrapper_ebif_bang_2)
+gc_bif_interface_2(nbif_maps_merge_2, hipe_wrapper_maps_merge_2)
+
 
 /*
  * Standard BIFs.
  * BIF_LIST(ModuleAtom,FunctionAtom,Arity,CFun,Index)
  */
-define(BIF_LIST,`standard_bif_interface_$3(nbif_$4, $4)')
-include(TARGET/`erl_bif_list.h')
+
+define(BIF_LIST,`standard_bif_interface_$3(nbif_$5, $5)')
+include(TTF_DIR/`erl_bif_list.h')
 
 /*
  * Guard BIFs.

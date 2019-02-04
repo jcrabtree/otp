@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2008-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2008-2017. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%%-------------------------------------------------------------------
@@ -38,23 +39,35 @@
 %%     {wxObject, State} | {wxObject, State, Timeout} |
 %%         ignore | {stop, Reason}
 %%
+%%   Asynchronous window event handling: <br/>
+%%   handle_event(#wx{}, State)  should return <br/>
+%%    {noreply, State} | {noreply, State, Timeout} | {stop, Reason, State} 
+%%
+%% The user module can export the following callback functions:
+%%
 %%   handle_call(Msg, {From, Tag}, State) should return <br/>
 %%    {reply, Reply, State} | {reply, Reply, State, Timeout} |
 %%        {noreply, State} | {noreply, State, Timeout} |
 %%        {stop, Reason, Reply, State}  
 %%
-%%   Asynchronous window event handling: <br/>
-%%   handle_event(#wx{}, State)  should return <br/>
-%%    {noreply, State} | {noreply, State, Timeout} | {stop, Reason, State} 
+%%   handle_cast(Msg, State) should return <br/>
+%%    {noreply, State} | {noreply, State, Timeout} |
+%%        {stop, Reason, State}  
+%%
+%% If the above are not exported but called, the wx_object process will crash.
+%% The user module can also export:
 %%
 %%   Info is message e.g. {'EXIT', P, R}, {nodedown, N}, ...  <br/>
 %%   handle_info(Info, State)  should return , ...  <br/>
 %%    {noreply, State} | {noreply, State, Timeout} | {stop, Reason, State} 
-%% 
+%%
+%% If a message is sent to the wx_object process when handle_info is not
+%% exported, the message will be dropped and ignored.
+%%
 %%   When stop is returned in one of the functions above with Reason =
 %% normal | shutdown | Term, terminate(State) is called. It lets the
 %% user module clean up, it is always called when server terminates or
-%% when wxObject() in the driver is deleted. If the Parent process
+%% when wx_object() in the driver is deleted. If the Parent process
 %% terminates the Module:terminate/2 function is called. <br/>
 %% terminate(Reason, State)
 %%
@@ -102,44 +115,51 @@
 %% API
 -export([start/3, start/4,
 	 start_link/3, start_link/4,
+	 stop/1, stop/3,
 	 call/2, call/3,
 	 cast/2,
 	 reply/2,
-	 get_pid/1
+	 get_pid/1,
+	 set_pid/2
 	]).
 
 %% -export([behaviour_info/1]).
 -callback init(Args :: term()) ->
-    {#wx_ref{}, State :: term()} | {#wx_ref{}, State :: term(), timeout() | hibernate} |
-    {stop, Reason :: term()} | ignore.
+    {#wx_ref{}, State :: term()} | {#wx_ref{}, State :: term(), timeout() | 'hibernate'} |
+    {'stop', Reason :: term()} | 'ignore'.
 -callback handle_event(Request :: #wx{}, State :: term()) ->
-    {noreply, NewState :: term()} |
-    {noreply, NewState :: term(), timeout() | hibernate} |
-    {stop, Reason :: term(), NewState :: term()}.
+    {'noreply', NewState :: term()} |
+    {'noreply', NewState :: term(), timeout() | 'hibernate'} |
+    {'stop', Reason :: term(), NewState :: term()}.
 -callback handle_call(Request :: term(), From :: {pid(), Tag :: term()},
                       State :: term()) ->
-    {reply, Reply :: term(), NewState :: term()} |
-    {reply, Reply :: term(), NewState :: term(), timeout() | hibernate} |
-    {noreply, NewState :: term()} |
-    {noreply, NewState :: term(), timeout() | hibernate} |
-    {stop, Reason :: term(), Reply :: term(), NewState :: term()} |
-    {stop, Reason :: term(), NewState :: term()}.
+    {'reply', Reply :: term(), NewState :: term()} |
+    {'reply', Reply :: term(), NewState :: term(), timeout() | 'hibernate'} |
+    {'noreply', NewState :: term()} |
+    {'noreply', NewState :: term(), timeout() | 'hibernate'} |
+    {'stop', Reason :: term(), Reply :: term(), NewState :: term()} |
+    {'stop', Reason :: term(), NewState :: term()}.
 -callback handle_cast(Request :: term(), State :: term()) ->
-    {noreply, NewState :: term()} |
-    {noreply, NewState :: term(), timeout() | hibernate} |
-    {stop, Reason :: term(), NewState :: term()}.
+    {'noreply', NewState :: term()} |
+    {'noreply', NewState :: term(), timeout() | 'hibernate'} |
+    {'stop', Reason :: term(), NewState :: term()}.
 -callback handle_info(Info :: timeout() | term(), State :: term()) ->
-    {noreply, NewState :: term()} |
-    {noreply, NewState :: term(), timeout() | hibernate} |
-    {stop, Reason :: term(), NewState :: term()}.
--callback terminate(Reason :: (normal | shutdown | {shutdown, term()} |
+    {'noreply', NewState :: term()} |
+    {'noreply', NewState :: term(), timeout() | 'hibernate'} |
+    {'stop', Reason :: term(), NewState :: term()}.
+-callback handle_sync_event(Request :: #wx{}, Ref :: #wx_ref{}, State :: term()) ->
+    ok.
+-callback terminate(Reason :: ('normal' | 'shutdown' | {'shutdown', term()} |
                                term()),
                     State :: term()) ->
     term().
--callback code_change(OldVsn :: (term() | {down, term()}), State :: term(),
+-callback code_change(OldVsn :: (term() | {'down', term()}), State :: term(),
                       Extra :: term()) ->
-    {ok, NewState :: term()} | {error, Reason :: term()}.
+    {'ok', NewState :: term()} | {'error', Reason :: term()}.
 
+-optional_callbacks(
+    [handle_call/3, handle_cast/2, handle_info/2,
+     handle_sync_event/3, terminate/2, code_change/3]).
 
 %% System exports
 -export([system_continue/3,
@@ -168,59 +188,101 @@
 
 
 %%  -----------------------------------------------------------------
-%% @spec (Mod, Args, Options) -> wxWindow:wxWindow() 
-%%   Mod = atom() 
-%%   Args = term()
-%%   Options = [{timeout, Timeout} | {debug, [Flag]}]
-%%   Flag = trace | log | {logfile, File} | statistics | debug
 %% @doc Starts a generic wx_object server and invokes Mod:init(Args) in the
 %% new process.
+-spec start(Mod, Args, Options) -> wxWindow:wxWindow() | {error, term()} when
+      Mod::atom(),
+      Args::term(),
+      Flag::trace | log | {logfile, string()} | statistics | debug,
+      Options::[{timeout, timeout()} | {debug, [Flag]}].
 start(Mod, Args, Options) ->
     gen_response(gen:start(?MODULE, nolink, Mod, Args, [get(?WXE_IDENTIFIER)|Options])).
-	    
-%% @spec (Name, Mod, Args, Options) -> wxWindow:wxWindow() 
-%%   Name = {local, atom()}
-%%   Mod = atom() 
-%%   Args = term()
-%%   Options = [{timeout, Timeout} | {debug, [Flag]}]
-%%   Flag = trace | log | {logfile, File} | statistics | debug
+
 %% @doc Starts a generic wx_object server and invokes Mod:init(Args) in the
 %% new process.
+-spec start(Name, Mod, Args, Options) -> wxWindow:wxWindow()  | {error, term()} when
+      Name::{local, atom()},
+      Mod::atom(),
+      Args::term(),
+      Flag::trace | log | {logfile, string()} | statistics | debug,
+      Options::[{timeout, timeout()} | {debug, [Flag]}].
 start(Name, Mod, Args, Options) ->
     gen_response(gen:start(?MODULE, nolink, Name, Mod, Args, [get(?WXE_IDENTIFIER)|Options])).
 
-%% @spec (Mod, Args, Options) -> wxWindow:wxWindow() 
-%%   Mod = atom() 
-%%   Args = term()
-%%   Options = [{timeout, Timeout} | {debug, [Flag]}]
-%%   Flag = trace | log | {logfile, File} | statistics | debug
 %% @doc Starts a generic wx_object server and invokes Mod:init(Args) in the
 %% new process.
+-spec start_link(Mod, Args, Options) -> wxWindow:wxWindow()  | {error, term()} when
+      Mod::atom(),
+      Args::term(),
+      Flag::trace | log | {logfile, string()} | statistics | debug,
+      Options::[{timeout, timeout()} | {debug, [Flag]}].
 start_link(Mod, Args, Options) ->
     gen_response(gen:start(?MODULE, link, Mod, Args, [get(?WXE_IDENTIFIER)|Options])).
 
-%% @spec (Name, Mod, Args, Options) -> wxWindow:wxWindow() 
-%%   Name = {local, atom()}
-%%   Mod = atom() 
-%%   Args = term()
-%%   Options = [{timeout, Timeout} | {debug, [Flag]}]
-%%   Flag = trace | log | {logfile, File} | statistics | debug
 %% @doc Starts a generic wx_object server and invokes Mod:init(Args) in the
 %% new process.
+-spec start_link(Name, Mod, Args, Options) -> wxWindow:wxWindow()  | {error, term()} when
+      Name::{local, atom()},
+      Mod::atom(),
+      Args::term(),
+      Flag::trace | log | {logfile, string()} | statistics | debug,
+      Options::[{timeout, timeout()} | {debug, [Flag]}].
 start_link(Name, Mod, Args, Options) ->
     gen_response(gen:start(?MODULE, link, Name, Mod, Args, [get(?WXE_IDENTIFIER)|Options])).
-    
+
 gen_response({ok, Pid}) ->
     receive {ack, Pid, Ref = #wx_ref{}} -> Ref end;
 gen_response(Reply) ->
     Reply.
 
-%% @spec (Ref::wxObject()|atom()|pid(), Request::term()) -> term()
+%% @doc Stops a generic wx_object server with reason 'normal'.
+%% Invokes terminate(Reason,State) in the server. The call waits until
+%% the process is terminated. If the process does not exist, an
+%% exception is raised.
+-spec stop(Obj) -> ok when
+      Obj::wx:wx_object()|atom()|pid().
+stop(Ref = #wx_ref{state=Pid}) when is_pid(Pid) ->
+    try
+	gen:stop(Pid)
+    catch _:ExitReason ->
+	    erlang:error({ExitReason, {?MODULE, stop, [Ref]}})
+    end;
+stop(Name) when is_atom(Name) orelse is_pid(Name) ->
+    try
+	gen:stop(Name)
+    catch _:ExitReason ->
+	    erlang:error({ExitReason, {?MODULE, stop, [Name]}})
+    end.
+
+%% @doc Stops a generic wx_object server with the given Reason.
+%% Invokes terminate(Reason,State) in the server. The call waits until
+%% the process is terminated. If the call times out, or if the process
+%% does not exist, an exception is raised.
+-spec stop(Obj, Reason, Timeout) -> ok when
+      Obj::wx:wx_object()|atom()|pid(),
+      Reason::term(),
+      Timeout::timeout().
+stop(Ref = #wx_ref{state=Pid}, Reason, Timeout) when is_pid(Pid) ->
+    try
+	gen:stop(Pid, Reason, Timeout)
+    catch _:ExitReason ->
+	    erlang:error({ExitReason, {?MODULE, stop, [Ref, Reason, Timeout]}})
+    end;
+stop(Name, Reason, Timeout) when is_atom(Name) orelse is_pid(Name) ->
+    try
+	gen:stop(Name, Reason, Timeout)
+    catch _:ExitReason ->
+	    erlang:error({ExitReason, {?MODULE, stop, [Name, Reason, Timeout]}})
+    end.
+
 %% @doc Make a call to a wx_object server.
 %% The call waits until it gets a result.
 %% Invokes handle_call(Request, From, State) in the server
+-spec call(Obj, Request) -> term() when
+      Obj::wx:wx_object()|atom()|pid(),
+      Request::term().
 call(Ref = #wx_ref{state=Pid}, Request) when is_pid(Pid) ->
-    try 
+    try
 	{ok,Res} = gen:call(Pid, '$gen_call', Request, infinity),
 	Res
     catch _:Reason ->
@@ -233,10 +295,13 @@ call(Name, Request) when is_atom(Name)  orelse is_pid(Name) ->
     catch _:Reason ->
             erlang:error({Reason, {?MODULE, call, [Name, Request]}})
     end.
-    
-%% @spec (Ref::wxObject()|atom()|pid(), Request::term(), Timeout::integer()) -> term()
+
 %% @doc Make a call to a wx_object server with a timeout.
 %% Invokes handle_call(Request, From, State) in server
+-spec call(Obj, Request, Timeout) -> term() when
+      Obj::wx:wx_object()|atom()|pid(),
+      Request::term(),
+      Timeout::integer().
 call(Ref = #wx_ref{state=Pid}, Request, Timeout) when is_pid(Pid) ->
     try
 	{ok,Res} = gen:call(Pid, '$gen_call', Request, Timeout),
@@ -252,10 +317,11 @@ call(Name, Request, Timeout) when is_atom(Name) orelse is_pid(Name) ->
             erlang:error({Reason, {?MODULE, call, [Name, Request, Timeout]}})
     end.
 
-%% @spec (Ref::wxObject()|atom()|pid(), Request::term()) -> ok
 %% @doc Make a cast to a wx_object server.
 %% Invokes handle_cast(Request, State) in the server
-
+-spec cast(Obj, Request) -> ok when
+      Obj::wx:wx_object()|atom()|pid(),
+      Request::term().
 cast(#wx_ref{state=Pid}, Request) when is_pid(Pid) ->
     Pid ! {'$gen_cast',Request},
     ok;
@@ -263,16 +329,23 @@ cast(Name, Request) when is_atom(Name) orelse is_pid(Name) ->
     Name ! {'$gen_cast',Request},
     ok.
 
-%% @spec (Ref::wxObject()) -> pid()
 %% @doc Get the pid of the object handle.
+-spec get_pid(Obj) -> pid() when
+      Obj::wx:wx_object()|atom()|pid().
 get_pid(#wx_ref{state=Pid}) when is_pid(Pid) ->
     Pid.
+
+%% @doc Sets the controlling process of the object handle.
+-spec set_pid(Obj, pid()) -> wx:wx_object() when
+      Obj::wx:wx_object()|atom()|pid().
+set_pid(#wx_ref{}=R, Pid) when is_pid(Pid) ->
+    R#wx_ref{state=Pid}.
 
 %% -----------------------------------------------------------------
 %% Send a reply to the client.
 %% -----------------------------------------------------------------
-%% @spec (From::tuple(), Reply::term()) -> pid()
 %% @doc Get the pid of the object handle.
+-spec reply({pid(), Tag::term()}, Reply::term()) -> pid().
 reply({To, Tag}, Reply) ->
     catch To ! {Tag, Reply}.
 
@@ -370,6 +443,7 @@ dispatch(Msg = #wx{}, Mod, State) ->
     Mod:handle_event(Msg, State);
 dispatch(Info, Mod, State) ->
     Mod:handle_info(Info, State).
+
 %% @hidden
 handle_msg({'$gen_call', From, Msg}, Parent, Name, State, Mod) ->
     case catch Mod:handle_call(Msg, From, State) of
@@ -391,8 +465,12 @@ handle_msg({'$gen_call', From, Msg}, Parent, Name, State, Mod) ->
 	Other -> handle_common_reply(Other, Name, Msg, Mod, State, [])
     end;
 handle_msg(Msg, Parent, Name, State, Mod) ->
-    Reply = (catch dispatch(Msg, Mod, State)),
-    handle_no_reply(Reply, Parent, Name, Msg, Mod, State, []).
+    case catch dispatch(Msg, Mod, State) of
+        {'EXIT', {undef, [{Mod, handle_info, [_,_], _}|_]}} ->
+            handle_no_reply({noreply, State}, Parent, Name, Msg, Mod, State, []);
+        Reply ->
+            handle_no_reply(Reply, Parent, Name, Msg, Mod, State, [])
+    end.
 
 %% @hidden
 handle_msg({'$gen_call', From, Msg}, Parent, Name, State, Mod, Debug) ->
@@ -472,8 +550,8 @@ system_terminate(Reason, _Parent, Debug, [Name, State, Mod, _Time]) ->
 %% @hidden
 system_code_change([Name, State, Mod, Time], _Module, OldVsn, Extra) ->
     case catch Mod:code_change(OldVsn, State, Extra) of
-	{ok, NewState} -> {ok, [Name, NewState, Mod, Time]};
-	Else -> Else
+        {ok, NewState} -> {ok, [Name, NewState, Mod, Time]};
+        Else -> Else
     end.
 
 %%-----------------------------------------------------------------
@@ -483,28 +561,28 @@ system_code_change([Name, State, Mod, Time], _Module, OldVsn, Extra) ->
 print_event(Dev, {in, Msg}, Name) ->
     case Msg of
 	{'$gen_call', {From, _Tag}, Call} ->
-	    io:format(Dev, "*DBG* ~p got call ~p from ~w~n",
+	    io:format(Dev, "*DBG* ~tp got call ~tp from ~w~n",
 		      [Name, Call, From]);
 	{'$gen_cast', Cast} ->
-	    io:format(Dev, "*DBG* ~p got cast ~p~n",
+	    io:format(Dev, "*DBG* ~tp got cast ~tp~n",
 		      [Name, Cast]);
 	_ ->
-	    io:format(Dev, "*DBG* ~p got ~p~n", [Name, Msg])
+	    io:format(Dev, "*DBG* ~tp got ~tp~n", [Name, Msg])
     end;
 print_event(Dev, {out, Msg, To, State}, Name) ->
-    io:format(Dev, "*DBG* ~p sent ~p to ~w, new state ~w~n",
+    io:format(Dev, "*DBG* ~tp sent ~tp to ~w, new state ~tp~n",
 	      [Name, Msg, To, State]);
 print_event(Dev, {noreply, State}, Name) ->
-    io:format(Dev, "*DBG* ~p new state ~w~n", [Name, State]);
+    io:format(Dev, "*DBG* ~tp new state ~tp~n", [Name, State]);
 print_event(Dev, Event, Name) ->
-    io:format(Dev, "*DBG* ~p dbg  ~p~n", [Name, Event]).
+    io:format(Dev, "*DBG* ~tp dbg  ~tp~n", [Name, Event]).
 
 %%% ---------------------------------------------------
 %%% Terminate the server.
 %%% ---------------------------------------------------
 %% @hidden
 terminate(Reason, Name, Msg, Mod, State, Debug) ->
-    case catch Mod:terminate(Reason, State) of
+    case try_terminate(Mod, Reason, State) of
 	{'EXIT', R} ->
 	    error_info(R, Name, Msg, State, Debug),
 	    exit(R);
@@ -521,6 +599,15 @@ terminate(Reason, Name, Msg, Mod, State, Debug) ->
 		    exit(Reason)
 	    end
     end.
+
+try_terminate(Mod, Reason, State) ->
+    case erlang:function_exported(Mod, terminate, 2) of
+        true ->
+            catch Mod:terminate(Reason, State);
+        _ ->
+            ok
+    end.
+
 %% @hidden
 error_info(_Reason, application_controller, _Msg, _State, _Debug) ->
     ok;
@@ -542,10 +629,10 @@ error_info(Reason, Name, Msg, State, Debug) ->
 	    _ ->
 		Reason
 	end,    
-    format("** wx object server ~p terminating \n"
-           "** Last message in was ~p~n"
-           "** When Server state == ~p~n"
-           "** Reason for termination == ~n** ~p~n",
+    format("** wx object server ~tp terminating \n"
+           "** Last message in was ~tp~n"
+           "** When Server state == ~tp~n"
+           "** Reason for termination == ~n** ~tp~n",
 	   [Name, Msg, State, Reason1]),
     sys:print_log(Debug),
     ok.
@@ -563,26 +650,14 @@ opt(_, []) ->
 %% @hidden
 debug_options(Name, Opts) ->
     case opt(debug, Opts) of
-	{ok, Options} -> dbg_options(Name, Options);
-	_ -> dbg_options(Name, [])
+	{ok, Options} -> dbg_opts(Name, Options);
+	_ -> []
     end.
-%% @hidden
-dbg_options(Name, []) ->
-    Opts = 
-	case init:get_argument(generic_debug) of
-	    error ->
-		[];
-	    _ ->
-		[log, statistics]
-	end,
-    dbg_opts(Name, Opts);
-dbg_options(Name, Opts) ->
-    dbg_opts(Name, Opts).
 %% @hidden
 dbg_opts(Name, Opts) ->
     case catch sys:debug_options(Opts) of
 	{'EXIT',_} ->
-	    format("~p: ignoring erroneous debug options - ~p~n",
+	    format("~tp: ignoring erroneous debug options - ~tp~n",
 		   [Name, Opts]),
 	    [];
 	Dbg ->

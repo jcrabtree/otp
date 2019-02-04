@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2008-2012. All Rights Reserved.
+ * Copyright Ericsson AB 2008-2016. All Rights Reserved.
  *
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  * %CopyrightEnd% 
 */
@@ -53,82 +54,68 @@ void initEventTable()
   struct { int ev_type;  int class_id; const char * ev_name;} event_types[] =
   {
    {wxEVT_NULL, 0, "null"},
-   {wxEVT_COMMAND_BUTTON_CLICKED, 164, "command_button_clicked"},
-   {wxEVT_COMMAND_CHECKBOX_CLICKED, 164, "command_checkbox_clicked"},
-   {wxEVT_COMMAND_CHOICE_SELECTED, 164, "command_choice_selected"},
-   {wxEVT_COMMAND_LISTBOX_SELECTED, 164, "command_listbox_selected"},
-   {wxEVT_COMMAND_LISTBOX_DOUBLECLICKED, 164, "command_listbox_doubleclicked"},
-   {wxEVT_COMMAND_TEXT_UPDATED, 164, "command_text_updated"},
-   {wxEVT_COMMAND_TEXT_ENTER, 164, "command_text_enter"},
-   {wxEVT_COMMAND_MENU_SELECTED, 164, "command_menu_selected"},
-   {wxEVT_COMMAND_SLIDER_UPDATED, 164, "command_slider_updated"},
-   {wxEVT_COMMAND_RADIOBOX_SELECTED, 164, "command_radiobox_selected"},
-   {wxEVT_COMMAND_RADIOBUTTON_SELECTED, 164, "command_radiobutton_selected"},
-   {wxEVT_COMMAND_SCROLLBAR_UPDATED, 164, "command_scrollbar_updated"},
-   {wxEVT_COMMAND_VLBOX_SELECTED, 164, "command_vlbox_selected"},
-   {wxEVT_COMMAND_COMBOBOX_SELECTED, 164, "command_combobox_selected"},
-   {wxEVT_COMMAND_TOOL_RCLICKED, 164, "command_tool_rclicked"},
-   {wxEVT_COMMAND_TOOL_ENTER, 164, "command_tool_enter"},
-   {wxEVT_COMMAND_CHECKLISTBOX_TOGGLED, 164, "command_checklistbox_toggled"},
-   {wxEVT_COMMAND_TOGGLEBUTTON_CLICKED, 164, "command_togglebutton_clicked"},
-   {wxEVT_COMMAND_LEFT_CLICK, 164, "command_left_click"},
-   {wxEVT_COMMAND_LEFT_DCLICK, 164, "command_left_dclick"},
-   {wxEVT_COMMAND_RIGHT_CLICK, 164, "command_right_click"},
-   {wxEVT_COMMAND_SET_FOCUS, 164, "command_set_focus"},
-   {wxEVT_COMMAND_KILL_FOCUS, 164, "command_kill_focus"},
-   {wxEVT_COMMAND_ENTER, 164, "command_enter"},
-   {wxEVT_SCROLL_TOP, 165, "scroll_top"},
-   {wxEVT_SCROLL_BOTTOM, 165, "scroll_bottom"},
-   {wxEVT_SCROLL_LINEUP, 165, "scroll_lineup"},
-   {wxEVT_SCROLL_LINEDOWN, 165, "scroll_linedown"},
-   {wxEVT_SCROLL_PAGEUP, 165, "scroll_pageup"},
-   {wxEVT_SCROLL_PAGEDOWN, 165, "scroll_pagedown"},
-   {wxEVT_SCROLL_THUMBTRACK, 165, "scroll_thumbtrack"},
-   {wxEVT_SCROLL_THUMBRELEASE, 165, "scroll_thumbrelease"},
-   {wxEVT_SCROLL_CHANGED, 165, "scroll_changed"},
-   {wxEVT_SCROLLWIN_TOP, 166, "scrollwin_top"},
-   {wxEVT_SCROLLWIN_BOTTOM, 166, "scrollwin_bottom"},
-   {wxEVT_SCROLLWIN_LINEUP, 166, "scrollwin_lineup"},
-   {wxEVT_SCROLLWIN_LINEDOWN, 166, "scrollwin_linedown"},
-   {wxEVT_SCROLLWIN_PAGEUP, 166, "scrollwin_pageup"},
-   {wxEVT_SCROLLWIN_PAGEDOWN, 166, "scrollwin_pagedown"},
-   {wxEVT_SCROLLWIN_THUMBTRACK, 166, "scrollwin_thumbtrack"},
-   {wxEVT_SCROLLWIN_THUMBRELEASE, 166, "scrollwin_thumbrelease"},
-   {wxEVT_LEFT_DOWN, 167, "left_down"},
-   {wxEVT_LEFT_UP, 167, "left_up"},
-   {wxEVT_MIDDLE_DOWN, 167, "middle_down"},
-   {wxEVT_MIDDLE_UP, 167, "middle_up"},
-   {wxEVT_RIGHT_DOWN, 167, "right_down"},
-   {wxEVT_RIGHT_UP, 167, "right_up"},
-   {wxEVT_MOTION, 167, "motion"},
-   {wxEVT_ENTER_WINDOW, 167, "enter_window"},
-   {wxEVT_LEAVE_WINDOW, 167, "leave_window"},
-   {wxEVT_LEFT_DCLICK, 167, "left_dclick"},
-   {wxEVT_MIDDLE_DCLICK, 167, "middle_dclick"},
-   {wxEVT_RIGHT_DCLICK, 167, "right_dclick"},
-   {wxEVT_MOUSEWHEEL, 167, "mousewheel"},
-   {wxEVT_NC_LEFT_DOWN, 167, "nc_left_down"},
-   {wxEVT_NC_LEFT_UP, 167, "nc_left_up"},
-   {wxEVT_NC_MIDDLE_DOWN, 167, "nc_middle_down"},
-   {wxEVT_NC_MIDDLE_UP, 167, "nc_middle_up"},
-   {wxEVT_NC_RIGHT_DOWN, 167, "nc_right_down"},
-   {wxEVT_NC_RIGHT_UP, 167, "nc_right_up"},
-   {wxEVT_NC_MOTION, 167, "nc_motion"},
-   {wxEVT_NC_ENTER_WINDOW, 167, "nc_enter_window"},
-   {wxEVT_NC_LEAVE_WINDOW, 167, "nc_leave_window"},
-   {wxEVT_NC_LEFT_DCLICK, 167, "nc_left_dclick"},
-   {wxEVT_NC_MIDDLE_DCLICK, 167, "nc_middle_dclick"},
-   {wxEVT_NC_RIGHT_DCLICK, 167, "nc_right_dclick"},
-   {wxEVT_SET_CURSOR, 168, "set_cursor"},
-   {wxEVT_CHAR, 169, "char"},
-   {wxEVT_CHAR_HOOK, 169, "char_hook"},
-   {wxEVT_KEY_DOWN, 169, "key_down"},
-   {wxEVT_KEY_UP, 169, "key_up"},
-   {wxEVT_SIZE, 170, "size"},
-   {wxEVT_MOVE, 171, "move"},
-   {wxEVT_PAINT, 172, "paint"},
-   {wxEVT_PAINT_ICON, 172, "paint_icon"},
-   {wxEVT_NC_PAINT, 173, "nc_paint"},
+   {wxEVT_COMMAND_BUTTON_CLICKED, 165, "command_button_clicked"},
+   {wxEVT_COMMAND_CHECKBOX_CLICKED, 165, "command_checkbox_clicked"},
+   {wxEVT_COMMAND_CHOICE_SELECTED, 165, "command_choice_selected"},
+   {wxEVT_COMMAND_LISTBOX_SELECTED, 165, "command_listbox_selected"},
+   {wxEVT_COMMAND_LISTBOX_DOUBLECLICKED, 165, "command_listbox_doubleclicked"},
+   {wxEVT_COMMAND_TEXT_UPDATED, 165, "command_text_updated"},
+   {wxEVT_COMMAND_TEXT_ENTER, 165, "command_text_enter"},
+   {wxEVT_COMMAND_MENU_SELECTED, 165, "command_menu_selected"},
+   {wxEVT_COMMAND_SLIDER_UPDATED, 165, "command_slider_updated"},
+   {wxEVT_COMMAND_RADIOBOX_SELECTED, 165, "command_radiobox_selected"},
+   {wxEVT_COMMAND_RADIOBUTTON_SELECTED, 165, "command_radiobutton_selected"},
+   {wxEVT_COMMAND_SCROLLBAR_UPDATED, 165, "command_scrollbar_updated"},
+   {wxEVT_COMMAND_VLBOX_SELECTED, 165, "command_vlbox_selected"},
+   {wxEVT_COMMAND_COMBOBOX_SELECTED, 165, "command_combobox_selected"},
+   {wxEVT_COMMAND_TOOL_RCLICKED, 165, "command_tool_rclicked"},
+   {wxEVT_COMMAND_TOOL_ENTER, 165, "command_tool_enter"},
+   {wxEVT_COMMAND_CHECKLISTBOX_TOGGLED, 165, "command_checklistbox_toggled"},
+   {wxEVT_COMMAND_TOGGLEBUTTON_CLICKED, 165, "command_togglebutton_clicked"},
+   {wxEVT_COMMAND_LEFT_CLICK, 165, "command_left_click"},
+   {wxEVT_COMMAND_LEFT_DCLICK, 165, "command_left_dclick"},
+   {wxEVT_COMMAND_RIGHT_CLICK, 165, "command_right_click"},
+   {wxEVT_COMMAND_SET_FOCUS, 165, "command_set_focus"},
+   {wxEVT_COMMAND_KILL_FOCUS, 165, "command_kill_focus"},
+   {wxEVT_COMMAND_ENTER, 165, "command_enter"},
+   {wxEVT_SCROLL_TOP, 166, "scroll_top"},
+   {wxEVT_SCROLL_BOTTOM, 166, "scroll_bottom"},
+   {wxEVT_SCROLL_LINEUP, 166, "scroll_lineup"},
+   {wxEVT_SCROLL_LINEDOWN, 166, "scroll_linedown"},
+   {wxEVT_SCROLL_PAGEUP, 166, "scroll_pageup"},
+   {wxEVT_SCROLL_PAGEDOWN, 166, "scroll_pagedown"},
+   {wxEVT_SCROLL_THUMBTRACK, 166, "scroll_thumbtrack"},
+   {wxEVT_SCROLL_THUMBRELEASE, 166, "scroll_thumbrelease"},
+   {wxEVT_SCROLL_CHANGED, 166, "scroll_changed"},
+   {wxEVT_SCROLLWIN_TOP, 167, "scrollwin_top"},
+   {wxEVT_SCROLLWIN_BOTTOM, 167, "scrollwin_bottom"},
+   {wxEVT_SCROLLWIN_LINEUP, 167, "scrollwin_lineup"},
+   {wxEVT_SCROLLWIN_LINEDOWN, 167, "scrollwin_linedown"},
+   {wxEVT_SCROLLWIN_PAGEUP, 167, "scrollwin_pageup"},
+   {wxEVT_SCROLLWIN_PAGEDOWN, 167, "scrollwin_pagedown"},
+   {wxEVT_SCROLLWIN_THUMBTRACK, 167, "scrollwin_thumbtrack"},
+   {wxEVT_SCROLLWIN_THUMBRELEASE, 167, "scrollwin_thumbrelease"},
+   {wxEVT_LEFT_DOWN, 168, "left_down"},
+   {wxEVT_LEFT_UP, 168, "left_up"},
+   {wxEVT_MIDDLE_DOWN, 168, "middle_down"},
+   {wxEVT_MIDDLE_UP, 168, "middle_up"},
+   {wxEVT_RIGHT_DOWN, 168, "right_down"},
+   {wxEVT_RIGHT_UP, 168, "right_up"},
+   {wxEVT_MOTION, 168, "motion"},
+   {wxEVT_ENTER_WINDOW, 168, "enter_window"},
+   {wxEVT_LEAVE_WINDOW, 168, "leave_window"},
+   {wxEVT_LEFT_DCLICK, 168, "left_dclick"},
+   {wxEVT_MIDDLE_DCLICK, 168, "middle_dclick"},
+   {wxEVT_RIGHT_DCLICK, 168, "right_dclick"},
+   {wxEVT_MOUSEWHEEL, 168, "mousewheel"},
+   {wxEVT_SET_CURSOR, 169, "set_cursor"},
+   {wxEVT_CHAR, 170, "char"},
+   {wxEVT_CHAR_HOOK, 170, "char_hook"},
+   {wxEVT_KEY_DOWN, 170, "key_down"},
+   {wxEVT_KEY_UP, 170, "key_up"},
+   {wxEVT_SIZE, 171, "size"},
+   {wxEVT_MOVE, 172, "move"},
+   {wxEVT_PAINT, 173, "paint"},
    {wxEVT_ERASE_BACKGROUND, 174, "erase_background"},
    {wxEVT_SET_FOCUS, 175, "set_focus"},
    {wxEVT_KILL_FOCUS, 175, "kill_focus"},
@@ -234,80 +221,92 @@ void initEventTable()
    {wxEVT_STC_HOTSPOT_DCLICK, 204, "stc_hotspot_dclick"},
    {wxEVT_STC_CALLTIP_CLICK, 204, "stc_calltip_click"},
    {wxEVT_STC_AUTOCOMP_SELECTION, 204, "stc_autocomp_selection"},
-   {wxEVT_COMMAND_TREE_BEGIN_DRAG, 209, "command_tree_begin_drag"},
-   {wxEVT_COMMAND_TREE_BEGIN_RDRAG, 209, "command_tree_begin_rdrag"},
-   {wxEVT_COMMAND_TREE_BEGIN_LABEL_EDIT, 209, "command_tree_begin_label_edit"},
-   {wxEVT_COMMAND_TREE_END_LABEL_EDIT, 209, "command_tree_end_label_edit"},
-   {wxEVT_COMMAND_TREE_DELETE_ITEM, 209, "command_tree_delete_item"},
-   {wxEVT_COMMAND_TREE_GET_INFO, 209, "command_tree_get_info"},
-   {wxEVT_COMMAND_TREE_SET_INFO, 209, "command_tree_set_info"},
-   {wxEVT_COMMAND_TREE_ITEM_EXPANDED, 209, "command_tree_item_expanded"},
-   {wxEVT_COMMAND_TREE_ITEM_EXPANDING, 209, "command_tree_item_expanding"},
-   {wxEVT_COMMAND_TREE_ITEM_COLLAPSED, 209, "command_tree_item_collapsed"},
-   {wxEVT_COMMAND_TREE_ITEM_COLLAPSING, 209, "command_tree_item_collapsing"},
-   {wxEVT_COMMAND_TREE_SEL_CHANGED, 209, "command_tree_sel_changed"},
-   {wxEVT_COMMAND_TREE_SEL_CHANGING, 209, "command_tree_sel_changing"},
-   {wxEVT_COMMAND_TREE_KEY_DOWN, 209, "command_tree_key_down"},
-   {wxEVT_COMMAND_TREE_ITEM_ACTIVATED, 209, "command_tree_item_activated"},
-   {wxEVT_COMMAND_TREE_ITEM_RIGHT_CLICK, 209, "command_tree_item_right_click"},
-   {wxEVT_COMMAND_TREE_ITEM_MIDDLE_CLICK, 209, "command_tree_item_middle_click"},
-   {wxEVT_COMMAND_TREE_END_DRAG, 209, "command_tree_end_drag"},
-   {wxEVT_COMMAND_TREE_STATE_IMAGE_CLICK, 209, "command_tree_state_image_click"},
-   {wxEVT_COMMAND_TREE_ITEM_GETTOOLTIP, 209, "command_tree_item_gettooltip"},
-   {wxEVT_COMMAND_TREE_ITEM_MENU, 209, "command_tree_item_menu"},
-   {wxEVT_COMMAND_NOTEBOOK_PAGE_CHANGED, 210, "command_notebook_page_changed"},
-   {wxEVT_COMMAND_NOTEBOOK_PAGE_CHANGING, 210, "command_notebook_page_changing"},
-   {wxEVT_COMMAND_SPINCTRL_UPDATED, 216, "command_spinctrl_updated"},
-   {wxEVT_SCROLL_LINEUP + wxEVT_USER_FIRST, 165, "spin_up"},
-   {wxEVT_SCROLL_LINEDOWN + wxEVT_USER_FIRST, 165, "spin_down"},
-   {wxEVT_SCROLL_THUMBTRACK + wxEVT_USER_FIRST, 165, "spin"},
-   {wxEVT_COMMAND_SPLITTER_SASH_POS_CHANGED, 218, "command_splitter_sash_pos_changed"},
-   {wxEVT_COMMAND_SPLITTER_SASH_POS_CHANGING, 218, "command_splitter_sash_pos_changing"},
-   {wxEVT_COMMAND_SPLITTER_DOUBLECLICKED, 218, "command_splitter_doubleclicked"},
-   {wxEVT_COMMAND_SPLITTER_UNSPLIT, 218, "command_splitter_unsplit"},
-   {wxEVT_COMMAND_HTML_LINK_CLICKED, 220, "command_html_link_clicked"},
-   {wxEVT_COMMAND_AUINOTEBOOK_PAGE_CLOSE, 223, "command_auinotebook_page_close"},
-   {wxEVT_COMMAND_AUINOTEBOOK_PAGE_CHANGED, 223, "command_auinotebook_page_changed"},
-   {wxEVT_COMMAND_AUINOTEBOOK_PAGE_CHANGING, 223, "command_auinotebook_page_changing"},
-   {wxEVT_COMMAND_AUINOTEBOOK_BUTTON, 223, "command_auinotebook_button"},
-   {wxEVT_COMMAND_AUINOTEBOOK_BEGIN_DRAG, 223, "command_auinotebook_begin_drag"},
-   {wxEVT_COMMAND_AUINOTEBOOK_END_DRAG, 223, "command_auinotebook_end_drag"},
-   {wxEVT_COMMAND_AUINOTEBOOK_DRAG_MOTION, 223, "command_auinotebook_drag_motion"},
-   {wxEVT_COMMAND_AUINOTEBOOK_ALLOW_DND, 223, "command_auinotebook_allow_dnd"},
+   {wxEVT_COMMAND_TREE_BEGIN_DRAG, 210, "command_tree_begin_drag"},
+   {wxEVT_COMMAND_TREE_BEGIN_RDRAG, 210, "command_tree_begin_rdrag"},
+   {wxEVT_COMMAND_TREE_BEGIN_LABEL_EDIT, 210, "command_tree_begin_label_edit"},
+   {wxEVT_COMMAND_TREE_END_LABEL_EDIT, 210, "command_tree_end_label_edit"},
+   {wxEVT_COMMAND_TREE_DELETE_ITEM, 210, "command_tree_delete_item"},
+   {wxEVT_COMMAND_TREE_GET_INFO, 210, "command_tree_get_info"},
+   {wxEVT_COMMAND_TREE_SET_INFO, 210, "command_tree_set_info"},
+   {wxEVT_COMMAND_TREE_ITEM_EXPANDED, 210, "command_tree_item_expanded"},
+   {wxEVT_COMMAND_TREE_ITEM_EXPANDING, 210, "command_tree_item_expanding"},
+   {wxEVT_COMMAND_TREE_ITEM_COLLAPSED, 210, "command_tree_item_collapsed"},
+   {wxEVT_COMMAND_TREE_ITEM_COLLAPSING, 210, "command_tree_item_collapsing"},
+   {wxEVT_COMMAND_TREE_SEL_CHANGED, 210, "command_tree_sel_changed"},
+   {wxEVT_COMMAND_TREE_SEL_CHANGING, 210, "command_tree_sel_changing"},
+   {wxEVT_COMMAND_TREE_KEY_DOWN, 210, "command_tree_key_down"},
+   {wxEVT_COMMAND_TREE_ITEM_ACTIVATED, 210, "command_tree_item_activated"},
+   {wxEVT_COMMAND_TREE_ITEM_RIGHT_CLICK, 210, "command_tree_item_right_click"},
+   {wxEVT_COMMAND_TREE_ITEM_MIDDLE_CLICK, 210, "command_tree_item_middle_click"},
+   {wxEVT_COMMAND_TREE_END_DRAG, 210, "command_tree_end_drag"},
+   {wxEVT_COMMAND_TREE_STATE_IMAGE_CLICK, 210, "command_tree_state_image_click"},
+   {wxEVT_COMMAND_TREE_ITEM_GETTOOLTIP, 210, "command_tree_item_gettooltip"},
+   {wxEVT_COMMAND_TREE_ITEM_MENU, 210, "command_tree_item_menu"},
+   {wxEVT_COMMAND_NOTEBOOK_PAGE_CHANGED, 211, "command_notebook_page_changed"},
+   {wxEVT_COMMAND_NOTEBOOK_PAGE_CHANGING, 211, "command_notebook_page_changing"},
+   {wxEVT_COMMAND_TEXT_COPY, 217, "command_text_copy"},
+   {wxEVT_COMMAND_TEXT_CUT, 217, "command_text_cut"},
+   {wxEVT_COMMAND_TEXT_PASTE, 217, "command_text_paste"},
+   {wxEVT_COMMAND_SPINCTRL_UPDATED, 218, "command_spinctrl_updated"},
+   {wxEVT_SCROLL_LINEUP + wxEVT_USER_FIRST, 166, "spin_up"},
+   {wxEVT_SCROLL_LINEDOWN + wxEVT_USER_FIRST, 166, "spin_down"},
+   {wxEVT_SCROLL_THUMBTRACK + wxEVT_USER_FIRST, 166, "spin"},
+   {wxEVT_COMMAND_SPLITTER_SASH_POS_CHANGED, 220, "command_splitter_sash_pos_changed"},
+   {wxEVT_COMMAND_SPLITTER_SASH_POS_CHANGING, 220, "command_splitter_sash_pos_changing"},
+   {wxEVT_COMMAND_SPLITTER_DOUBLECLICKED, 220, "command_splitter_doubleclicked"},
+   {wxEVT_COMMAND_SPLITTER_UNSPLIT, 220, "command_splitter_unsplit"},
+   {wxEVT_COMMAND_HTML_LINK_CLICKED, 222, "command_html_link_clicked"},
+   {wxEVT_COMMAND_AUINOTEBOOK_PAGE_CLOSE, 225, "command_auinotebook_page_close"},
+   {wxEVT_COMMAND_AUINOTEBOOK_PAGE_CHANGED, 225, "command_auinotebook_page_changed"},
+   {wxEVT_COMMAND_AUINOTEBOOK_PAGE_CHANGING, 225, "command_auinotebook_page_changing"},
+   {wxEVT_COMMAND_AUINOTEBOOK_BUTTON, 225, "command_auinotebook_button"},
+   {wxEVT_COMMAND_AUINOTEBOOK_BEGIN_DRAG, 225, "command_auinotebook_begin_drag"},
+   {wxEVT_COMMAND_AUINOTEBOOK_END_DRAG, 225, "command_auinotebook_end_drag"},
+   {wxEVT_COMMAND_AUINOTEBOOK_DRAG_MOTION, 225, "command_auinotebook_drag_motion"},
+   {wxEVT_COMMAND_AUINOTEBOOK_ALLOW_DND, 225, "command_auinotebook_allow_dnd"},
 #if wxCHECK_VERSION(2,8,5)
-   {wxEVT_COMMAND_AUINOTEBOOK_TAB_MIDDLE_DOWN, 223, "command_auinotebook_tab_middle_down"},
+   {wxEVT_COMMAND_AUINOTEBOOK_TAB_MIDDLE_DOWN, 225, "command_auinotebook_tab_middle_down"},
 #endif
 #if wxCHECK_VERSION(2,8,5)
-   {wxEVT_COMMAND_AUINOTEBOOK_TAB_MIDDLE_UP, 223, "command_auinotebook_tab_middle_up"},
+   {wxEVT_COMMAND_AUINOTEBOOK_TAB_MIDDLE_UP, 225, "command_auinotebook_tab_middle_up"},
 #endif
 #if wxCHECK_VERSION(2,8,5)
-   {wxEVT_COMMAND_AUINOTEBOOK_TAB_RIGHT_DOWN, 223, "command_auinotebook_tab_right_down"},
+   {wxEVT_COMMAND_AUINOTEBOOK_TAB_RIGHT_DOWN, 225, "command_auinotebook_tab_right_down"},
 #endif
 #if wxCHECK_VERSION(2,8,5)
-   {wxEVT_COMMAND_AUINOTEBOOK_TAB_RIGHT_UP, 223, "command_auinotebook_tab_right_up"},
+   {wxEVT_COMMAND_AUINOTEBOOK_TAB_RIGHT_UP, 225, "command_auinotebook_tab_right_up"},
 #endif
 #if wxCHECK_VERSION(2,8,5)
-   {wxEVT_COMMAND_AUINOTEBOOK_PAGE_CLOSED, 223, "command_auinotebook_page_closed"},
+   {wxEVT_COMMAND_AUINOTEBOOK_PAGE_CLOSED, 225, "command_auinotebook_page_closed"},
 #endif
 #if wxCHECK_VERSION(2,8,5)
-   {wxEVT_COMMAND_AUINOTEBOOK_DRAG_DONE, 223, "command_auinotebook_drag_done"},
+   {wxEVT_COMMAND_AUINOTEBOOK_DRAG_DONE, 225, "command_auinotebook_drag_done"},
 #endif
 #if wxCHECK_VERSION(2,8,5)
-   {wxEVT_COMMAND_AUINOTEBOOK_BG_DCLICK, 223, "command_auinotebook_bg_dclick"},
+   {wxEVT_COMMAND_AUINOTEBOOK_BG_DCLICK, 225, "command_auinotebook_bg_dclick"},
 #endif
-   {wxEVT_AUI_PANE_BUTTON, 224, "aui_pane_button"},
-   {wxEVT_AUI_PANE_CLOSE, 224, "aui_pane_close"},
-   {wxEVT_AUI_PANE_MAXIMIZE, 224, "aui_pane_maximize"},
-   {wxEVT_AUI_PANE_RESTORE, 224, "aui_pane_restore"},
-   {wxEVT_AUI_RENDER, 224, "aui_render"},
-   {wxEVT_AUI_FIND_MANAGER, 224, "aui_find_manager"},
-   {wxEVT_TASKBAR_MOVE, 227, "taskbar_move"},
-   {wxEVT_TASKBAR_LEFT_DOWN, 227, "taskbar_left_down"},
-   {wxEVT_TASKBAR_LEFT_UP, 227, "taskbar_left_up"},
-   {wxEVT_TASKBAR_RIGHT_DOWN, 227, "taskbar_right_down"},
-   {wxEVT_TASKBAR_RIGHT_UP, 227, "taskbar_right_up"},
-   {wxEVT_TASKBAR_LEFT_DCLICK, 227, "taskbar_left_dclick"},
-   {wxEVT_TASKBAR_RIGHT_DCLICK, 227, "taskbar_right_dclick"},
+   {wxEVT_AUI_PANE_BUTTON, 226, "aui_pane_button"},
+   {wxEVT_AUI_PANE_CLOSE, 226, "aui_pane_close"},
+   {wxEVT_AUI_PANE_MAXIMIZE, 226, "aui_pane_maximize"},
+   {wxEVT_AUI_PANE_RESTORE, 226, "aui_pane_restore"},
+#if wxCHECK_VERSION(2,9,5)
+   {wxEVT_AUI_PANE_ACTIVATED, 226, "aui_pane_activated"},
+#endif
+   {wxEVT_AUI_RENDER, 226, "aui_render"},
+   {wxEVT_AUI_FIND_MANAGER, 226, "aui_find_manager"},
+   {wxEVT_TASKBAR_MOVE, 229, "taskbar_move"},
+   {wxEVT_TASKBAR_LEFT_DOWN, 229, "taskbar_left_down"},
+   {wxEVT_TASKBAR_LEFT_UP, 229, "taskbar_left_up"},
+   {wxEVT_TASKBAR_RIGHT_DOWN, 229, "taskbar_right_down"},
+   {wxEVT_TASKBAR_RIGHT_UP, 229, "taskbar_right_up"},
+   {wxEVT_TASKBAR_LEFT_DCLICK, 229, "taskbar_left_dclick"},
+   {wxEVT_TASKBAR_RIGHT_DCLICK, 229, "taskbar_right_dclick"},
+   {wxEVT_INIT_DIALOG, 230, "init_dialog"},
+   {wxEVT_ACTIVATE, 232, "activate"},
+   {wxEVT_ACTIVATE_APP, 232, "activate_app"},
+   {wxEVT_HIBERNATE, 232, "hibernate"},
+   {wxEVT_MOUSE_CAPTURE_LOST, 235, "mouse_capture_lost"},
+   {wxEVT_DROP_FILES, 238, "drop_files"},
    {-1, 0, }
   };
   for(int i=0; event_types[i].ev_type != -1; i++) {
@@ -326,29 +325,19 @@ void initEventTable()
   }
 }
 
-void wxeEvtListener::forward(wxEvent& event)
-{
-#ifdef DEBUG
-  if(!sendevent(&event, port))
-    fprintf(stderr, "Couldn't send event!\r\n");
-#else
-sendevent(&event, port);
-#endif
-}
-
 int getRef(void* ptr, wxeMemEnv* memenv)
 {
   WxeApp * app = (WxeApp *) wxTheApp;
   return app->getRef(ptr,memenv);
 }
 
-bool sendevent(wxEvent *event, ErlDrvPort port)
+bool sendevent(wxEvent *event, ErlDrvTermData port)
 {
  int send_res ;
  char * evClass = NULL;
  wxMBConvUTF32 UTFconverter;
  wxeEtype *Etype = etmap[event->GetEventType()];
- wxeCallbackData *cb = (wxeCallbackData *)event->m_callbackUserData;
+ wxeEvtListener *cb = (wxeEvtListener *)event->m_callbackUserData;
  WxeApp * app = (WxeApp *) wxTheApp;
  wxeMemEnv *memenv = app->getMemEnv(port);
  if(!memenv) return 0;
@@ -357,10 +346,10 @@ bool sendevent(wxEvent *event, ErlDrvPort port)
 
  rt.addAtom((char*)"wx");
  rt.addInt((int) event->GetId());
- rt.addRef(getRef((void *)(cb->obj), memenv), cb->class_name);
+ rt.addRef(cb->obj, cb->class_name);
  rt.addExt2Term(cb->user_data);
  switch(Etype->cID) {
-case 164: {// wxCommandEvent
+case 165: {// wxCommandEvent
  wxCommandEvent * ev = (wxCommandEvent *) event;
     evClass = (char*)"wxCommandEvent";
     rt.addAtom((char*)"wxCommand");
@@ -371,7 +360,7 @@ case 164: {// wxCommandEvent
     rt.addTupleCount(5);
   break;
 }
-case 165: {// wxScrollEvent or wxSpinEvent
+case 166: {// wxScrollEvent or wxSpinEvent
   if(event->IsKindOf(CLASSINFO(wxScrollEvent))) {
  wxScrollEvent * ev = (wxScrollEvent *) event;
     evClass = (char*)"wxScrollEvent";
@@ -391,14 +380,17 @@ case 165: {// wxScrollEvent or wxSpinEvent
   }
   break;
 }
-case 166: {// wxScrollWinEvent
+case 167: {// wxScrollWinEvent
+ wxScrollWinEvent * ev = (wxScrollWinEvent *) event;
     evClass = (char*)"wxScrollWinEvent";
     rt.addAtom((char*)"wxScrollWin");
     rt.addAtom(Etype->eName);
-    rt.addTupleCount(2);
+ rt.addInt(ev->GetPosition());
+ rt.addInt(ev->GetOrientation());
+    rt.addTupleCount(4);
   break;
 }
-case 167: {// wxMouseEvent
+case 168: {// wxMouseEvent
  wxMouseEvent * ev = (wxMouseEvent *) event;
     evClass = (char*)"wxMouseEvent";
     rt.addAtom((char*)"wxMouse");
@@ -411,21 +403,31 @@ case 167: {// wxMouseEvent
  rt.addBool(ev->m_controlDown);
  rt.addBool(ev->m_shiftDown);
  rt.addBool(ev->m_altDown);
+#if wxCHECK_VERSION(2,9,0) && defined(_MACOSX)
+ rt.addBool(ev->m_rawControlDown);
+#else
  rt.addBool(ev->m_metaDown);
+#endif
  rt.addInt(ev->m_wheelRotation);
  rt.addInt(ev->m_wheelDelta);
  rt.addInt(ev->m_linesPerAction);
     rt.addTupleCount(14);
   break;
 }
-case 168: {// wxSetCursorEvent
+case 169: {// wxSetCursorEvent
+ wxSetCursorEvent * ev = (wxSetCursorEvent *) event;
+ wxCursor * GetCursor = new wxCursor(ev->GetCursor());
+ app->newPtr((void *) GetCursor,3, memenv);
     evClass = (char*)"wxSetCursorEvent";
     rt.addAtom((char*)"wxSetCursor");
     rt.addAtom(Etype->eName);
-    rt.addTupleCount(2);
+ rt.addInt(ev->GetX());
+ rt.addInt(ev->GetY());
+ rt.addRef(getRef((void *)GetCursor,memenv), "wxCursor");
+    rt.addTupleCount(5);
   break;
 }
-case 169: {// wxKeyEvent
+case 170: {// wxKeyEvent
  wxKeyEvent * ev = (wxKeyEvent *) event;
     evClass = (char*)"wxKeyEvent";
     rt.addAtom((char*)"wxKey");
@@ -436,15 +438,23 @@ case 169: {// wxKeyEvent
  rt.addBool(ev->m_controlDown);
  rt.addBool(ev->m_shiftDown);
  rt.addBool(ev->m_altDown);
+#if wxCHECK_VERSION(2,9,0) && defined(_MACOSX)
+ rt.addBool(ev->m_rawControlDown);
+#else
  rt.addBool(ev->m_metaDown);
+#endif
+#if !wxCHECK_VERSION(2,9,0)
  rt.addBool(ev->m_scanCode);
+#else
+ rt.addBool(false);
+#endif
  rt.addInt(ev->m_uniChar);
  rt.addUint(ev->m_rawCode);
  rt.addUint(ev->m_rawFlags);
     rt.addTupleCount(13);
   break;
 }
-case 170: {// wxSizeEvent
+case 171: {// wxSizeEvent
  wxSizeEvent * ev = (wxSizeEvent *) event;
     evClass = (char*)"wxSizeEvent";
     rt.addAtom((char*)"wxSize");
@@ -454,23 +464,19 @@ case 170: {// wxSizeEvent
     rt.addTupleCount(4);
   break;
 }
-case 171: {// wxMoveEvent
+case 172: {// wxMoveEvent
+ wxMoveEvent * ev = (wxMoveEvent *) event;
     evClass = (char*)"wxMoveEvent";
     rt.addAtom((char*)"wxMove");
     rt.addAtom(Etype->eName);
-    rt.addTupleCount(2);
+ rt.add(ev->GetPosition());
+ rt.add(ev->GetRect());
+    rt.addTupleCount(4);
   break;
 }
-case 172: {// wxPaintEvent
+case 173: {// wxPaintEvent
     evClass = (char*)"wxPaintEvent";
     rt.addAtom((char*)"wxPaint");
-    rt.addAtom(Etype->eName);
-    rt.addTupleCount(2);
-  break;
-}
-case 173: {// wxNcPaintEvent
-    evClass = (char*)"wxNcPaintEvent";
-    rt.addAtom((char*)"wxNcPaint");
     rt.addAtom(Etype->eName);
     rt.addTupleCount(2);
   break;
@@ -486,10 +492,13 @@ case 174: {// wxEraseEvent
   break;
 }
 case 175: {// wxFocusEvent
+ wxFocusEvent * ev = (wxFocusEvent *) event;
+ wxWindow * GetWindow = ev->GetWindow();
     evClass = (char*)"wxFocusEvent";
     rt.addAtom((char*)"wxFocus");
     rt.addAtom(Etype->eName);
-    rt.addTupleCount(2);
+ rt.addRef(getRef((void *)GetWindow,memenv), "wxWindow");
+    rt.addTupleCount(3);
   break;
 }
 case 176: {// wxChildFocusEvent
@@ -500,10 +509,14 @@ case 176: {// wxChildFocusEvent
   break;
 }
 case 177: {// wxMenuEvent
+ wxMenuEvent * ev = (wxMenuEvent *) event;
+ wxMenu * GetMenu = ev->GetMenu();
     evClass = (char*)"wxMenuEvent";
     rt.addAtom((char*)"wxMenu");
     rt.addAtom(Etype->eName);
-    rt.addTupleCount(2);
+ rt.addInt(ev->GetMenuId());
+ rt.addRef(getRef((void *)GetMenu,memenv), "wxMenu");
+    rt.addTupleCount(4);
   break;
 }
 case 178: {// wxCloseEvent
@@ -514,17 +527,21 @@ case 178: {// wxCloseEvent
   break;
 }
 case 179: {// wxShowEvent
+ wxShowEvent * ev = (wxShowEvent *) event;
     evClass = (char*)"wxShowEvent";
     rt.addAtom((char*)"wxShow");
     rt.addAtom(Etype->eName);
-    rt.addTupleCount(2);
+ rt.addBool(ev->GetShow());
+    rt.addTupleCount(3);
   break;
 }
 case 180: {// wxIconizeEvent
+ wxIconizeEvent * ev = (wxIconizeEvent *) event;
     evClass = (char*)"wxIconizeEvent";
     rt.addAtom((char*)"wxIconize");
     rt.addAtom(Etype->eName);
-    rt.addTupleCount(2);
+ rt.addBool(ev->Iconized());
+    rt.addTupleCount(3);
   break;
 }
 case 181: {// wxMaximizeEvent
@@ -535,10 +552,16 @@ case 181: {// wxMaximizeEvent
   break;
 }
 case 182: {// wxJoystickEvent
+ wxJoystickEvent * ev = (wxJoystickEvent *) event;
     evClass = (char*)"wxJoystickEvent";
     rt.addAtom((char*)"wxJoystick");
     rt.addAtom(Etype->eName);
-    rt.addTupleCount(2);
+ rt.add(ev->GetPosition());
+ rt.addInt(ev->GetZPosition());
+ rt.addInt(ev->GetButtonChange());
+ rt.addInt(ev->GetButtonState());
+ rt.addInt(ev->GetJoystick());
+    rt.addTupleCount(7);
   break;
 }
 case 183: {// wxUpdateUIEvent
@@ -615,10 +638,12 @@ case 192: {// wxHelpEvent
   break;
 }
 case 193: {// wxContextMenuEvent
+ wxContextMenuEvent * ev = (wxContextMenuEvent *) event;
     evClass = (char*)"wxContextMenuEvent";
     rt.addAtom((char*)"wxContextMenu");
     rt.addAtom(Etype->eName);
-    rt.addTupleCount(2);
+ rt.add(ev->GetPosition());
+    rt.addTupleCount(3);
   break;
 }
 case 194: {// wxIdleEvent
@@ -679,10 +704,13 @@ case 199: {// wxDateEvent
   break;
 }
 case 200: {// wxCalendarEvent
+ wxCalendarEvent * ev = (wxCalendarEvent *) event;
     evClass = (char*)"wxCalendarEvent";
     rt.addAtom((char*)"wxCalendar");
     rt.addAtom(Etype->eName);
-    rt.addTupleCount(2);
+ rt.addInt(ev->GetWeekDay());
+ rt.add(ev->GetDate());
+    rt.addTupleCount(4);
   break;
 }
 case 201: {// wxFileDirPickerEvent
@@ -742,7 +770,7 @@ case 204: {// wxStyledTextEvent
     rt.addTupleCount(22);
   break;
 }
-case 209: {// wxTreeEvent
+case 210: {// wxTreeEvent
  wxTreeEvent * ev = (wxTreeEvent *) event;
     evClass = (char*)"wxTreeEvent";
     rt.addAtom((char*)"wxTree");
@@ -753,14 +781,24 @@ case 209: {// wxTreeEvent
     rt.addTupleCount(5);
   break;
 }
-case 210: {// wxNotebookEvent
+case 211: {// wxNotebookEvent
+ wxNotebookEvent * ev = (wxNotebookEvent *) event;
     evClass = (char*)"wxNotebookEvent";
     rt.addAtom((char*)"wxNotebook");
+    rt.addAtom(Etype->eName);
+ rt.addInt(ev->GetSelection());
+ rt.addInt(ev->GetOldSelection());
+    rt.addTupleCount(4);
+  break;
+}
+case 217: {// wxClipboardTextEvent
+    evClass = (char*)"wxClipboardTextEvent";
+    rt.addAtom((char*)"wxClipboardText");
     rt.addAtom(Etype->eName);
     rt.addTupleCount(2);
   break;
 }
-case 216: {// wxSpinEvent
+case 218: {// wxSpinEvent
  wxSpinEvent * ev = (wxSpinEvent *) event;
     evClass = (char*)"wxSpinEvent";
     rt.addAtom((char*)"wxSpin");
@@ -769,14 +807,14 @@ case 216: {// wxSpinEvent
     rt.addTupleCount(3);
   break;
 }
-case 218: {// wxSplitterEvent
+case 220: {// wxSplitterEvent
     evClass = (char*)"wxSplitterEvent";
     rt.addAtom((char*)"wxSplitter");
     rt.addAtom(Etype->eName);
     rt.addTupleCount(2);
   break;
 }
-case 220: {// wxHtmlLinkEvent
+case 222: {// wxHtmlLinkEvent
  wxHtmlLinkEvent * ev = (wxHtmlLinkEvent *) event;
     evClass = (char*)"wxHtmlLinkEvent";
     rt.addAtom((char*)"wxHtmlLink");
@@ -785,7 +823,7 @@ case 220: {// wxHtmlLinkEvent
     rt.addTupleCount(3);
   break;
 }
-case 223: {// wxAuiNotebookEvent
+case 225: {// wxAuiNotebookEvent
  wxAuiNotebookEvent * ev = (wxAuiNotebookEvent *) event;
  wxAuiNotebook * GetDragSource = ev->GetDragSource();
     evClass = (char*)"wxAuiNotebookEvent";
@@ -797,7 +835,7 @@ case 223: {// wxAuiNotebookEvent
     rt.addTupleCount(5);
   break;
 }
-case 224: {// wxAuiManagerEvent
+case 226: {// wxAuiManagerEvent
  wxAuiManagerEvent * ev = (wxAuiManagerEvent *) event;
  wxAuiManager * GetManager = ev->GetManager();
  wxAuiPaneInfo * GetPane = ev->GetPane();
@@ -814,11 +852,46 @@ case 224: {// wxAuiManagerEvent
     rt.addTupleCount(8);
   break;
 }
-case 227: {// wxTaskBarIconEvent
+case 229: {// wxTaskBarIconEvent
     evClass = (char*)"wxTaskBarIconEvent";
     rt.addAtom((char*)"wxTaskBarIcon");
     rt.addAtom(Etype->eName);
     rt.addTupleCount(2);
+  break;
+}
+case 230: {// wxInitDialogEvent
+    evClass = (char*)"wxInitDialogEvent";
+    rt.addAtom((char*)"wxInitDialog");
+    rt.addAtom(Etype->eName);
+    rt.addTupleCount(2);
+  break;
+}
+case 232: {// wxActivateEvent
+ wxActivateEvent * ev = (wxActivateEvent *) event;
+    evClass = (char*)"wxActivateEvent";
+    rt.addAtom((char*)"wxActivate");
+    rt.addAtom(Etype->eName);
+ rt.addBool(ev->GetActive());
+    rt.addTupleCount(3);
+  break;
+}
+case 235: {// wxMouseCaptureLostEvent
+    evClass = (char*)"wxMouseCaptureLostEvent";
+    rt.addAtom((char*)"wxMouseCaptureLost");
+    rt.addAtom(Etype->eName);
+    rt.addTupleCount(2);
+  break;
+}
+case 238: {// wxDropFilesEvent
+ wxDropFilesEvent * ev = (wxDropFilesEvent *) event;
+    evClass = (char*)"wxDropFilesEvent";
+    rt.addAtom((char*)"wxDropFiles");
+    rt.addAtom(Etype->eName);
+ rt.addInt(ev->m_noFiles);
+ rt.add(ev->m_pos);
+ wxArrayString tmpArrayStr(ev->m_noFiles, ev->m_files);
+ rt.add(tmpArrayStr);
+    rt.addTupleCount(5);
   break;
 }
  }
@@ -832,11 +905,16 @@ case 227: {// wxTaskBarIconEvent
    rt.addTupleCount(3);
    pre_callback();
    send_res =  rt.send();
-   if(send_res) handle_event_callback(port, cb->listener);
+   if(send_res) handle_event_callback(WXE_DRV_PORT_HANDLE, cb->listener);
    app->clearPtr((void *) event);
  } else {
    send_res =  rt.send();
    if(cb->skip) event->Skip();
+   if(app->recurse_level < 1 && Etype->cID != 168) {
+     app->recurse_level++;
+     app->dispatch_cmds();
+     app->recurse_level--;
+   }
  };
  return send_res;
  }

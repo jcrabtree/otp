@@ -1,26 +1,26 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1999-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1999-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
 -module(pdict_SUITE).
-%% NB: The ?line macro cannot be used when testing the dictionary.
 
 
--include_lib("test_server/include/test_server.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 -define(M(A,B),m(A,B,?MODULE,?LINE)).
 -ifdef(DEBUG).
@@ -31,22 +31,30 @@
 
 -export([all/0, suite/0,groups/0,init_per_suite/1, end_per_suite/1, 
 	 init_per_group/2,end_per_group/2,
-	 simple/1, complicated/1, heavy/1, info/1]).
+	 mixed/1,
+         literals/1,
+         destructive/1,
+	 simple/1, complicated/1, heavy/1, simple_all_keys/1, info/1]).
 -export([init_per_testcase/2, end_per_testcase/2]).
 -export([other_process/2]).
 
+-export([put_do/2, get_do/1, erase_do/1]).
+
 init_per_testcase(_Case, Config) ->
-    ?line Dog = ?t:timetrap(test_server:minutes(10)),
-    [{watchdog, Dog} | Config].
-end_per_testcase(_Case, Config) ->
-    Dog = ?config(watchdog, Config),
-    test_server:timetrap_cancel(Dog),
+    Config.
+
+end_per_testcase(_Case, _Config) ->
     ok.
 
-suite() -> [{ct_hooks,[ts_install_cth]}].
+suite() ->
+    [{ct_hooks,[ts_install_cth]},
+     {timetrap,{minutes,1}}].
 
 all() -> 
-    [simple, complicated, heavy, info].
+    [simple, complicated, heavy, simple_all_keys, info,
+     literals,
+     destructive,
+     mixed].
 
 groups() -> 
     [].
@@ -64,12 +72,10 @@ end_per_group(_GroupName, Config) ->
     Config.
 
 
-simple(doc) ->
-    ["Tests simple functionality in process dictionary."];
-simple(suite) ->
-    [];
+%% Tests simple functionality in process dictionary.
 simple(Config) when is_list(Config) ->
     XX = get(),
+    ok = match_keys(XX),
     erase(),
     L = [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,
 	    q,r,s,t,u,v,x,y,z,'A','B','C','D'],
@@ -105,16 +111,19 @@ simple(Config) when is_list(Config) ->
 
 complicated(Config) when is_list(Config) ->
     Previous = get(),
+    ok = match_keys(Previous),
     Previous = erase(),
-    N = case ?t:is_debug() of
+    N = case test_server:is_debug() of
 	    false -> 500000;
 	    true -> 5000
 	end,
     comp_1(N),
     comp_2(N),
     N = comp_3(lists:sort(get()), 1),
+    ok = match_keys(get()),
     comp_4(get()),
     [] = get(),
+    [] = get_keys(),
     [put(Key, Value) || {Key,Value} <- Previous],
     ok.
 
@@ -138,10 +147,7 @@ comp_4([{{key,_}=K,{value,_}=Val}|T]) ->
     comp_4(T);
 comp_4([]) -> ok.
 
-heavy(doc) ->
-    ["Tests heavy usage of the process dictionary"];
-heavy(suite) ->
-    [];
+%% Tests heavy usage of the process dictionary.
 heavy(Config) when is_list(Config) ->
     XX = get(),
     erase(),
@@ -151,8 +157,7 @@ heavy(Config) when is_list(Config) ->
     ?M([],get()),
     time(5000),
     ?M([],get()),
-    case {os:type(),?t:is_debug()} of
-	{vxworks,_} -> ok;
+    case {os:type(),test_server:is_debug()} of
 	{_,true} -> ok;	    
 	_ ->
 	    time(50000),
@@ -161,10 +166,27 @@ heavy(Config) when is_list(Config) ->
     [put(Key, Value) || {Key,Value} <- XX],
     ok.
 
-info(doc) ->
-    ["Tests process_info(Pid, dictionary)"];
-info(suite) ->
-    [];
+simple_all_keys(Config) when is_list(Config) ->
+    erase(),
+    ok = simple_all_keys_add_loop(1000),
+    [] = get_keys(),
+    [] = get(),
+    ok.
+
+simple_all_keys_add_loop(0) ->
+    simple_all_keys_del_loop(erlang:get_keys());
+simple_all_keys_add_loop(N) ->
+   put(gen_key(N),value),
+   ok = match_keys(get()),
+   simple_all_keys_add_loop(N-1).
+
+simple_all_keys_del_loop([]) -> ok;
+simple_all_keys_del_loop([K|Ks]) ->
+    value = erase(K),
+    ok = match_keys(get()),
+    simple_all_keys_del_loop(Ks).
+
+%% Tests process_info(Pid, dictionary).
 info(Config) when is_list(Config) ->
     L = [a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,
 	    q,r,s,t,u,v,x,y,z,'A','B','C','D'],
@@ -340,3 +362,151 @@ m(A,B,Module,Line) ->
 		      [A,B,Module,Line]),
 	    exit({no_match,{A,B},Module,Line})
     end.
+
+match_keys(All) ->
+    Ks = lists:sort([K||{K,_}<-All]),
+    Ks = lists:sort(erlang:get_keys()),
+    ok.
+
+
+%% Test destructive put optimization of immed values
+%% does not affect get/0 or process_info.
+destructive(_Config) ->
+    Keys = lists:seq(1,100),
+    [put(Key, 17) || Key <- Keys],
+    Get1 = get(),
+    {dictionary,PI1} = process_info(self(), dictionary),
+
+    [begin
+         {Key, 17} = lists:keyfind(Key, 1, Get1),
+         {Key, 17} = lists:keyfind(Key, 1, PI1)
+     end
+     || Key <- Keys],
+
+    [17 = put(Key, 42) || Key <- Keys],   % Mutate
+
+    Get2 = get(),
+    {dictionary,PI2} = process_info(self(), dictionary),
+
+    [begin
+         {Key, 17} = lists:keyfind(Key, 1, Get1),
+         {Key, 17} = lists:keyfind(Key, 1, PI1),
+         {Key, 42} = lists:keyfind(Key, 1, Get2),
+         {Key, 42} = lists:keyfind(Key, 1, PI2)
+
+     end
+     || Key <- Keys],
+
+    ok.
+
+%% Do random mixed put/erase to test grow/shrink
+%% Written for a temporary bug in gc during shrink
+mixed(_Config) ->
+    Rand0 = rand:seed_s(exsplus),
+    io:format("Random seed = ~p\n\n", [rand:export_seed_s(Rand0)]),
+
+    erts_debug:set_internal_state(available_internal_state, true),
+    try
+	C = do_mixed([10,0,100,50,1000,500,600,100,150,1,11,2,30,0],
+		     0,
+		     array:new(),
+		     1,
+		     Rand0),
+	io:format("\nDid total of ~p operations\n", [C])
+    after
+	erts_debug:set_internal_state(available_internal_state, false)
+    end.
+
+do_mixed([], _, _, C, _) ->
+    C;
+do_mixed([GoalN | Tail], GoalN, Array, C, Rand0) ->
+    io:format("Reached goal of ~p keys in dict after ~p mixed ops\n",[GoalN, C]),
+    GoalN = array:size(Array),
+    do_mixed(Tail, GoalN, Array, C, Rand0);
+do_mixed([GoalN | _]=Goals, CurrN, Array0, C, Rand0) ->
+    CurrN = array:size(Array0),
+    GrowPercent = case GoalN > CurrN of
+		      true when CurrN == 0 -> 100;
+		      true -> 75;
+		      false -> 25
+		  end,
+    {R, Rand1} = rand:uniform_s(100, Rand0),
+    case R of
+	_ when R =< GrowPercent ->   %%%%%%%%%%%%% GROW
+	    {Key, Rand2} = rand:uniform_s(10000, Rand1),
+	    case put(Key, {Key,C}) of
+		undefined ->
+		    Array1 = array:set(CurrN, Key, Array0),
+		    do_mixed(Goals, CurrN+1, Array1, C+1, Rand2);
+		_ ->
+		    do_mixed(Goals, CurrN, Array0, C+1, Rand2)
+	    end;
+
+	_ ->                          %%%%%%%%%% SHRINK
+	    {Kix, Rand2} = rand:uniform_s(CurrN, Rand1),
+	    Key = array:get(Kix-1, Array0),
+
+	    %% provoke GC during shrink
+	    erts_debug:set_internal_state(fill_heap, true),
+
+	    {Key, _} = erase(Key),
+	    Array1 = array:set(Kix-1, array:get(CurrN-1, Array0), Array0),
+	    Array2 = array:resize(CurrN-1, Array1),
+	    do_mixed(Goals, CurrN-1, Array2, C+1, Rand2)
+    end.
+
+%% Test hash precalculation of literal keys
+literals(_Config) ->
+    %% Put literal -> get variable
+    put(1742, "1742"),
+    "1742" = ?MODULE:get_do(1742),
+    "1742" = ?MODULE:erase_do(1742),
+
+    put(-1742, "-1742"),
+    "-1742" = ?MODULE:get_do(-1742),
+    "-1742" = ?MODULE:erase_do(-1742),
+
+    put([], "NIL"),
+    "NIL" = ?MODULE:get_do([]),
+    "NIL" = ?MODULE:erase_do([]),
+
+    put(<<"binary">>, "binary"),
+    "binary" = ?MODULE:get_do(<<"binary">>),
+    "binary" = ?MODULE:erase_do(<<"binary">>),
+
+    BigBin = <<"A large binary with a lot of bytes to make it go off heap as shared and reference counted">>,
+    put(BigBin, "bigbin"),
+    "bigbin" = ?MODULE:get_do(BigBin),
+    "bigbin" = ?MODULE:erase_do(BigBin),
+
+    %% Put variable -> get literal
+    ?MODULE:put_do(4217, "4217"),
+    "4217" = get(4217),
+    "4217" = erase(4217),
+
+    ?MODULE:put_do(-4217, "-4217"),
+    "-4217" = get(-4217),
+    "-4217" = erase(-4217),
+
+    ?MODULE:put_do([], "NIL"),
+    "NIL" = get([]),
+    "NIL" = erase([]),
+
+    ?MODULE:put_do(<<"bytes">>, "bytes"),
+    "bytes" = get(<<"bytes">>),
+    "bytes" = erase(<<"bytes">>),
+
+    ?MODULE:put_do(BigBin, "BigBin"),
+    "BigBin" = get(BigBin),
+    "BigBin" = erase(BigBin),
+
+    ok.
+
+put_do(K, V) ->
+    put(K, V).
+
+get_do(K) ->
+    get(K).
+
+erase_do(K) ->
+    erase(K).

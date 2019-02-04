@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2010-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2010-2017. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -27,11 +28,16 @@
 -export([suite/0,
          all/0,
          groups/0,
+         init_per_suite/1,
+         end_per_suite/1,
+         init_per_group/2,
+         end_per_group/2,
          init_per_testcase/2,
          end_per_testcase/2]).
 
 %% testcases
 -export([start/1,
+         vendor_id/1,
          start_services/1,
          add_listeners/1,
          s_no_common_application/1,
@@ -54,6 +60,10 @@
 
 -include("diameter.hrl").
 -include("diameter_gen_base_rfc3588.hrl").
+%% Use only the Vendor-Specific-Application-Id record from the base
+%% include, to test the independence of capabilities configuration
+%% from the different definitions of Vendor-Id in RFC's 3588 and RFC
+%% 6733.
 
 %% ===========================================================================
 
@@ -67,8 +77,13 @@
 -define(REALM, "erlang.org").
 -define(HOST(Name), Name ++ "." ++ ?REALM).
 
+%% Application id's that are never agreed upon at capabilities
+%% exchange. Testcase no_common_application references them in order
+%% to exercise Vendor-Specific-Application-Id handling.
+-define(NOAPPS, [1111, 2222, 3333, 4444]).
+
 %% Config for diameter:start_service/2.
--define(SERVICE(Name),
+-define(SERVICE,
         [{'Origin-Realm', ?REALM},
          {'Host-IP-Address', [?ADDR]},
          {'Vendor-Id', 12345},
@@ -78,8 +93,13 @@
          | [{application, [{alias, A},
                            {dictionary, D},
                            {module, [?MODULE, A]}]}
-            || {A,D} <- [{common, ?DIAMETER_DICT_COMMON},
-                         {accounting, ?DIAMETER_DICT_ACCOUNTING}]]]).
+            || {A,D} <- [{base3588, diameter_gen_base_rfc3588},
+                         {acct3588, diameter_gen_base_accounting},
+                         {base6733, diameter_gen_base_rfc6733},
+                         {acct6733, diameter_gen_acct_rfc6733}]]]
+        ++ [{application, [{dictionary, dict(N)},
+                           {module, not_really}]}
+            || N <- ?NOAPPS]).
 
 -define(A, list_to_atom).
 -define(L, atom_to_list).
@@ -88,44 +108,62 @@
 -define(caps,   #diameter_caps).
 -define(packet, #diameter_packet).
 
--define(cea,            #diameter_base_CEA).
--define(answer_message, #'diameter_base_answer-message').
-
 -define(fail(T), erlang:error({T, process_info(self(), messages)})).
 
--define(TIMEOUT, 2000).
+-define(TIMEOUT, 10000).
+
+-define(DICTS, [rfc3588, rfc6733]).
 
 %% ===========================================================================
 
 suite() ->
-    [{timetrap, {seconds, 10}}].
+    [{timetrap, {seconds, 60}}].
 
 all() -> [start,
+          vendor_id,
           start_services,
-          add_listeners,
-          {group, all},
-          {group, all, [parallel]},
-          remove_listeners,
+          add_listeners]
+      ++ [{group, D, P} || D <- ?DICTS, P <- [[], [parallel]]]
+      ++ [remove_listeners,
           stop_services,
           stop].
 
 groups() ->
-    [{all, [], lists:flatmap(fun tc/1, tc())}].
+    Tc = lists:flatmap(fun tc/1, tc()),
+    [{D, [], Tc} || D <- ?DICTS].
+
+init_per_suite(Config) ->
+    lists:foreach(fun load_dict/1, ?NOAPPS),
+    Config.
+
+end_per_suite(_Config) ->
+    [] = [Mod || N <- ?NOAPPS,
+                 Mod <- [dict(N)],
+                 false <- [code:delete(Mod)]],
+    ok.
 
 %% Generate a unique hostname for each testcase so that watchdogs
 %% don't prevent a connection from being brought up immediately.
 init_per_testcase(Name, Config) ->
-    Uniq = ["." ++ integer_to_list(N) || N <- tuple_to_list(now())],
-    [{host, lists:flatten([?L(Name) | Uniq])} | Config].
+    [{host, ?L(Name) ++ "." ++ diameter_util:unique_string()}
+     | Config].
+
+init_per_group(Name, Config) ->
+    [{rfc, Name} | Config].
+
+end_per_group(_, _) ->
+    ok.
 
 end_per_testcase(N, _)
   when N == start;
+       N == vendor_id;
        N == start_services;
        N == add_listeners;
        N == remove_listeners;
        N == stop_services;
        N == stop ->
     ok;
+
 end_per_testcase(Name, Config) ->
     CRef = ?util:read_priv(Config, Name),
     ok = diameter:remove_transport(?CLIENT, CRef).
@@ -147,22 +185,45 @@ tc() ->
 start(_Config) ->
     ok = diameter:start().
 
+%% Ensure that both integer and list-valued vendor id's can be
+%% configured in a Vendor-Specific-Application-Id, the arity having
+%% changed between RFC 3588 and RFC 6733.
+vendor_id(_Config) ->
+    [] = ?util:run([[fun vid/1, V] || V <- [1, [1], [1,2], x]]).
+
+vid(V) ->
+    RC = diameter:start_service(make_ref(),
+                                [{'Vendor-Specific-Application-Id',
+                                  [[{'Vendor-Id', V}]]}
+                                 | ?SERVICE]),
+    vid(V, RC).
+
+vid(x, {error, _}) ->
+    ok;
+vid(_, ok) ->
+    ok.
+
 start_services(_Config) ->
-    ok = diameter:start_service(?SERVER, ?SERVICE(?SERVER)),
-    ok = diameter:start_service(?CLIENT, ?SERVICE(?CLIENT)).
+    ok = diameter:start_service(?SERVER, ?SERVICE),
+    ok = diameter:start_service(?CLIENT, ?SERVICE).
 
 %% One server that responds only to base accounting, one that responds
 %% to both this and the common application. Share a common service just
 %% to simplify config, and because we can.
 add_listeners(Config) ->
-    Acct = listen(?SERVER,
-                  [{capabilities, [{'Origin-Host', ?HOST("acct-srv")},
-                                   {'Auth-Application-Id', []}]},
-                   {applications, [accounting]},
-                   {capabilities_cb, [fun server_capx/3, acct]}]),
-    Base = listen(?SERVER,
-                  [{capabilities, [{'Origin-Host', ?HOST("base-srv")}]},
-                   {capabilities_cb, [fun server_capx/3, base]}]),
+    Acct = [listen(?SERVER,
+                   [{capabilities, [{'Origin-Host', ?HOST(H)},
+                                    {'Auth-Application-Id', []}]},
+                    {applications, [A | noapps()]},
+                    {capabilities_cb, [fun server_capx/3, acct]}])
+            || {A,H} <- [{acct3588, "acct3588-srv"},
+                         {acct6733, "acct6733-srv"}]],
+    Base = [listen(?SERVER,
+                   [{capabilities, [{'Origin-Host', ?HOST(H)}]},
+                    {applications, A ++ noapps()},
+                    {capabilities_cb, [fun server_capx/3, base]}])
+            || {A,H} <- [{[base3588, acct3588], "base3588-srv"},
+                         {[base6733, acct6733], "base6733-srv"}]],
     ?util:write_priv(Config, ?MODULE, {Base, Acct}). %% lref/2 reads
 
 remove_listeners(_Config) ->
@@ -189,14 +250,33 @@ stop(_Config) ->
 %% DIAMETER_NO_COMMON_APPLICATION = 5010.
 
 s_no_common_application(Config) ->
-    server_closed(Config, fun no_common_application/1, 5010).
+    Vs = [[{'Vendor-Id', 111},
+           {'Auth-Application-Id', [1111]}],
+          #'diameter_base_Vendor-Specific-Application-Id'
+           {'Vendor-Id' = [222],
+            'Acct-Application-Id' = [2222]}],
+    server_closed(Config,
+                  fun(C) -> no_common_application(C,Vs) end,
+                  5010).
 
 c_no_common_application(Config) ->
-    client_closed(Config, "acct-srv", fun no_common_application/1, 5010).
+    Vs = [#'diameter_base_Vendor-Specific-Application-Id'
+          {'Vendor-Id' = 333,
+           'Auth-Application-Id' = [3333]},
+          [{'Vendor-Id', [444]},
+           {'Acct-Application-Id', [4444]}]],
+    client_closed(Config,
+                  "acct-srv",
+                  fun(C) -> no_common_application(C,Vs) end,
+                  5010).
 
-no_common_application(Config) ->
-    connect(Config, acct, [{capabilities, [{'Acct-Application-Id', []}]},
-                           {applications, [common]}]).
+no_common_application(Config, Vs) ->
+    [Common, _Acct] = apps(Config),
+    connect(Config,
+            acct,
+            [{capabilities, [{'Acct-Application-Id', []},
+                             {'Vendor-Specific-Application-Id', Vs}]},
+             {applications, [Common | noapps()]}]).
 
 %% ====================
 %% Ask the base server to speak accounting with an unknown security
@@ -209,9 +289,10 @@ c_no_common_security(Config) ->
     client_closed(Config, "base-srv", fun no_common_security/1, 5017).
 
 no_common_security(Config) ->
+    [Common, _Acct] = apps(Config),
     connect(Config, base, [{capabilities, [{'Acct-Application-Id', []},
                                            {'Inband-Security-Id', [17, 18]}]},
-                           {applications, [common]}]).
+                           {applications, [Common]}]).
 
 %% ====================
 %% Have the base server reject a decent CER with the protocol error
@@ -221,18 +302,19 @@ s_unknown_peer(Config) ->
     server_reject(Config, fun base/1, 3010).
 
 c_unknown_peer(Config) ->
+    Dict0 = dict0(Config),
     true = diameter:subscribe(?CLIENT),
-    OH = ?HOST("base-srv"),
+    OH = host(Config, "base-srv"),
 
     {CRef, _} = base(Config),
 
-    {'CEA', ?caps{},
-            ?packet{msg = ?answer_message{'Origin-Host' = OH,
-                                          'Result-Code' = 3010}}}
-        = client_recv(CRef).
+    {'CEA', ?caps{}, ?packet{msg = Msg}} = client_recv(CRef),
+
+    ['diameter_base_answer-message' | _] = Dict0:'#get-'(Msg),
+    [OH, 3010] = Dict0:'#get-'(['Origin-Host', 'Result-Code'], Msg).
 
 base(Config) ->
-    connect(Config, base, []).
+    connect(Config, base, [{applications, apps(Config)}]).
 
 %% ====================
 %% Have the base server reject a decent CER with the non-protocol
@@ -266,20 +348,48 @@ s_client_reject(Config) ->
     end.
 
 c_client_reject(Config) ->
+    Dict0 = dict0(Config),
     true = diameter:subscribe(?CLIENT),
-    OH = ?HOST("acct-srv"),
+    OH = host(Config, "acct-srv"),
 
     {CRef, _} = client_reject(Config),
 
     {'CEA', {capabilities_cb, _, discard},
             ?caps{origin_host = {_, OH}},
-            ?packet{msg = ?cea{'Result-Code' = 2001}}}
-        = client_recv(CRef).
+            ?packet{msg = CEA}}
+        = client_recv(CRef),
+
+    [diameter_base_CEA | _] = Dict0:'#get-'(CEA),
+    [2001] = Dict0:'#get-'(['Result-Code'], CEA).
 
 client_reject(Config) ->
-    connect(Config, acct, [{capabilities_cb, fun client_capx/2}]).
+    connect(Config, acct, [{capabilities_cb, fun client_capx/2},
+                           {applications, apps(Config)}]).
 
 %% ===========================================================================
+
+noapps() ->
+    lists:map(fun dict/1, ?NOAPPS).
+
+dict(N) ->
+    ?A(?L(?MODULE) ++ "_" ++ integer_to_list(N)).
+
+%% Compile and load minimal dictionary modules. These actually have to
+%% exists since diameter will call their id/0 to extract application
+%% id's, failing with app_not_configured if it can't.
+load_dict(N) ->
+    Mod = dict(N),
+    A1 = erl_anno:new(1),
+    A2 = erl_anno:new(2),
+    A3 = erl_anno:new(3),
+    A4 = erl_anno:new(4),
+    Forms = [{attribute, A1, module, Mod},
+             {attribute, A2, export, [{id,0}]},
+             {function, A3, id, 0,
+              [{clause, A4, [], [], [{integer, A4, N}]}]}],
+    {ok, Mod, Bin, []} = compile:forms(Forms, [return]),
+    {module, Mod} = code:load_binary(Mod, Mod, Bin),
+    N = Mod:id().
 
 %% server_closed/3
 
@@ -323,16 +433,24 @@ server_reject(Config, F, RC) ->
             ?fail({LRef, OH})
     end.
 
-%% cliient_closed/4
+%% client_closed/4
 
 client_closed(Config, Host, F, RC) ->
     true = diameter:subscribe(?CLIENT),
-    OH = ?HOST(Host),
+    OH = host(Config, Host),
 
     {CRef, _} = F(Config),
 
     {'CEA', RC, ?caps{origin_host = {_, OH}}, ?packet{}}
         = client_recv(CRef).
+
+srv(Config, Host) ->
+    "rfc" ++ N = atom_to_list(proplists:get_value(rfc, Config)),
+    [H, "srv" = S] = string:tokens(Host, "-"),
+    H ++ N ++ "-" ++ S.
+
+host(Config, Name) ->
+    ?HOST(srv(Config, Name)).
 
 %% client_recv/1
 
@@ -364,6 +482,18 @@ client_capx(_, ?caps{origin_host = {[_,$_|"client_reject." ++ _], _}}) ->
 
 %% ===========================================================================
 
+dict0(Config) ->
+    case proplists:get_value(rfc, Config) of
+        rfc3588 -> diameter_gen_base_rfc3588;
+        rfc6733 -> diameter_gen_base_rfc6733
+    end.
+
+apps(Config) ->
+    case proplists:get_value(rfc, Config) of
+        rfc3588 -> [base3588, acct3588];
+        rfc6733 -> [base6733, acct6733]
+    end.
+
 host(Config) ->
     {_, H} = lists:keyfind(host, 1, Config),
     ?HOST(H).
@@ -381,7 +511,7 @@ connect(Config, T, Opts) ->
     {CRef, LRef}.
 
 connect(LRef, Opts) ->
-    [PortNr] = ?util:lport(tcp, LRef, 20),
+    [PortNr] = ?util:lport(tcp, LRef),
     {ok, CRef} = diameter:add_transport(?CLIENT,
                                         {connect, opts(PortNr, Opts)}),
     CRef.
@@ -394,26 +524,32 @@ opts(PortNr, Opts) ->
                          {port, 0}]}
      | Opts].
 
+lref(rfc3588, [LRef, _]) ->
+    LRef;
+lref(rfc6733, [_, LRef]) ->
+    LRef;
+
 lref(Config, T) ->
-    case ?util:read_priv(Config, ?MODULE) of
-        {LRef, _} when T == base ->
-            LRef;
-        {_, LRef} when T == acct ->
-            LRef
-    end.
+    lref(proplists:get_value(rfc, Config),
+         case ?util:read_priv(Config, ?MODULE) of
+             {R, _} when T == base ->
+                 R;
+             {_, R} when T == acct ->
+                 R
+         end).
 
 %% ===========================================================================
 %% diameter callbacks
 
 peer_up(?SERVER,
-        {_, ?caps{origin_host = {"acct-srv." ++ _,
+        {_, ?caps{origin_host = {"acct" ++ _,
                                  [_,$_|"client_reject." ++ _]}}},
         State,
         _) ->
     State.
 
 peer_down(?SERVER,
-          {_, ?caps{origin_host = {"acct-srv." ++ _,
+          {_, ?caps{origin_host = {"acct" ++ _,
                                    [_,$_|"client_reject." ++ _]}}},
           State,
           _) ->

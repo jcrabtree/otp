@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2008-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2008-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -25,7 +26,7 @@
 
 -include_lib("xmerl/include/xmerl.hrl").
 
--import(lists, [foldl/3,foldr/3,reverse/1, keysearch/3, map/2, filter/2]).
+-import(lists, [foldl/3,foldr/3,reverse/1,keysearch/3,map/2,filter/2,droplast/1]).
 -import(proplists, [get_value/2,get_value/3]).
 
 -compile(export_all).
@@ -46,9 +47,9 @@ safe(What, QuitOnErr) ->
 	What(),
 	io:format("Completed successfully~n~n", []),
 	QuitOnErr andalso gen_util:halt(0)
-    catch Err:Reason ->
+    catch Err:Reason:Stacktrace ->
 	    io:format("Error in ~p ~p~n", [get(current_class),get(current_func)]),
-	    erlang:display({Err,Reason, erlang:get_stacktrace()}),
+	    erlang:display({Err,Reason,Stacktrace}),
 	    catch gen_util:close(),
 	    QuitOnErr andalso gen_util:halt(1)
     end.
@@ -69,7 +70,7 @@ gen_code() ->
 gen_xml() ->
 %%     {ok, Defs} = file:consult("wxapi.conf"),
     
-%%     Rel = reverse(tl(reverse(os:cmd("wx-config --release")))),
+%%     Rel = droplast(os:cmd("wx-config --release")),
 %%     Dir = " /usr/include/wx-" ++ Rel ++ "/wx/",
 %%     Files0 = [Dir ++ File || {class, File, _, _, _} <- Defs],
 %%     Files1 = [Dir ++ File || {doxygen, File} <- Defs],
@@ -92,9 +93,10 @@ mangle_info(E={not_const,List}) ->
     put(not_const,  [atom_to_list(M) || M <- List]),
     E;
 mangle_info(E={gvars,List}) ->
-    A2L = fun({N,{T,C}}) -> {atom_to_list(N), {T,atom_to_list(C)}};
+    A2L = fun({N,{test_if,C}}) -> {atom_to_list(N), {test_if,C}};
+             ({N,{T,C}}) -> {atom_to_list(N), {T,atom_to_list(C)}};
 	     ({N,C}) ->     {atom_to_list(N), atom_to_list(C)}
-	  end,    
+	  end,
     put(gvars, map(A2L,List)),
     E;
 mangle_info({class,CN,P,O,FL}) ->
@@ -103,7 +105,12 @@ mangle_info({class,CN,P,O,FL}) ->
     Event  = get_value(event,O, false),
     Acc    = get_value(acc, O, []),
     {Fs,Fopts} = foldr(fun(FWO={F,FO},{Fl,Fopt}) when is_list(FO) ->
-			       {[F|Fl],[FWO|Fopt]};
+			       Opt = case F of
+					 {Name, ArgLen} when is_integer(ArgLen) ->
+					     {Name, FO};
+					 _ -> FWO
+				     end,
+			       {[F|Fl],[Opt|Fopt]};
 			  (F,{Fl,Fopt}) ->
 			       {[F|Fl], Fopt}
 		       end, {[],[]}, FL),
@@ -167,7 +174,7 @@ parse_defs([], Acc) -> reverse(Acc).
 meta_info(C=#class{name=CName,methods=Ms0}) ->
     Ms = lists:append(Ms0),
     HaveConstructor = lists:keymember(constructor, #method.method_type, Ms),
-    case lists:keysearch(destructor, #method.method_type, Ms) of
+    case keysearch(destructor, #method.method_type, Ms) of
 	false when HaveConstructor -> 
 	    Dest = #method{name = "destroy", id = next_id(func_id),
 			   method_type = destructor, params = [this(CName)]},
@@ -265,33 +272,31 @@ parse_attr1([{{attr,_}, #xmlElement{content=C, attributes=Attrs}}|R], AttrList0,
 	#param{where=nowhere} ->
 	    parse_attr1(R,AttrList0,Opts,Res);
 	_ ->
-	    case keysearch(prot, #xmlAttribute.name, Attrs) of
-		{value, #xmlAttribute{value = "public"}} ->
-		    {Acc,AttrList} = attr_acc(Param0, AttrList0),
-		    parse_attr1(R,AttrList,Opts,
-				[Param0#param{in=false,prot=public,acc=Acc}|Res]);
-		{value, #xmlAttribute{value = "protected"}} ->
-		    {Acc,AttrList} = attr_acc(Param0, AttrList0),
-		    parse_attr1(R,AttrList,Opts,
-				[Param0#param{in=false,prot=protected,acc=Acc}|Res]);
-		{value, #xmlAttribute{value = "private"}} ->
-		    {Acc,AttrList} = attr_acc(Param0, AttrList0),
-		    parse_attr1(R,AttrList,Opts,
-				[Param0#param{in=false,prot=private,acc=Acc}|Res])
-	    end
+	    {value, #xmlAttribute{value=Type}} =
+                keysearch(prot, #xmlAttribute.name, Attrs),
+            {Param,AttrList} = attr_acc(Param0, list_to_atom(Type), AttrList0),
+            parse_attr1(R,AttrList,Opts,[Param|Res])
     end;
 parse_attr1([{_Id,_}|R],AttrList,Info, Res) ->
     parse_attr1(R,AttrList,Info, Res);
 parse_attr1([],Left,_, Res) ->
-    {lists:reverse(Res), Left}.
+    {reverse(Res), Left}.
 
-attr_acc(#param{name=N}, List) ->
+attr_acc(#param{name=N}=P, Type, List) ->
     Name = list_to_atom(N),
     case get_value(Name, List, undefined) of
-	undefined -> {undefined, List};
-	Val -> {Val, lists:keydelete(Name,1,List)}
+	undefined -> {P#param{in=false,prot=Type,acc=undefined}, List};
+	Val when is_list(Val), is_integer(hd(Val)) ->
+            %% Function String
+            {P#param{in=false,prot=Type,acc=Val}, lists:keydelete(Name,1,List)};
+        OptList when is_list(OptList) ->
+            Param = foldl(fun handle_param_opt/2,P,OptList),
+            {Param#param{in=false,prot=Type,acc=undefined},
+             lists:keydelete(Name,1,List)};
+        Val ->
+            {P#param{in=false,prot=Type,acc=Val}, lists:keydelete(Name,1,List)}
     end.
-	        
+
 load_members(FileName, Class, Defs, Tab, Type,Opts) ->
     File = filename:join(["wx_xml",FileName ++ ".xml"]),
     put({loaded, FileName}, true),
@@ -421,22 +426,30 @@ select_member(Several, #class{name=Class,file=Orig}, Defs0, Opts) ->
 
 parse_member(Data,MType,Virtual,Opts = #hs{fopt=Fopts}) ->
     Parse  = fun(Con,A) -> parse_member2(Con,Opts,A) end,
-    Method = #method{name=MName,params=PS0} = 
+    Method = #method{name=MName,params=PS0} =
 	foldl(Parse, #method{method_type=MType, virtual=Virtual}, Data),
     %% Skip motif name's if it's last and optional
     PS2 = case PS0 of %% Backward order..
-	      [#param{name="name",def=Def,type=#type{name="wxString"}}|PS1] 
-	      when Def =/= none -> 
+	      [#param{name="name",def=Def,type=#type{name="wxString"}}|PS1]
+	      when Def =/= none ->
 		  PS1;
 	      _ ->
 		  PS0
 	  end,
     Sz = length(PS2),
-    PS = map(fun(P=#param{name=PName}) -> 
+    PS = map(fun(P=#param{name=PName}) ->
 		     patch_param(MName,{Sz,PName},P,Fopts)
 	     end, PS2),
-    Alias = find_erl_alias_name(MName,PS,Fopts),	    
-    Method#method{params=PS, alias=Alias}.
+    Alias = find_erl_alias_name(MName,PS,Fopts),
+    FOpts = case gb_trees:lookup(MName, Fopts) of
+		{value, FuncO} when is_list(FuncO) ->
+		    case lists:keyfind({func,Sz}, 1, FuncO) of
+			false -> FuncO;
+			{_, FuncNO} -> FuncNO
+		    end;
+		_ -> []
+	    end,
+    Method#method{params=PS, alias=Alias, opts=FOpts}.
 
 find_erl_alias_name(MName,Ps,Fopts) ->
     case gb_trees:lookup(MName, Fopts) of
@@ -489,10 +502,11 @@ parse_member2(_, _,M0) ->
     M0.
 
 add_param(InParam, Opts, M0) ->
-    Param0 = case InParam#param.name of
-		 undefined -> InParam#param{name="val"};
+    Param0 = case {InParam#param.name, InParam#param.type} of
+                 {undefined, void} -> InParam#param{where=nowhere};
+		 {undefined,_} -> InParam#param{name="val"};
 		 _ -> InParam
-	     end,  
+	     end,
     Param = case Param0#param.type of
 		#type{base={comp,_,_Comp}} ->   Param0;
 		#type{base={class,_Class}} -> Param0;
@@ -527,7 +541,7 @@ add_param2(P=#param{name=Name},#hs{fopt=FOpt},M0=#method{name=MName,params=Ps}) 
 	    M0#method{params=[Patched|Ps]}
     end.
 
-patch_param(Method, Name, P, Opt) ->    
+patch_param(Method, Name, P, Opt) ->
     case gb_trees:lookup(Method,Opt) of
 	none -> P;
 	{value,NoArg} when is_integer(NoArg) -> P;
@@ -560,11 +574,14 @@ handle_param_opt(both, P) -> P#param{in=both};
 handle_param_opt({def,Def},P) -> P#param{def=Def};
 handle_param_opt({type,Type}, P=#param{type=T})  ->  P#param{type=T#type{name=Type}};
 handle_param_opt({single,Opt}, P=#param{type=T}) ->  P#param{type=T#type{single=Opt}};
+handle_param_opt({base,Enum={enum,Type}},  P=#param{type=T}) ->   P#param{type=T#type{base=Enum, name=Type}};
 handle_param_opt({base,Opt},  P=#param{type=T}) ->   P#param{type=T#type{base=Opt}};
 handle_param_opt({c_only,Opt},P) -> P#param{where=c, alt=Opt};
-handle_param_opt({ref, pointer}, P=#param{type=T}) ->   
+handle_param_opt({ref, pointer}, P=#param{type=T}) ->
     P#param{type=T#type{by_val=false,ref={pointer, 1}}};
-handle_param_opt({mod,Mods}, P=#param{type=T=#type{mod=Mods0}}) ->  
+handle_param_opt({by_val, true}, P=#param{type=T}) ->
+    P#param{type=T#type{by_val=true}};
+handle_param_opt({mod,Mods}, P=#param{type=T=#type{mod=Mods0}}) ->
     P#param{type=T#type{mod=Mods++Mods0}}.
 
 get_opt(Opt, Method, Sz, Opts) -> 
@@ -654,6 +671,12 @@ extract_type_info(#xmlElement{name=ref,attributes=As,content=[#xmlText{value=V}]
     {value, #xmlAttribute{value = Kind}} = keysearch(kindref,#xmlAttribute.name,As),
     {reverse(foldl(fun extract_type_info2/2, [], string:tokens(V, " "))) ++ Acc,
      {Kind,Refid}};
+extract_type_info(#xmlElement{name=ref,attributes=As,content=[#xmlText{value=V}]},
+		  {Acc,_}) ->
+    {value, #xmlAttribute{value = Refid}} = keysearch(refid,#xmlAttribute.name,As),
+    {value, #xmlAttribute{value = Kind}} = keysearch(kindref,#xmlAttribute.name,As),
+    {reverse(foldl(fun extract_type_info2/2, [], string:tokens(V, " "))) ++ Acc,
+     {Kind,Refid}};
 extract_type_info(What,Acc) ->
     ?error({parse_error,What,Acc}).
 
@@ -682,6 +705,8 @@ parse_type2(["unsigned"|R],Info,Opts,T=#type{mod=Mod}) ->
     parse_type2(R,Info,Opts,T#type{mod=[unsigned|Mod]});
 parse_type2(["int"|R],Info,Opts,  T) -> 
     parse_type2(R,Info,Opts,T#type{name=int,base=int});
+parse_type2(["wxByte"|R],Info,Opts,  T) ->
+    parse_type2(R,Info,Opts,T#type{name=int,base=int});
 parse_type2(["char"|R],Info,Opts,  T) -> 
     parse_type2(R,Info,Opts,T#type{name="char",base=int});
 parse_type2([N="size_t"|R], Info, Opts,  T) -> 
@@ -704,11 +729,9 @@ parse_type2([N="wxTextPos"|R],Info,Opts,T) ->        %%long
     parse_type2(R,Info,Opts,T#type{name=N,base=int});
 parse_type2([N="wxPrintQuality"|R],Info,Opts,T) ->
     parse_type2(R,Info,Opts,T#type{name=N,base=int});
-parse_type2([N="wxPaperSize"|R],Info,Opts,T) ->
-    parse_type2(R,Info,Opts,T#type{name=N,base=int});
 parse_type2(["wxDataFormat"|_R],_Info,_Opts,T) ->
     %% Hack Hack
-    T#type{name="wxDataFormatId",base=int};
+    T#type{name="wxDataFormatId",base={enum,"wxDataFormatId"}};
 parse_type2([N="wxArrayInt"|R],Info,Opts,T) -> 
     parse_type2(R,Info,Opts,T#type{name=N,base=int,single=array});
 parse_type2([N="wxArrayDouble"|R],Info,Opts,T) -> 
@@ -723,7 +746,14 @@ parse_type2([N="wxTreeItemData"|R],Info,Opts,T) ->
     parse_type2(R,Info,Opts,T#type{name="wxETreeItemData",base={term,N}});
 parse_type2([N="wxClientData"|R],Info,Opts,T) -> 
     parse_type2(R,Info,Opts,T#type{name="wxeErlTerm",base={term,N}});
-parse_type2([N="wxChar"|R],Info,Opts,T) -> 
+parse_type2([N="wxChar",{by_ref,_}|R],Info,Opts,T = #type{mod=[const]}) ->
+    case get(current_class) of
+	"wxLocale" -> %% Special since changed between 2.8 and 3.0
+	    parse_type2(R,Info,Opts,T#type{name="wxeLocaleC",base=string});
+	_ ->
+	    parse_type2(R,Info,Opts,T#type{name=N,base=int,single=false})
+    end;
+parse_type2([N="wxChar"|R],Info,Opts,T) ->
     parse_type2(R,Info,Opts,T#type{name=N,base=int});
 parse_type2(["wxUint32"|R],Info,Opts,T=#type{mod=Mod}) -> 
     parse_type2(R,Info,Opts,T#type{name=int,base=int,mod=[unsigned|Mod]});
@@ -743,14 +773,19 @@ parse_type2([N="wxGridCellCoordsArray"|R],Info,Opts,T) ->
     parse_type2(R,Info,Opts,T#type{name=N,base={comp,"wxGridCellCoords",
 						[{int,"R"},{int,"C"}]},
 				   single=array});
+parse_type2([N="wxAuiPaneInfoArray"|R],Info,Opts,T) ->
+    parse_type2(R,Info,Opts,T#type{name=N,base={class,"wxAuiPaneInfo"},
+				   single=array});
+
 parse_type2([N="wxRect"|R],Info,Opts,T) -> 
     parse_type2(R,Info,Opts,T#type{name=N,base={comp,N,[{int,"X"},{int,"Y"},
 							{int,"W"},{int,"H"}]}});
 parse_type2([N="wxColour"|R],Info,Opts,T) -> 
     parse_type2(R,Info,Opts,T#type{name=N,
 				   base={comp,N,[{int,"R"},{int,"G"},{int,"B"},{int,"A"}]}});
-parse_type2([N="wxColor"|R],Info,Opts,T) -> 
-    parse_type2(R,Info,Opts,T#type{name="wxColour",
+parse_type2(["wxColor"|R],Info,Opts,T) ->
+    N = "wxColour",
+    parse_type2(R,Info,Opts,T#type{name=N,
 				   base={comp,N,[{int,"R"},{int,"G"},{int,"B"},{int,"A"}]}});
 
 parse_type2([N="wxPoint2DDouble"|R],Info,Opts,T) -> 
@@ -974,7 +1009,7 @@ erl_skip_opt2([F={_,{N,In,_},M=#method{where=Where}}|Ms],Acc1,Acc2,Check) ->
 		[] ->
 		    erl_skip_opt2(Ms,[F|Acc1],[M#method{where=erl_no_opt}|Acc2],[]);
 		_  ->
-		    Skipped = reverse(tl(reverse(In))),
+		    Skipped = droplast(In),
 		    T = fun({_,{_,Args,_},_}) -> true =:= types_differ(Skipped,Args) end,
 		    case lists:all(T, Check) of
 			true ->
@@ -1168,7 +1203,7 @@ translate_constants(Enums, NotConsts0, Skip0) ->
 
 create_consts([{{enum, Name},Enum = #enum{vals=Vals}}|R], Skip, NotConsts, Acc0) ->
     CC = fun(What, Acc) ->
-		 create_const(What, Skip, NotConsts, Acc)
+		 create_const(What, Name, Skip, NotConsts, Acc)
 	 end,
     Acc = case Vals of
 	      undefined -> 
@@ -1182,17 +1217,17 @@ create_consts([{{enum, Name},Enum = #enum{vals=Vals}}|R], Skip, NotConsts, Acc0)
     create_consts(R, Skip, NotConsts, Acc);
 create_consts([],_,_,Acc) -> Acc.
 
-create_const({Name, Val}, Skip, NotConsts, Acc) ->
+create_const({Name, Val}, EnumName, Skip, NotConsts, Acc) ->
     case gb_sets:is_member(Name, Skip) of
 	true -> Acc;
 	false ->
-	    case gb_sets:is_member(Name, NotConsts) of
+	    case gb_sets:is_member(Name, NotConsts) orelse
+		gb_sets:is_member(EnumName, NotConsts)
+	    of
 		true ->
 		    [#const{name=Name,val=next_id(const),is_const=false}|Acc];
 		false ->
 		    [#const{name=Name,val=Val,is_const=true}|Acc]
-%% 		false ->
-%% 		    [#const{name=Name,val=Val}|Acc]
 	    end
     end.
 
@@ -1251,9 +1286,10 @@ parse_enums([File|Files], Parsed) ->
     case gb_sets:is_member(File,Parsed) of
 	false ->
 	    FileName = filename:join(["wx_xml",File ++ "_8h.xml"]),
-%%	    io:format("Parse Enums in ~s ~n", [FileName]),
+	    %%io:format("Parse Enums in ~s ~n", [FileName]),
 	    case xmerl_scan:file(FileName, [{space, normalize}]) of 
 		{error, enoent} ->
+		    %% io:format("Ignore ~p~n", [FileName]),
 		    parse_enums(Files, gb_sets:add(File,Parsed));
 		{Doc, _} ->		    
 		    ES = "./compounddef/sectiondef/memberdef[@kind=\"enum\"]",
@@ -1318,41 +1354,41 @@ extract_enum2([], N, _Id, Acc) ->
 
 extract_enum3([#xmlElement{name=name,content=[#xmlText{value=Name}]}|R], Id, Acc) ->
     case lists:keymember(Name, 1, Acc) of
-	true ->  %% Doxygen double includes some defs. 
+	true ->  %% Doxygen double includes some defs.
 	    {Acc,Id};
 	false ->
 	    case Id of
-		This = {Str,Num} -> 
+		This = {Str,Num} ->
 		    extract_enum3(R, {Str, Num+1}, [{Name,This}|Acc]);
 		Val ->
 		    extract_enum3(R, Val+1, [{Name,Val}|Acc])
 	    end
     end;
 
-extract_enum3([#xmlElement{name=initializer,
-			   content=Cs=[#xmlText{}|_]}|_],_Id,[{Name,_}|Acc]) ->
-
-    String = lists:append([string:strip(C#xmlText.value) || C <- Cs]),
-    
+extract_enum3([#xmlElement{name=initializer,content=Cs}|_],_Id,[{Name,_}|Acc]) ->
+    String = case extract_def2(Cs) of
+		 "= " ++ Str0 -> Str0;  %% Doxygen 1.8.3.1 keeps the '=' sign
+		 "=" ++ Str0 -> Str0;  %% Doxygen 1.8.3.1 keeps the '=' sign
+		 Str0 -> Str0
+	     end,
     Val0 = gen_util:tokens(String,"<& "),
-            
-    try 
+    try
 	case Val0 of
-	    ["0x" ++ Val1] -> 
-		Val = http_util:hexlist_to_integer(Val1),
-		{[{Name, Val}|Acc], Val+1};
-	    [Single] ->
-		Val = list_to_integer(Single),
+	    ["0x" ++ Val1] ->
+		Val = list_to_integer(Val1, 16),
 		{[{Name, Val}|Acc], Val+1};
 	    ["1", "<<", Shift] ->
 		Val = 1 bsl list_to_integer(Shift),
 		{[{Name, Val}|Acc], Val+1};
-	    [_Str, "+", _What] ->
-		Val = lists:append(Val0),
-		{[{Name, {Val, 0}}|Acc], {Val,1}};	    
-	    _What ->
-		%% io:format("~p Name ~p ~p~n",[?LINE, Name, Val0]),
-		throw(below)		
+	    [Str, "+", What] ->
+		Val = list_to_integer(What),
+		{[{Name, {Str, Val}}|Acc], {Str,Val+1}};
+	    [Single] ->
+		Val = list_to_integer(Single),
+		{[{Name, Val}|Acc], Val+1};
+	    _ ->
+		%% io:format("~p Name ~p ~p ~p~n",[?LINE, Name, Val0, String]),
+		throw(below)
 	end
     catch _:_ ->
 	    {[{Name,{String,0}}|Acc], {String,1}}
@@ -1372,7 +1408,7 @@ extract_defs(Defs, File) ->
     end.
 
 extract_defs2(#xmlElement{name=memberdef,content=C},{Acc,Skip}) ->
-    try 
+    try
 	Res = {Name,_} = extract_def(C,undefined,Skip),
 	case gb_sets:is_member(Name,Skip) orelse lists:keymember(Name, 1, Acc) of
 	    true -> {Acc,Skip};
@@ -1380,30 +1416,31 @@ extract_defs2(#xmlElement{name=memberdef,content=C},{Acc,Skip}) ->
 	end
     catch throw:SkipName -> {Acc, gb_sets:add(SkipName,Skip)}
     end.
-	     
+
 extract_def([#xmlElement{name=name,content=[#xmlText{value=Name}]}|R], _N, Skip) ->
     case Name of
 	"wxUSE" ++ _ ->
 	    throw(Name);
 	"wx" ++ _ ->
 	    extract_def(R, Name, Skip);
-	_ -> 
+	_ ->
 	    throw(Name)
     end;
 extract_def([#xmlElement{name=param}|_],Name,_) ->
     throw(Name);
-extract_def([#xmlElement{name=initializer,content=[#xmlText{value=Val0}]}|_],N,Skip) ->
+extract_def([#xmlElement{name=initializer,content=Cs}|_R],N,Skip) ->
+    Val0 = extract_def2(Cs),
     case Val0 of
-	"0x" ++ Val1 -> {N, http_util:hexlist_to_integer(Val1)};
+	"0x" ++ Val1 -> {N, list_to_integer(Val1, 16)};
 	_ ->
 	    try
 		Val = list_to_integer(Val0),
 		{N, Val}
-	    catch _:_ ->  
+	    catch _:_ ->
 		    case def_is_ok(Val0, Skip) of
 			false ->
 			    throw(N);
-			NVal when is_integer(NVal) -> 
+			NVal when is_integer(NVal) ->
 			    {N, NVal};
 			NVal ->
 			    {N, {NVal,0}}
@@ -1414,7 +1451,24 @@ extract_def([_|R],N,Skip) ->
     extract_def(R,N,Skip);
 extract_def(_,N,_) ->
     throw(N).
-		     
+
+extract_def2([#xmlText{value=Val}|R]) ->
+    string:strip(strip_comment(Val)) ++ extract_def2(R);
+extract_def2([#xmlElement{content=Cs}|R]) ->
+    extract_def2(Cs) ++ extract_def2(R);
+extract_def2([]) -> [].
+
+strip_comment("/*" ++ Rest) ->
+    strip_comment_until_end(Rest);
+strip_comment("//" ++ _) -> [];
+strip_comment([H|R]) -> [H | strip_comment(R)];
+strip_comment([]) -> [].
+
+strip_comment_until_end("*/" ++ Rest) ->
+    strip_comment(Rest);
+strip_comment_until_end([_|R]) ->
+    strip_comment_until_end(R).
+
 def_is_ok(Name, Skip) ->
     Toks = gen_util:tokens(Name,"()| \\:"),
     R = def_is_ok(Toks, Skip, []),

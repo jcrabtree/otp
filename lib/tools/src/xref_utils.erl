@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2000-2010. All Rights Reserved.
+%% Copyright Ericsson AB 2000-2017. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -45,8 +46,6 @@
 -export([find_beam/1]).
 
 -export([options/2]).
-
--export([subprocess/2]).
 
 -export([format_error/1]).
 
@@ -141,7 +140,7 @@ is_string([], _) ->
 is_string(Term, C) ->
     is_string1(Term, C).
 
-is_string1([H | T], C) when H > C, H < 127 -> 
+is_string1([H | T], C) when H > C ->
     is_string1(T, C);
 is_string1([], _) -> 
     true;
@@ -244,6 +243,8 @@ select_last_application_version(AppVs) ->
     TL = to_external(partition(1, relation(AppVs))),
     [last(keysort(2, L)) || L <- TL].
 
+-record(scan, {collected = [], errors = [], seen = [], unreadable = []}).
+
 %% scan_directory(Directory, Recurse, Collect, Watch) -> 
 %%     {Collected, Errors, Seen, Unreadable}
 %%
@@ -260,8 +261,9 @@ select_last_application_version(AppVs) ->
 %% Unreadable.
 %%
 scan_directory(File, Recurse, Collect, Watch) ->
-    Init = [[] | {[],[],[]}],
-    [L | {E,J,U}] = find_files_dir(File, Recurse, Collect, Watch, Init),
+    Init = #scan{},
+    S = find_files_dir(File, Recurse, Collect, Watch, Init),
+    #scan{collected = L, errors = E, seen = J, unreadable = U} = S,
     {reverse(L), reverse(E), reverse(J), reverse(U)}.
 
 %% {Dir, Basename} | false
@@ -437,7 +439,7 @@ regexpr({ModExpr, FunExpr, ArityExpr}, Var) ->
 	    V2
     end.
 
-%% -> digraph()
+%% -> digraph:graph()
 relation_to_graph(S) ->
     G = digraph:new(),
     Fun = fun({From, To}) -> 
@@ -508,25 +510,19 @@ find_beam(Culprit) ->
 options(Options, Valid) ->
     split_options(Options, [], [], [], Valid).
 
-subprocess(Fun, Opts) ->
-    Pid = spawn_opt(Fun, Opts),
-    receive 
-	{Pid, Reply} -> Reply
-    end.
-
 format_error({error, Module, Error}) ->
     Module:format_error(Error);
 format_error({file_error, FileName, Reason}) ->
-    io_lib:format("~s: ~p~n", [FileName, file:format_error(Reason)]);
+    io_lib:format("~ts: ~tp~n", [FileName, file:format_error(Reason)]);
 format_error({unrecognized_file, FileName}) ->
-    io_lib:format("~p is neither a regular file nor a directory~n", 
+    io_lib:format("~tp is neither a regular file nor a directory~n", 
 		  [FileName]);
 format_error({no_such_module, Module}) ->
-    io_lib:format("Cannot find module ~p using the code path~n", [Module]);
+    io_lib:format("Cannot find module ~tp using the code path~n", [Module]);
 format_error({interpreted, Module}) ->
-    io_lib:format("Cannot use BEAM code of interpreted module ~p~n", [Module]);
+    io_lib:format("Cannot use BEAM code of interpreted module ~tp~n", [Module]);
 format_error(E) ->
-    io_lib:format("~p~n", [E]).
+    io_lib:format("~tp~n", [E]).
 
 %%
 %%  Local functions
@@ -561,12 +557,9 @@ subdir(Dir, SubDir, true) ->
 
 %% Avoid "App-01.01" - the zeroes will be lost.
 filename2appl(File) ->
-    Pos = string:rstr(File, "-"),
-    true = Pos > 1,
-    V = string:sub_string(File, Pos+1),
-    true = string:len(V) > 0,
-    VsnT = string:tokens(V, "."),
-    ApplName = string:sub_string(File, 1, Pos-1),
+    [ApplName, V] = string:split(File, "-", trailing),
+    true = string:length(V) > 0,
+    VsnT = string:lexemes(V, "."),
     Vsn = [list_to_integer(Vsn) || Vsn <- VsnT],
     {list_to_atom(ApplName),Vsn}.
 
@@ -575,8 +568,7 @@ find_files_dir(Dir, Recurse, Collect, Watch, L) ->
 	{ok, Files} ->
 	    find_files(sort(Files), Dir, Recurse, Collect, Watch, L);
 	{error, Error} ->
-	    [B | {E,J,U}] = L,
-	    [B | {[file_error(Dir, Error)|E],J,U}]
+            L#scan{errors = [file_error(Dir, Error)|L#scan.errors]}
     end.
 
 find_files([F | Fs], Dir, Recurse, Collect, Watch, L) ->
@@ -587,22 +579,23 @@ find_files([F | Fs], Dir, Recurse, Collect, Watch, L) ->
              {ok, {_, directory, _, _}} ->
 		 L;
 	     Info ->
-		 [B | EJU = {E,J,U}] = L,
+                 #scan{collected = B, errors = E,
+                       seen = J, unreadable = U} = L,
 		 Ext = filename:extension(File),
 		 C = member(Ext, Collect),
 		 case C of
 		     true ->
 			 case Info of
 			     {ok, {_, file, readable, _}} ->
-				 [[{Dir,F} | B] | EJU];
+                                 L#scan{collected = [{Dir,F} | B]};
 			     {ok, {_, file, unreadable, _}} ->
-				 [B | {E,J,[File|U]}];
+                                 L#scan{unreadable = [File|U]};
 			     Error ->
-				 [B | {[Error|E],J,U}]
+                                 L#scan{errors = [Error|E]}
 			 end;
 		     false ->
 			 case member(Ext, Watch) of
-			     true -> [B | {E,[File|J],U}];
+                             true -> L#scan{seen = [File|J]};
 			     false -> L
 			 end
 		 end
@@ -642,14 +635,14 @@ neighbours([], G, Fun, VT, L, _V, Vs) ->
     neighbours(Vs, G, Fun, VT, L).
 
 match_list(L, RExpr) ->
-    {ok, Expr} = re:compile(RExpr),
+    {ok, Expr} = re:compile(RExpr, [unicode]),
     filter(fun(E) -> match(E, Expr) end, L).
 
 match_one(VarL, Con, Col) ->
     select_each(VarL, fun(E) -> Con =:= element(Col, E) end).
 
 match_many(VarL, RExpr, Col) ->
-    {ok, Expr} = re:compile(RExpr),    
+    {ok, Expr} = re:compile(RExpr, [unicode]),
     select_each(VarL, fun(E) -> match(element(Col, E), Expr) end).
 
 match(I, Expr) when is_integer(I) ->
@@ -657,7 +650,12 @@ match(I, Expr) when is_integer(I) ->
     {match, [{0,length(S)}]} =:= re:run(S, Expr, [{capture, first}]);
 match(A, Expr) when is_atom(A) ->
     S = atom_to_list(A),
-    {match, [{0,length(S)}]} =:= re:run(S, Expr, [{capture, first}]).
+    case re:run(S, Expr, [{capture, first}]) of
+        {match, [{0,Size}]} ->
+            Size =:= byte_size(unicode:characters_to_binary(S));
+        _ ->
+            false
+    end.
 
 select_each([{Mod,Funs} | L], Pred) ->
     case filter(Pred, Funs) of

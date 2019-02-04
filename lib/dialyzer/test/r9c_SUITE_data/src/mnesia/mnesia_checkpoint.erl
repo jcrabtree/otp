@@ -1,20 +1,20 @@
-%% ``The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved via the world wide web at http://www.erlang.org/.
+%% ``Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% The Initial Developer of the Original Code is Ericsson Utvecklings AB.
 %% Portions created by Ericsson are Copyright 1999, Ericsson Utvecklings
 %% AB. All Rights Reserved.''
 %%
 %%     $Id: mnesia_checkpoint.erl,v 1.1 2008/12/17 09:53:38 mikpe Exp $
-%%
 -module(mnesia_checkpoint).
 
 %% TM callback interface
@@ -332,7 +332,7 @@ really_retain(Name, Tab) ->
 %%
 %% {min, MinTabs}
 %%   Minimize redundancy and only keep checkpoint info together with
-%%   one replica, preferrably at the local node. If any node involved
+%%   one replica, preferably at the local node. If any node involved
 %%   the checkpoint goes down, the checkpoint is deactivated.
 %%
 %% {max, MaxTabs}
@@ -345,7 +345,7 @@ really_retain(Name, Tab) ->
 %% {ram_overrides_dump, Tabs}
 %%   Only applicable for ram_copies. Bool controls which versions of
 %%   the records that should be included in the checkpoint state.
-%%   true means that the latest comitted records in ram (i.e. the
+%%   true means that the latest committed records in ram (i.e. the
 %%   records that the application accesses) should be included
 %%   in the checkpoint. false means that the records dumped to
 %%   dat-files (the records that will be loaded at startup) should

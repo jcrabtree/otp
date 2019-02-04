@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -23,19 +24,51 @@
 -export([module/4]).
 -export([encode/2]).
 
+-export_type([fail/0,label/0,reg/0,reg_num/0,src/0,module_code/0,function_name/0]).
+
 -import(lists, [map/2,member/2,keymember/3,duplicate/2,splitwith/2]).
 -include("beam_opcodes.hrl").
 
-module(Code, Abst, SourceFile, Opts) ->
-    {ok,assemble(Code, Abst, SourceFile, Opts)}.
+%% Common types for describing operands for BEAM instructions.
+-type reg_num() :: 0..1023.
+-type reg() :: {'x',reg_num()} | {'y',reg_num()}.
+-type src() :: reg() |
+	       {'literal',term()} |
+	       {'atom',atom()} |
+	       {'integer',integer()} |
+	       'nil' |
+	       {'float',float()}.
+-type label() :: pos_integer().
+-type fail() :: {'f',label() | 0}.
 
-assemble({Mod,Exp,Attr0,Asm0,NumLabels}, Abst, SourceFile, Opts) ->
+%% asm_instruction() describes only the instructions that
+%% are used in BEAM files (as opposed to internal instructions
+%% used only during optimization).
+
+-type asm_instruction() :: atom() | tuple().
+
+-type function_name() :: atom().
+
+-type asm_function() ::
+        {'function',function_name(),arity(),label(),[asm_instruction()]}.
+
+-type module_code() ::
+        {module(),[_],[_],[asm_function()],pos_integer()}.
+
+-spec module(module_code(), [{binary(), binary()}], [{atom(),term()}], [compile:option()]) ->
+                    {'ok',binary()}.
+
+module(Code, ExtraChunks, CompileInfo, CompilerOpts) ->
+    {ok,assemble(Code, ExtraChunks, CompileInfo, CompilerOpts)}.
+
+assemble({Mod,Exp0,Attr0,Asm0,NumLabels}, ExtraChunks, CompileInfo, CompilerOpts) ->
     {1,Dict0} = beam_dict:atom(Mod, beam_dict:new()),
     {0,Dict1} = beam_dict:fname(atom_to_list(Mod) ++ ".erl", Dict0),
     NumFuncs = length(Asm0),
     {Asm,Attr} = on_load(Asm0, Attr0),
+    Exp = cerl_sets:from_list(Exp0),
     {Code,Dict2} = assemble_1(Asm, Exp, Dict1, []),
-    build_file(Code, Attr, Dict2, NumLabels, NumFuncs, Abst, SourceFile, Opts).
+    build_file(Code, Attr, Dict2, NumLabels, NumFuncs, ExtraChunks, CompileInfo, CompilerOpts).
 
 on_load(Fs0, Attr0) ->
     case proplists:get_value(on_load, Attr0) of
@@ -60,7 +93,7 @@ insert_on_load_instruction(Is0, Entry) ->
     Bef ++ [El,on_load|Is].
 
 assemble_1([{function,Name,Arity,Entry,Asm}|T], Exp, Dict0, Acc) ->
-    Dict1 = case member({Name,Arity}, Exp) of
+    Dict1 = case cerl_sets:is_element({Name,Arity}, Exp) of
 		true ->
 		    beam_dict:export(Name, Arity, Entry, Dict0);
 		false ->
@@ -78,7 +111,7 @@ assemble_function([H|T], Acc, Dict0) ->
 assemble_function([], Code, Dict) ->
     {Code, Dict}.
 
-build_file(Code, Attr, Dict, NumLabels, NumFuncs, Abst, SourceFile, Opts) ->
+build_file(Code, Attr, Dict, NumLabels, NumFuncs, ExtraChunks, CompileInfo, CompilerOpts) ->
     %% Create the code chunk.
 
     CodeChunk = chunk(<<"Code">>,
@@ -90,9 +123,9 @@ build_file(Code, Attr, Dict, NumLabels, NumFuncs, Abst, SourceFile, Opts) ->
 		      Code),
 
     %% Create the atom table chunk.
-
-    {NumAtoms, AtomTab} = beam_dict:atom_table(Dict),
-    AtomChunk = chunk(<<"Atom">>, <<NumAtoms:32>>, AtomTab),
+    AtomEncoding = atom_encoding(CompilerOpts),
+    {NumAtoms, AtomTab} = beam_dict:atom_table(Dict, AtomEncoding),
+    AtomChunk = chunk(atom_chunk_name(AtomEncoding), <<NumAtoms:32>>, AtomTab),
 
     %% Create the import table chunk.
 
@@ -132,10 +165,10 @@ build_file(Code, Attr, Dict, NumLabels, NumFuncs, Abst, SourceFile, Opts) ->
     LiteralChunk = case beam_dict:literal_table(Dict) of
 		       {0,[]} -> [];
 		       {NumLiterals,LitTab0} ->
-			   LitTab1 = iolist_to_binary(LitTab0),
-			   LitTab2 = <<NumLiterals:32,LitTab1/binary>>,
-			   LitTab = iolist_to_binary(zlib:compress(LitTab2)),
-			   chunk(<<"LitT">>, <<(byte_size(LitTab2)):32>>, LitTab)
+			   LitTab1 = [<<NumLiterals:32>>,LitTab0],
+			   LitTab = zlib:compress(LitTab1),
+			   chunk(<<"LitT">>, <<(iolist_size(LitTab1)):32>>,
+				 LitTab)
 		   end,
 
     %% Create the line chunk.
@@ -149,24 +182,33 @@ build_file(Code, Attr, Dict, NumLabels, NumFuncs, Abst, SourceFile, Opts) ->
     Essentials1 = [iolist_to_binary(C) || C <- Essentials0],
     MD5 = module_md5(Essentials1),
     Essentials = finalize_fun_table(Essentials1, MD5),
-    {Attributes,Compile} = build_attributes(Opts, SourceFile, Attr, MD5),
+    {Attributes,Compile} = build_attributes(Attr, CompileInfo, MD5),
     AttrChunk = chunk(<<"Attr">>, Attributes),
     CompileChunk = chunk(<<"CInf">>, Compile),
 
-    %% Create the abstract code chunk.
+    %% Compile all extra chunks.
 
-    AbstChunk = chunk(<<"Abst">>, Abst),
+    CheckedChunks = [chunk(Key, Value) || {Key, Value} <- ExtraChunks],
 
     %% Create IFF chunk.
 
-    Chunks = case member(slim, Opts) of
+    Chunks = case member(slim, CompilerOpts) of
 		 true ->
-		     [Essentials,AttrChunk,AbstChunk];
+		     [Essentials,AttrChunk];
 		 false ->
 		     [Essentials,LocChunk,AttrChunk,
-		      CompileChunk,AbstChunk,LineChunk]
+		      CompileChunk,CheckedChunks,LineChunk]
 	     end,
     build_form(<<"BEAM">>, Chunks).
+
+atom_encoding(Opts) ->
+    case proplists:get_bool(no_utf8_atoms, Opts) of
+	false -> utf8;
+	true -> latin1
+    end.
+
+atom_chunk_name(utf8) -> <<"AtU8">>;
+atom_chunk_name(latin1) -> <<"Atom">>.
 
 %% finalize_fun_table(Essentials, MD5) -> FinalizedEssentials
 %%  Update the 'old_uniq' field in the entry for each fun in the
@@ -198,9 +240,7 @@ build_form(Id, Chunks0) when byte_size(Id) =:= 4, is_list(Chunks0) ->
 
 chunk(Id, Contents) when byte_size(Id) =:= 4, is_binary(Contents) ->
     Size = byte_size(Contents),
-    [<<Id/binary,Size:32>>,Contents|pad(Size)];
-chunk(Id, Contents) when is_list(Contents) ->
-    chunk(Id, list_to_binary(Contents)).
+    [<<Id/binary,Size:32>>,Contents|pad(Size)].
 
 %% Build a correctly padded chunk (with a sub-header).
 
@@ -222,15 +262,10 @@ flatten_exports(Exps) ->
 flatten_imports(Imps) ->
     list_to_binary(map(fun({M,F,A}) -> <<M:32,F:32,A:32>> end, Imps)).
 
-build_attributes(Opts, SourceFile, Attr, MD5) ->
-    Misc = case member(slim, Opts) of
-	       false ->
-		   {{Y,Mo,D},{H,Mi,S}} = erlang:universaltime(),
-		   [{time,{Y,Mo,D,H,Mi,S}},{source,SourceFile}];
-	       true -> []
-	   end,
-    Compile = [{options,Opts},{version,?COMPILER_VSN}|Misc],
-    {term_to_binary(set_vsn_attribute(Attr, MD5)),term_to_binary(Compile)}.
+build_attributes(Attr, Compile, MD5) ->
+    AttrBinary = term_to_binary(set_vsn_attribute(Attr, MD5)),
+    CompileBinary = term_to_binary([{version,?COMPILER_VSN}|Compile]),
+    {AttrBinary,CompileBinary}.
 
 build_line_table(Dict) ->
     {NumLineInstrs,NumFnames0,Fnames0,NumLines,Lines0} =
@@ -324,6 +359,8 @@ make_op({gc_bif,Bif,Fail,Live,Args,Dest}, Dict) ->
     encode_op(BifOp, [Fail,Live,{extfunc,erlang,Bif,Arity}|Args++[Dest]],Dict);
 make_op({bs_add=Op,Fail,[Src1,Src2,Unit],Dest}, Dict) ->
     encode_op(Op, [Fail,Src1,Src2,Unit,Dest], Dict);
+make_op({test,Cond,Fail,Src,{list,_}=Ops}, Dict) ->
+    encode_op(Cond, [Fail,Src,Ops], Dict);
 make_op({test,Cond,Fail,Ops}, Dict) when is_list(Ops) ->
     encode_op(Cond, [Fail|Ops], Dict);
 make_op({test,Cond,Fail,Live,[Op|Ops],Dst}, Dict) when is_list(Ops) ->
@@ -370,7 +407,17 @@ encode_arg({atom, Atom}, Dict0) when is_atom(Atom) ->
     {Index, Dict} = beam_dict:atom(Atom, Dict0),
     {encode(?tag_a, Index), Dict};
 encode_arg({integer, N}, Dict) ->
-    {encode(?tag_i, N), Dict};
+    %% Conservatily assume that all integers whose absolute
+    %% value is greater than 1 bsl 128 will be bignums in
+    %% the runtime system.
+    if
+        N >= 1 bsl 128 ->
+            encode_arg({literal, N}, Dict);
+        N =< -(1 bsl 128) ->
+            encode_arg({literal, N}, Dict);
+        true ->
+            {encode(?tag_i, N), Dict}
+    end;
 encode_arg(nil, Dict) ->
     {encode(?tag_a, 0), Dict};
 encode_arg({f, W}, Dict) ->
@@ -387,7 +434,7 @@ encode_arg({list, List}, Dict0) ->
     {L, Dict} = encode_list(List, Dict0, []),
     {[encode(?tag_z, 1), encode(?tag_u, length(List))|L], Dict};
 encode_arg({float, Float}, Dict) when is_float(Float) ->
-    {[encode(?tag_z, 0),<<Float:64/float>>], Dict};
+    encode_arg({literal,Float}, Dict);
 encode_arg({fr,Fr}, Dict) ->
     {[encode(?tag_z, 2),encode(?tag_u, Fr)], Dict};
 encode_arg({field_flags,Flags0}, Dict) ->
@@ -428,46 +475,38 @@ encode_alloc_list_1([{floats,Floats}|T], Dict, Acc0) ->
 encode_alloc_list_1([], Dict, Acc) ->
     {iolist_to_binary(Acc),Dict}.
 
+-spec encode(non_neg_integer(), integer()) -> iolist() | integer().
+
 encode(Tag, N) when N < 0 ->
-    encode1(Tag, negative_to_bytes(N, []));
+    encode1(Tag, negative_to_bytes(N));
 encode(Tag, N) when N < 16 ->
     (N bsl 4) bor Tag;
 encode(Tag, N) when N < 16#800  ->
     [((N bsr 3) band 2#11100000) bor Tag bor 2#00001000, N band 16#ff];
 encode(Tag, N) ->
-    encode1(Tag, to_bytes(N, [])).
+    encode1(Tag, to_bytes(N)).
 
 encode1(Tag, Bytes) ->
-    case length(Bytes) of
+    case iolist_size(Bytes) of
 	Num when 2 =< Num, Num =< 8 ->
 	    [((Num-2) bsl 5) bor 2#00011000 bor Tag| Bytes];
 	Num when 8 < Num ->
 	    [2#11111000 bor Tag, encode(?tag_u, Num-9)| Bytes]
     end.
 
-
-to_bytes(N0, Acc) ->
-    Bits = 3*128,
-    case N0 bsr Bits of
-	0 ->
-	    to_bytes_1(N0, Acc);
-	N ->
-	    to_bytes(N, binary_to_list(<<N0:Bits>>) ++ Acc)
-    end.
-    
-to_bytes_1(0, [B|_]=Done) when B < 128 -> Done;
-to_bytes_1(N, Acc) -> to_bytes(N bsr 8, [N band 16#ff|Acc]).
-
-negative_to_bytes(N0, Acc) ->
-    Bits = 3*128,
-    case N0 bsr Bits of
-	-1 ->
-	    negative_to_bytes_1(N0, Acc);
-	N ->
-	    negative_to_bytes_1(N, binary_to_list(<<N0:Bits>>) ++ Acc)
+to_bytes(N) ->
+    Bin = binary:encode_unsigned(N),
+    case Bin of
+	<<0:1,_/bits>> -> Bin;
+	<<1:1,_/bits>> -> [0,Bin]
     end.
 
-negative_to_bytes_1(-1, [B1,_B2|_]=Done) when B1 > 127 ->
-    Done;
-negative_to_bytes_1(N, Acc) ->
-    negative_to_bytes_1(N bsr 8, [N band 16#ff|Acc]).
+negative_to_bytes(N) when N >= -16#8000 ->
+    <<N:16>>;
+negative_to_bytes(N) ->
+    Bytes = byte_size(binary:encode_unsigned(-N)),
+    Bin = <<N:Bytes/unit:8>>,
+    case Bin of
+	<<0:1,_/bits>> -> [16#ff,Bin];
+	<<1:1,_/bits>> -> Bin
+    end.

@@ -1,25 +1,20 @@
 %% -*- erlang-indent-level: 2 -*-
 %%
-%% %CopyrightBegin%
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Copyright Ericsson AB 2004-2010. All Rights Reserved.
+%%     http://www.apache.org/licenses/LICENSE-2.0
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
-%%
-%% %CopyrightEnd%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %%------------------------------------------------------------------------
 %% File    : hipe_dominators.erl
-%% Author  : Christoffer Vikström <chvi3471@student.uu.se>
+%% Author  : Christoffer VikstrÃ¶m <chvi3471@student.uu.se>
 %%           Daniel Deogun        <dade4543@student.uu.se>
 %%           Jesper Bengtsson     <jebe8371@student.uu.se>
 %% Created : 18 Mar 2002
@@ -57,8 +52,8 @@
 
 -record(domTree, {root                     :: cfg_lbl(),
 		  size  = 0		   :: non_neg_integer(),
-		  nodes = gb_trees:empty() :: gb_tree()}).
--type domTree() :: #domTree{}.
+		  nodes = gb_trees:empty() :: gb_trees:tree()}).
+-opaque domTree() :: #domTree{}.
 
 %%>----------------------------------------------------------------------<
 %% Procedure : domTree_create/1
@@ -322,7 +317,7 @@ updateCell(Value, Field, WD) ->
 %%>----------------------------------------------------------------------<
 %% Procedure : dfs/1
 %% Purpose   : The main purpose of this function is to traverse the CFG in
-%%             a depth first order. It is aslo used to initialize certain 
+%%             a depth first order. It is also used to initialize certain
 %%             elements defined in a workDataCell.
 %% Arguments : CFG - a Control Flow Graph representation
 %% Returns   : A table (WorkData) and the total number of elements in
@@ -590,7 +585,7 @@ domTree_pp_children([], _) ->
 %%
 %%========================================================================
 
--type domFrontier() :: gb_tree().
+-type domFrontier() :: gb_trees:tree().
 
 %%>----------------------------------------------------------------------<
 %% Procedure : domFrontier_create

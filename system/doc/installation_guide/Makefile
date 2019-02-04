@@ -1,18 +1,19 @@
 #
 # %CopyrightBegin%
 #
-# Copyright Ericsson AB 1996-2010. All Rights Reserved.
+# Copyright Ericsson AB 1996-2018. All Rights Reserved.
 #
-# The contents of this file are subject to the Erlang Public License,
-# Version 1.1, (the "License"); you may not use this file except in
-# compliance with the License. You should have received a copy of the
-# Erlang Public License along with this software. If not, it can be
-# retrieved online at http://www.erlang.org/.
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
 #
-# Software distributed under the License is distributed on an "AS IS"
-# basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-# the License for the specific language governing rights and limitations
-# under the License.
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 #
 # %CopyrightEnd%
 #
@@ -27,6 +28,8 @@ include $(ERL_TOP)/erts/vsn.mk
 #VSN=$(SYSTEM_VSN)
 
 APPLICATION=otp-system-documentation
+XMLDIR := $(XMLDIR)/installation_guide
+
 # ----------------------------------------------------
 # Release directory specification
 # ----------------------------------------------------
@@ -42,6 +45,8 @@ include xmlfiles.mk
 
 XML_CHAPTER_FILES=$(INST_GUIDE_CHAPTER_FILES)
 
+# ----------------------------------------------------
+
 TOPDOCDIR=..
 
 BOOK_FILES = book.xml
@@ -54,11 +59,7 @@ XML_FILES = \
 	$(BOOK_FILES) $(XML_CHAPTER_FILES) \
 	$(XML_PART_FILES) 
 
-# ----------------------------------------------------
-GENERATED_XML_FILES = \
-	INSTALL.xml \
-	INSTALL-CROSS.xml \
-	INSTALL-WIN32.xml
+XML_GEN_FILES = $(INST_GUIDE_CHAPTER_GEN_FILES:%=$(XMLDIR)/%)
 
 # ----------------------------------------------------
 
@@ -73,7 +74,8 @@ REDIRECT_HTML_DIR = $(HTMLDIR)/source
 REDIRECT_HTML_FILES = \
 	$(REDIRECT_HTML_DIR)/INSTALL.html \
 	$(REDIRECT_HTML_DIR)/INSTALL-CROSS.html \
-	$(REDIRECT_HTML_DIR)/INSTALL-WIN32.html
+	$(REDIRECT_HTML_DIR)/INSTALL-WIN32.html \
+	$(REDIRECT_HTML_DIR)/OTP-PATCH-APPLY.html
 
 # ----------------------------------------------------
 # FLAGS 
@@ -85,7 +87,7 @@ DVIPS_FLAGS +=
 # Targets
 # ----------------------------------------------------
 
-%.xml: $(ERL_TOP)/%.md $(ERL_TOP)/make/emd2exml
+$(XMLDIR)/%.xml: $(ERL_TOP)/HOWTO/%.md $(ERL_TOP)/make/emd2exml
 	$(ERL_TOP)/make/emd2exml $< $@
 
 $(REDIRECT_HTML_DIR)/%.html: Makefile
@@ -99,18 +101,19 @@ $(REDIRECT_HTML_DIR)/%.html: Makefile
 	echo "This <a href=\"../"$(notdir $@)"\">link</a> will" >> $@
 	echo "take you there immediately.</p></body></html>" >> $@
 
-docs: $(GENERATED_XML_FILES) html
+docs: $(XML_GEN_FILES) html
 
 local_docs: PDFDIR=../../pdf
-local_docs: $(GENERATED_XML_FILES)
+local_docs: $(XML_GEN_FILES)
 
-html: $(REDIRECT_HTML_FILES) $(GENERATED_XML_FILES) $(GIF_FILES) $(HTML_UG_FILE)
+html: $(REDIRECT_HTML_FILES) $(XML_GEN_FILES) $(GIF_FILES) $(HTML_UG_FILE)
 
 debug opt:
 
 clean clean_docs:
 	rm -f $(GENERATED_XML_FILES)
 	rm -rf $(HTMLDIR)
+	rm -rf $(XMLDIR)
 	rm -f $(TOP_PDF_FILE) $(TOP_PDF_FILE:%.pdf=%.fo)
 	rm -f errs core *~ 
 

@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1996-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2018. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -84,22 +85,22 @@ validate_tab({Tabname, RecName, List}) ->
 validate_tab(_) -> error(badtab).
 
 make_tabs([{Tab, Def} | Tail]) ->
-    case catch mnesia:table_info(Tab, where_to_read) of
-	{'EXIT', _} -> %% non-existing table
+    try mnesia:table_info(Tab, where_to_read) of
+	Node ->
+	    io:format("** Table ~tw already exists on ~p, just entering data~n",
+		      [Tab, Node]),
+	    make_tabs(Tail)
+    catch exit:_ -> %% non-existing table
 	    case mnesia:create_table(Tab, Def) of
 		{aborted, Reason} ->
-		    io:format("** Failed to create table ~w ~n"
-			      "** Reason = ~w, Args = ~p~n", 
+		    io:format("** Failed to create table ~tw ~n"
+			      "** Reason = ~tw, Args = ~tp~n", 
 			      [Tab, Reason, Def]),
 		    [Tab | make_tabs(Tail)];
 		_ -> 
-		    io:format("New table ~w~n", [Tab]),
+		    io:format("New table ~tw~n", [Tab]),
 		    make_tabs(Tail)
-	    end;
-	Node ->
-	    io:format("** Table ~w already exists on ~p, just entering data~n",
-		      [Tab, Node]),
-	    make_tabs(Tail)
+	    end
     end;
 
 make_tabs([]) -> 
@@ -118,11 +119,9 @@ load_data(L) ->
 parse(File) ->
     case file(File) of
 	{ok, Terms} ->
-	    case catch collect(Terms) of
-		{error, X} ->
-		    {error, X};
-		Other ->
-		    {ok, Other}
+	    try collect(Terms) of
+		Other -> {ok, Other}
+	    catch throw:Error -> Error
 	    end;
 	Other ->
 	    Other
@@ -140,12 +139,12 @@ collect_data(Tabs, [{Line, Term} | Tail]) when is_tuple(Term) ->
 	{value, _} ->
 	    [Term | collect_data(Tabs, Tail)];
 	_Other ->
-	    io:format("Object:~p at line ~w unknown\n", [Term,Line]),
+	    io:format("Object:~tp at line ~w unknown\n", [Term,Line]),
 	    error(undefined_object)
     end;
 collect_data(_Tabs, []) -> [];
 collect_data(_Tabs, [H|_T]) ->
-    io:format("Object:~p unknown\n", [H]),
+    io:format("Object:~tp unknown\n", [H]),
     error(undefined_object).
 
 error(What) -> throw({error, What}).
@@ -179,7 +178,7 @@ read_term_from_stream(Stream, File, Line) ->
 		    {ok, {Line, Term}, EndLine};
 		{error, {NewLine,Mod,What}} ->
 		    Str = Mod:format_error(What),
-		    io:format("Error in line:~p of:~p ~s\n",
+		    io:format("Error in line:~p of:~tp ~ts\n",
 			      [NewLine, File, Str]),
 		    error
 	    end;

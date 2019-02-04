@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2010-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2010-2016. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -20,6 +21,7 @@
 -module(diameter_session).
 
 -export([sequence/0,
+         sequence/1,
          session_id/1,
          origin_state_id/0]).
 
@@ -30,7 +32,7 @@
 -define(INT32, 16#FFFFFFFF).
 
 %% ---------------------------------------------------------------------------
-%% # sequence/0
+%% # sequence/0-1
 %%
 %% Output: 32-bit
 %% ---------------------------------------------------------------------------
@@ -76,6 +78,15 @@
 sequence() ->
     Instr = {_Pos = 2, _Incr = 1, _Threshold = ?INT32, _SetVal = 0},
     ets:update_counter(diameter_sequence, sequence, Instr).
+
+-spec sequence(diameter:sequence())
+   -> diameter:'Unsigned32'().
+
+sequence({_,32}) ->
+    sequence();
+
+sequence({H,N}) ->
+    (H bsl N) bor (sequence() band (1 bsl N - 1)).
 
 %% ---------------------------------------------------------------------------
 %% # origin_state_id/0
@@ -147,10 +158,9 @@ session_id(Host) ->
 %% ---------------------------------------------------------------------------
 
 init() ->
-    Now = now(),
-    random:seed(Now),
+    Now = diameter_lib:timestamp(),
     Time = time32(Now),
-    Seq  = (?INT32 band (Time bsl 20)) bor (random:uniform(1 bsl 20) - 1),
+    Seq  = (?INT32 band (Time bsl 20)) bor (rand:uniform(1 bsl 20) - 1),
     ets:insert(diameter_sequence, [{origin_state_id, Time},
 				   {session_base, Time bsl 32},
 				   {sequence, Seq}]),

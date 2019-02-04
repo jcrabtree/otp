@@ -1,20 +1,20 @@
-%% ``The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved via the world wide web at http://www.erlang.org/.
+%% ``Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% The Initial Developer of the Original Code is Ericsson Utvecklings AB.
 %% Portions created by Ericsson are Copyright 1999, Ericsson Utvecklings
 %% AB. All Rights Reserved.''
 %%
 %%     $Id: asn1ct.erl,v 1.1 2008/12/17 09:53:29 mikpe Exp $
-%%
 -module(asn1ct).
 
 %% Compile Time functions for ASN.1 (e.g ASN.1 compiler).
@@ -520,7 +520,7 @@ save_automatic_tagged_types([_M|Ms]) ->
 %% remove_in_set_imports/3 :
 %% input: list with tuples of each module's imports and module name
 %% respectively.
-%% output: one list with same format but each occured import from a
+%% output: one list with same format but each occurred import from a
 %% module in the input set (IMNameL) is removed.
 remove_in_set_imports([{{imports,ImpL},_ModName}|Rest],InputMNameL,Acc) ->
     NewImpL = remove_in_set_imports1(ImpL,InputMNameL,[]),
@@ -1628,7 +1628,7 @@ tlv_tag1(<<1:1,PartialTag:7,Buffer/binary>>,Acc) ->
     tlv_tag1(Buffer,(Acc bsl 7) bor PartialTag).
 
 %% reads the content from the configuration file and returns the
-%% selected part choosen by InfoType. Assumes that the config file
+%% selected part chosen by InfoType. Assumes that the config file
 %% content is an Erlang term.
 read_config_file(ModuleName,InfoType) when atom(InfoType) ->
     CfgList = read_config_file(ModuleName),

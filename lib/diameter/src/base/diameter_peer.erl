@@ -1,37 +1,39 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2010-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2010-2017. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
 
 -module(diameter_peer).
-
 -behaviour(gen_server).
 
 %% Interface towards transport modules ...
 -export([recv/2,
          up/1,
-         up/2]).
+         up/2,
+         up/3,
+         match/2]).
 
 %% ... and the stack.
--export([start/3,
+-export([start/1,
          send/2,
          close/1,
          abort/1,
-         notify/2]).
+         notify/3]).
 
 %% Server start.
 -export([start_link/0]).
@@ -55,26 +57,161 @@
 -define(SERVER, ?MODULE).
 
 %% Server state.
--record(state, {id = now()}).
+-record(state, {id = diameter_lib:now()}).
 
-%%% ---------------------------------------------------------------------------
-%%% # notify/2
-%%% ---------------------------------------------------------------------------
+%% Default transport_module/config.
+-define(DEFAULT_TMOD, diameter_tcp).
+-define(DEFAULT_TCFG, []).
+-define(DEFAULT_TTMO, infinity).
 
-notify(SvcName, T) ->
-    rpc:abcast(nodes(), ?SERVER, {notify, SvcName, T}).
+%% ---------------------------------------------------------------------------
+%% # notify/3
+%% ---------------------------------------------------------------------------
 
-%%% ---------------------------------------------------------------------------
-%%% # start/3
-%%% ---------------------------------------------------------------------------
+notify(Nodes, SvcName, T) ->
+    rpc:abcast(Nodes, ?SERVER, {notify, SvcName, T}).
 
-start(T, Opts, #diameter_service{} = Svc) ->
-    {Mod, Cfg} = split_transport(Opts),
-    apply(Mod, start, [T, Svc, Cfg]).
+%% ---------------------------------------------------------------------------
+%% # start/1
+%% ---------------------------------------------------------------------------
 
-%%% ---------------------------------------------------------------------------
-%%% # up/[12]
-%%% ---------------------------------------------------------------------------
+-spec start({T, [Opt], #diameter_service{}})
+   -> {TPid, [Addr], Tmo, Data}
+    | {error, [term()]}
+ when T    :: {connect|accept, diameter:transport_ref()},
+      Opt  :: diameter:transport_opt(),
+      TPid :: pid(),
+      Addr :: inet:ip_address(),
+      Tmo  :: non_neg_integer() | infinity,
+      Data :: {{T, Mod, Cfg}, [Mod], [{T, [Mod], Cfg}], [Err]},
+      Mod  :: module(),
+      Cfg  :: term(),
+      Err  :: term()
+    ; ({#diameter_service{}, Tmo, Data})
+   -> {TPid, [Addr], Tmo, Data}
+    | {error, [term()]}
+ when TPid :: pid(),
+      Addr :: inet:ip_address(),
+      Tmo  :: non_neg_integer() | infinity,
+      Data :: {{T, Mod, Cfg}, [Mod], [{T, [Mod], Cfg}], [Err]},
+      T    :: {connect|accept, diameter:transport_ref()},
+      Mod  :: module(),
+      Cfg  :: term(),
+      Err  :: term().
+
+%% Initial start.
+start({T, Opts, #diameter_service{} = Svc}) ->
+    start(T, Svc, pair(Opts, [], []), []);
+
+%% Subsequent start.
+start({#diameter_service{} = Svc, Tmo, {{T, _, Cfg}, Ms, Rest, Errs}}) ->
+    start(T, Ms, Cfg, Svc, Tmo, Rest, Errs).
+
+%% pair/3
+%%
+%% Pair transport modules with config.
+
+%% Another transport_module: accumulate it.
+pair([{transport_module, M} | Rest], Mods, Acc) ->
+    pair(Rest, [M|Mods], Acc);
+
+%% Another transport_config: accumulate another tuple.
+pair([{transport_config = T, C} | Rest], Mods, Acc) ->
+    pair([{T, C, ?DEFAULT_TTMO} | Rest], Mods, Acc);
+pair([{transport_config, C, Tmo} | Rest], Mods, Acc) ->
+    pair(Rest, [], acc({lists:reverse(Mods), C, Tmo}, Acc));
+
+pair([_ | Rest], Mods, Acc) ->
+    pair(Rest, Mods, Acc);
+
+%% No transport_module or transport_config: defaults.
+pair([], [], []) ->
+    [{[?DEFAULT_TMOD], ?DEFAULT_TCFG, ?DEFAULT_TTMO}];
+
+%% One transport_module, one transport_config: ignore option order.
+%% That is, interpret [{transport_config, _}, {transport_module, _}]
+%% as if the order was reversed, not as config with default module and
+%% module with default config.
+pair([], [_] = Mods, [{[], Cfg, Tmo}]) ->
+    [{Mods, Cfg, Tmo}];
+
+%% Trailing transport_module: default transport_config.
+pair([], [_|_] = Mods, Acc) ->
+    pair([{transport_config, ?DEFAULT_TCFG}], Mods, Acc);
+
+pair([], [], Acc) ->
+    lists:reverse(def(Acc)).
+
+%% acc/2
+
+acc(T, Acc) ->
+    [T | def(Acc)].
+
+%% def/1
+%%
+%% Default module of previous pair if none were specified.
+
+def([{[], Cfg, Tmo} | Acc]) ->
+    [{[?DEFAULT_TMOD], Cfg, Tmo} | Acc];
+def(Acc) ->
+    Acc.
+
+%% start/4
+
+start(T, Svc, [{Ms, Cfg, Tmo} | Rest], Errs) ->
+    start(T, Ms, Cfg, Svc, Tmo, Rest, Errs);
+
+start(_, _, [], Errs) ->
+    {error, Errs}.
+
+%% start/7
+
+start(T, [], _, Svc, _, Rest, Errs) ->
+    start(T, Svc, Rest, Errs);
+
+start(T, [M|Ms], Cfg, Svc, Tmo, Rest, Errs) ->
+    case start(M, [T, Svc, Cfg]) of
+        {ok, TPid} ->
+            {TPid, [], Tmo, {{T, M, Cfg}, Ms, Rest, Errs}};
+        {ok, TPid, [_|_] = Addrs} ->
+            {TPid, Addrs, Tmo, {{T, M, Cfg}, Ms, Rest, Errs}};
+        E ->
+            start(T, Ms, Cfg, Svc, Tmo, Rest, [E|Errs])
+    end.
+
+%% start/2
+
+start(Mod, Args) ->
+    apply(Mod, start, Args).
+
+%% ---------------------------------------------------------------------------
+%% # match/2
+%% ---------------------------------------------------------------------------
+
+match(Addrs, Matches)
+  when is_list(Addrs) ->
+    lists:all(fun(A) -> match1(A, Matches) end, Addrs).
+
+match1(Addr, Matches)
+  when not is_integer(hd(Matches)) ->
+    lists:any(fun(M) -> match1(Addr, M) end, Matches);
+
+match1(Addr, Match) ->
+    match(Addr, addr(Match), Match).
+
+match(Addr, {ok, A}, _) ->
+    Addr == A;
+match(Addr, {error, _}, RE) ->
+    match == re:run(inet:ntoa(Addr), RE, [{capture, none}, caseless]).
+
+addr([_|_] = A) ->
+    inet:parse_address(A);
+addr(A) ->
+    {ok, A}.
+
+%% ---------------------------------------------------------------------------
+%% # up/1-3
+%% ---------------------------------------------------------------------------
 
 up(Pid) ->  %% accepting transport
     ifc_send(Pid, {self(), connected}).
@@ -82,34 +219,47 @@ up(Pid) ->  %% accepting transport
 up(Pid, Remote) ->  %% connecting transport
     ifc_send(Pid, {self(), connected, Remote}).
 
-%%% ---------------------------------------------------------------------------
-%%% # recv/2
-%%% ---------------------------------------------------------------------------
+up(Pid, Remote, LAddrs) -> %% connecting transport
+    ifc_send(Pid, {self(), connected, Remote, LAddrs}).
+
+%% ---------------------------------------------------------------------------
+%% # recv/2
+%% ---------------------------------------------------------------------------
 
 recv(Pid, Pkt) ->
     ifc_send(Pid, {recv, Pkt}).
 
-%%% ---------------------------------------------------------------------------
-%%% # send/2
-%%% ---------------------------------------------------------------------------
+%% ---------------------------------------------------------------------------
+%% # send/2
+%% ---------------------------------------------------------------------------
 
-send(Pid, #diameter_packet{transport_data = undefined,
-			   bin = Bin}) ->
-    send(Pid, Bin);
+send(Pid, Msg) ->
+    ifc_send(Pid, {send, strip(Msg)}).
 
-send(Pid, Pkt) ->
-    ifc_send(Pid, {send, Pkt}).
+%% Send only binary when possible.
+strip(#diameter_packet{transport_data = undefined,
+                       bin = Bin}) ->
+    Bin;
 
-%%% ---------------------------------------------------------------------------
-%%% # close/1
-%%% ---------------------------------------------------------------------------
+%% Strip potentially large message terms.
+strip(#diameter_packet{transport_data = T,
+                       bin = Bin}) ->
+    #diameter_packet{transport_data = T,
+                     bin = Bin};
+
+strip(Msg) ->
+    Msg.
+
+%% ---------------------------------------------------------------------------
+%% # close/1
+%% ---------------------------------------------------------------------------
 
 close(Pid) ->
     ifc_send(Pid, {close, self()}).
 
-%%% ---------------------------------------------------------------------------
-%%% # abort/1
-%%% ---------------------------------------------------------------------------
+%% ---------------------------------------------------------------------------
+%% # abort/1
+%% ---------------------------------------------------------------------------
 
 abort(Pid) ->
     exit(Pid, shutdown).
@@ -130,16 +280,16 @@ state() ->
 uptime() ->
     call(uptime).
 
-%%% ----------------------------------------------------------
-%%% # init(Role)
-%%% ----------------------------------------------------------
+%% ----------------------------------------------------------
+%% # init(Role)
+%% ----------------------------------------------------------
 
 init([]) ->
     {ok, #state{}}.
 
-%%% ----------------------------------------------------------
-%%% # handle_call(Request, From, State)
-%%% ----------------------------------------------------------
+%% ----------------------------------------------------------
+%% # handle_call(Request, From, State)
+%% ----------------------------------------------------------
 
 handle_call(state, _, State) ->
     {reply, State, State};
@@ -151,21 +301,21 @@ handle_call(Req, From, State) ->
     ?UNEXPECTED([Req, From]),
     {reply, nok, State}.
 
-%%% ----------------------------------------------------------
-%%% # handle_cast(Request, State)
-%%% ----------------------------------------------------------
+%% ----------------------------------------------------------
+%% # handle_cast(Request, State)
+%% ----------------------------------------------------------
 
 handle_cast(Msg, State) ->
     ?UNEXPECTED([Msg]),
     {noreply, State}.
 
-%%% ----------------------------------------------------------
-%%% # handle_info(Request, State)
-%%% ----------------------------------------------------------
+%% ----------------------------------------------------------
+%% # handle_info(Request, State)
+%% ----------------------------------------------------------
 
 %% Remote service is distributing a message.
 handle_info({notify, SvcName, T}, S) ->
-    bang(diameter_service:whois(SvcName), T),
+    diameter_service:notify(SvcName, T),
     {noreply, S};
 
 handle_info(Info, State) ->
@@ -187,7 +337,6 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 %% ---------------------------------------------------------
-%% INTERNAL FUNCTIONS
 %% ---------------------------------------------------------
 
 %% ifc_send/2
@@ -196,28 +345,6 @@ code_change(_OldVsn, State, _Extra) ->
 
 ifc_send(Pid, T) ->
     Pid ! {diameter, T}.
-
-%% bang/2
-
-bang(undefined = No, _) ->
-    No;
-bang(Pid, T) ->
-    Pid ! T.
-
-%% split_transport/1
-%%
-%% Split options into transport module, transport config and
-%% remaining options.
-
-split_transport(Opts) ->
-    {[M,C], _} = proplists:split(Opts, [transport_module,
-                                        transport_config]),
-    {value(M, diameter_tcp), value(C, [])}.
-
-value([{_,V}], _) ->
-    V;
-value([], V) ->
-    V.
 
 %% call/1
 

@@ -1,23 +1,26 @@
 %% =====================================================================
-%% This library is free software; you can redistribute it and/or modify
-%% it under the terms of the GNU Lesser General Public License as
-%% published by the Free Software Foundation; either version 2 of the
-%% License, or (at your option) any later version.
+%% Licensed under the Apache License, Version 2.0 (the "License"); you may
+%% not use this file except in compliance with the License. You may obtain
+%% a copy of the License at <http://www.apache.org/licenses/LICENSE-2.0>
 %%
-%% This library is distributed in the hope that it will be useful, but
-%% WITHOUT ANY WARRANTY; without even the implied warranty of
-%% MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-%% Lesser General Public License for more details.
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
-%% You should have received a copy of the GNU Lesser General Public
-%% License along with this library; if not, write to the Free Software
-%% Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307
-%% USA
-%%
-%% $Id$
+%% Alternatively, you may use this file under the terms of the GNU Lesser
+%% General Public License (the "LGPL") as published by the Free Software
+%% Foundation; either version 2.1, or (at your option) any later version.
+%% If you wish to allow use of your version of this file only under the
+%% terms of the LGPL, you should delete the provisions above and replace
+%% them with the notice and other provisions required by the LGPL; see
+%% <http://www.gnu.org/licenses/>. If you do not delete the provisions
+%% above, a recipient may use your version of this file under the terms of
+%% either the Apache License or the LGPL.
 %%
 %% @copyright 1997-2006 Richard Carlsson
-%% @author Richard Carlsson <richardc@it.uu.se>
+%% @author Richard Carlsson <carlsson.richard@gmail.com>
 %% @end
 %% =====================================================================
 
@@ -31,6 +34,9 @@
 
 -export([recomment_forms/2, quick_recomment_forms/2, recomment_tree/2]).
 
+
+%% @type syntaxTree() = erl_syntax:syntaxTree(). An abstract syntax
+%% tree. See the {@link erl_syntax} module for details.
 
 %% =====================================================================
 %% @spec quick_recomment_forms(Forms, Comments::[Comment]) ->
@@ -57,7 +63,6 @@ quick_recomment_forms(Tree, Cs) ->
 %% =====================================================================
 %% @spec recomment_forms(Forms, Comments::[Comment]) -> syntaxTree()
 %%
-%%	    syntaxTree() = erl_syntax:syntaxTree()
 %%	    Forms = syntaxTree() | [syntaxTree()]
 %%	    Comment = {Line, Column, Indentation, Text}
 %%	    Line = integer()
@@ -125,7 +130,6 @@ recomment_forms(Tree, Cs, Insert) ->
 	form_list ->
 	    Tree1 = erl_syntax:flatten_form_list(Tree),
 	    Node = build_tree(Tree1),
-
 	    %% Here we make a small assumption about the substructure of
 	    %% a `form_list' tree: it has exactly one group of subtrees.
 	    [Node1] = node_subtrees(Node),
@@ -604,21 +608,24 @@ expand_comment(C) ->
 
 -record(leaf, {min = 0           :: integer(),
 	       max = 0           :: integer(),
-	       precomments  = [] :: [erl_syntax:syntaxTree()],
-	       postcomments = [] :: [erl_syntax:syntaxTree()],
+	       precomments  = [] :: [erl_comment_scan:comment()],
+	       postcomments = [] :: [erl_comment_scan:comment()],
 	       value             :: erl_syntax:syntaxTree()}).
 
 -record(tree, {min = 0           :: integer(),
 	       max = 0           :: integer(),
 	       type              :: atom(),
 	       attrs             :: erl_syntax:syntaxTreeAttributes(),
-	       precomments  = [] :: [erl_syntax:syntaxTree()],
-	       postcomments = [] :: [erl_syntax:syntaxTree()],
-	       subtrees     = [] :: [erl_syntax:syntaxTree()]}).
+	       precomments  = [] :: [erl_comment_scan:comment()],
+	       postcomments = [] :: [erl_comment_scan:comment()],
+	       subtrees     = [] :: [extendedSyntaxTree()]}).
+
 
 -record(list, {min = 0           :: integer(),
 	       max = 0           :: integer(),
 	       subtrees = []     :: [erl_syntax:syntaxTree()]}).
+
+-type extendedSyntaxTree() :: #tree{} | #leaf{} | #list{}.
 
 leaf_node(Min, Max, Value) ->
     #leaf{min = Min,
@@ -755,7 +762,13 @@ get_line(Node) ->
 	{_, L, _} when is_integer(L) ->
 	    L;
 	Pos ->
-	    exit({bad_position, Pos})
+            try erl_anno:line(Pos) of
+                Line ->
+                    Line
+            catch
+                _:_ ->
+                    exit({bad_position, Pos})
+            end
     end.
 
 

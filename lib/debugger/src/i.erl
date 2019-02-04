@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1998-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1998-2017. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -29,7 +30,7 @@
 -import(lists, [sort/1,foreach/2]).
 
 iv() ->
-    Vsn = string:substr(filename:basename(code:lib_dir(debugger)), 10),
+    Vsn = string:slice(filename:basename(code:lib_dir(debugger)), 9),
     list_to_atom(Vsn).
 
 %% -------------------------------------------
@@ -107,7 +108,7 @@ ib(Module,Function,Arity) ->
 
 ib(Module,Function,Arity,Cond) ->
     Breaks1 = int:all_breaks(Module),
-    int:break_in(Module,Function,Arity),
+    ok = int:break_in(Module,Function,Arity),
     Breaks2 = int:all_breaks(Module),
     lists:foreach(fun({Mod,Line}) -> int:test_at_break(Mod,Line,Cond) end,
 		  Breaks2--Breaks1).
@@ -197,7 +198,7 @@ get_file(Mod) ->
     end.
 
 ilformat(A1, A2) ->
-    format("~-20s     ~s\n", [A1,A2]).
+    format("~-20s     ~ts\n", [A1,A2]).
 
 %% -------------------------------------------
 %% Print all break points in modules.
@@ -250,7 +251,7 @@ ist(Flag) ->
 %% -------------------------------------------
 
 iaa(Flag) ->
-    iaa(Flag,{dbg_ui_trace,start,[]}).
+    iaa(Flag,{dbg_wx_trace,start,[]}).
 
 %% -------------------------------------------
 %% Set the automatic attachment flag.
@@ -271,7 +272,7 @@ iaa(Flag,Fnk) ->
 %% -------------------------------------------
 
 ia(Pid) ->
-    ia(Pid,{dbg_ui_trace,start}).
+    ia(Pid,{dbg_wx_trace,start}).
 
 %% -------------------------------------------
 %% Attach to process.
@@ -306,13 +307,13 @@ ip() ->
 
 ip([{Pid,{M,F,A},Status,{}}|Stats]) ->
     hformat(io_lib:format("~w",[Pid]),
-	    io_lib:format("~p:~p/~p",[M,F,length(A)]),
+	    io_lib:format("~w:~tw/~w",[M,F,length(A)]),
 	    io_lib:format("~w",[Status]),
 	    ""),
     ip(Stats);
 ip([{Pid,{M,F,A},Status,Info}|Stats]) ->
     hformat(io_lib:format("~w",[Pid]),
-	    io_lib:format("~p:~p/~p",[M,F,length(A)]),
+	    io_lib:format("~w:~tw/~w",[M,F,length(A)]),
 	    io_lib:format("~w",[Status]),
 	    io_lib:format("~w",[Info])),
     ip(Stats);
@@ -320,7 +321,7 @@ ip([]) ->
     ok.
 
 hformat(A1, A2, A3, A4) ->
-    format("~-12s ~-21s ~-9s ~-21s~n", [A1,A2,A3,A4]).
+    format("~-12s ~-21ts ~-9s ~-21s~n", [A1,A2,A3,A4]).
 
 
 %% -------------------------------------------

@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2009-2010. All Rights Reserved.
+%% Copyright Ericsson AB 2009-2015. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 
@@ -267,8 +268,10 @@ normalize_toks(Toks) ->
 
 normalize_tok(Tok) ->
     %% this is the portable way ...
-    [{_,Type},{_,Line},{_,Col},{_,Txt}] = 
-	erl_scan:token_info(Tok, [category,line,column,text]),
+    Type = erl_scan:category(Tok),
+    Line = erl_scan:line(Tok),
+    Col = erl_scan:column(Tok),
+    Txt = erl_scan:text(Tok),
     Val  = {Type,{Line,Col},Txt},
     %% io:format("here:X=~p ~p~n",[Tok,Val]),
     Val.
@@ -485,7 +488,6 @@ is_keyword('not') -> true;
 is_keyword('of' ) -> true;
 is_keyword('or' ) -> true;
 is_keyword('orelse' ) -> true;
-is_keyword('query' ) -> true;
 is_keyword('receive' ) -> true;
 is_keyword('rem' ) -> true;
 is_keyword('spec') -> true;

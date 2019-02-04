@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 1996-2011. All Rights Reserved.
+ * Copyright Ericsson AB 1996-2018. All Rights Reserved.
  *
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  * %CopyrightEnd%
  */
@@ -22,19 +23,15 @@
  * additions required for Windows NT.
  */
 
-#ifdef HAVE_CONFIG_H
-#  include "config.h"
-#endif
+#include "etc_common.h"
 
-#include "sys.h"
 #include "erl_driver.h"
-#include <stdlib.h>
-#include <stdarg.h>
 #include "erl_misc_utils.h"
 
 #ifdef __WIN32__
 #  include "erl_version.h"
 #  include "init_file.h"
+#  include <Shlobj.h>
 #endif
 
 #define NO 0
@@ -42,7 +39,7 @@
 #define DEFAULT_PROGNAME "erl"
 
 #ifdef __WIN32__
-#define INI_FILENAME "erl.ini"
+#define INI_FILENAME L"erl.ini"
 #define INI_SECTION "erlang"
 #define DIRSEP "\\"
 #define PATHSEP ";"
@@ -64,7 +61,7 @@
 static const char plusM_au_allocs[]= {
     'u',	/* all alloc_util allocators */
     'B',	/* binary_alloc		*/
-    'C',	/* sbmbc_alloc		*/
+    'I',	/* literal_alloc	*/
     'D',	/* std_alloc		*/
     'E',	/* ets_alloc		*/
     'F',	/* fix_alloc		*/
@@ -73,6 +70,8 @@ static const char plusM_au_allocs[]= {
     'R',	/* driver_alloc		*/
     'S',	/* sl_alloc		*/
     'T',	/* temp_alloc		*/
+    'X',	/* exec_alloc		*/
+    'Z',        /* test_alloc           */
     '\0'
 };
 
@@ -80,6 +79,10 @@ static const char plusM_au_allocs[]= {
 static char *plusM_au_alloc_switches[] = {
     "as",
     "asbcst",
+    "atags",
+    "acul",
+    "acnl",
+    "acfml",
     "e",
     "t",
     "lmbcs",
@@ -95,8 +98,6 @@ static char *plusM_au_alloc_switches[] = {
     "rsbcst",
     "sbct",
     "smbcs",
-    "sbmbcs",
-    "sbmbct",
     NULL
 };
 
@@ -105,34 +106,59 @@ static char *plusM_other_switches[] = {
     "ea",
     "ummc",
     "uycs",
+    "usac",
     "im",
     "is",
     "it",
+    "lpm",
     "Mamcbf",
     "Mrmcbf",
     "Mmcs",
+    "Mscs",
+    "Mscrfsd",
+    "Msco",
+    "Mscrpm",
     "Ye",
     "Ym",
     "Ytp",
     "Ytt",
+    "Iscs",
+    "Xscs",
     NULL
 };
 
 /* +s arguments with values */
 static char *pluss_val_switches[] = {
     "bt",
+    "bwtdcpu",
+    "bwtdio",
     "bwt",
     "cl",
     "ct",
+    "ecio",
+    "fwi",
+    "tbt",
+    "wct",
+    "wtdcpu",
+    "wtdio",
     "wt",
     "ws",
     "ss",
+    "ssdcpu",
+    "ssdio",
+    "pp",
+    "ub",
     NULL
 };
 /* +h arguments with values */
 static char *plush_val_switches[] = {
     "ms",
     "mbs",
+    "pds",
+    "max",
+    "maxk",
+    "maxel",
+    "mqd",
     "",
     NULL
 };
@@ -146,6 +172,8 @@ static char *plusr_val_switches[] = {
 /* +z arguments with values */
 static char *plusz_val_switches[] = {
     "dbbl",
+    "dntgc",
+    "ebwt",
     NULL
 };
 
@@ -159,19 +187,9 @@ static char *plusz_val_switches[] = {
 #endif
 
 #define SMP_SUFFIX	  ".smp"
-#define DEBUG_SUFFIX      ".debug"
-#define EMU_TYPE_SUFFIX_LENGTH  strlen(DEBUG_SUFFIX)
-
-/*
- * Define flags for different memory architectures.
- */
-#define EMU_TYPE_SMP		0x0001
-
-#ifdef __WIN32__
-#define EMU_TYPE_DEBUG		0x0004
-#endif
 
 void usage(const char *switchname);
+static void usage_format(char *format, ...);
 void start_epmd(char *epmd);
 void error(char* format, ...);
 
@@ -179,10 +197,7 @@ void error(char* format, ...);
  * Local functions.
  */
 
-#if !defined(ERTS_HAVE_SMP_EMU)
-static void usage_notsup(const char *switchname);
-#endif
-static void usage_msg(const char *msg);
+static void usage_notsup(const char *switchname, const char *alt);
 static char **build_args_from_env(char *env_var);
 static char **build_args_from_string(char *env_var);
 static void initial_argv_massage(int *argc, char ***argv);
@@ -196,7 +211,7 @@ static void *erealloc(void *p, size_t size);
 static void efree(void *p);
 static char* strsave(char* string);
 static int is_one_of_strings(char *str, char *strs[]);
-static char *write_str(char *to, char *from);
+static char *write_str(char *to, const char *from);
 static void get_home(void);
 static void add_epmd_port(void);
 #ifdef __WIN32__
@@ -230,9 +245,8 @@ static int verbose = 0;		/* If non-zero, print some extra information. */
 static int start_detached = 0;	/* If non-zero, the emulator should be
 				 * started detached (in the background).
 				 */
-static int emu_type = 0;	/* If non-zero, start beam.ARCH or beam.ARCH.exe
-				 * instead of beam or beam.exe, where ARCH is defined by flags. */
-static int emu_type_passed = 0;	/* Types explicitly set */
+static int start_smp_emu = 1;   /* Start the smp emulator. */
+static const char* emu_type = 0; /* Type of emulator (lcnt, valgrind, etc) */
 
 #ifdef __WIN32__
 static char *start_emulator_program = NULL; /* For detachec mode - 
@@ -245,7 +259,9 @@ static char* config_script = NULL; /* used by option -start_erl and -config */
 
 static HANDLE this_module_handle;
 static int run_werl;
-
+static WCHAR *utf8_to_utf16(unsigned char *bytes);
+static char *utf16_to_utf8(WCHAR *wstr);
+static WCHAR *latin1_to_utf16(char *str);
 #endif
 
 /*
@@ -263,8 +279,12 @@ static void
 set_env(char *key, char *value)
 {
 #ifdef __WIN32__
-    if (!SetEnvironmentVariable((LPCTSTR) key, (LPCTSTR) value))
+    WCHAR *wkey = latin1_to_utf16(key);
+    WCHAR *wvalue = utf8_to_utf16(value);
+    if (!SetEnvironmentVariableW(wkey, wvalue))
 	error("SetEnvironmentVariable(\"%s\", \"%s\") failed!", key, value);
+    efree(wkey);
+    efree(wvalue);
 #else
     size_t size = strlen(key) + 1 + strlen(value) + 1;
     char *str = emalloc(size);
@@ -277,25 +297,33 @@ set_env(char *key, char *value)
 #endif
 }
 
+
 static char *
 get_env(char *key)
 {
 #ifdef __WIN32__
     DWORD size = 32;
-    char *value = NULL;
+    WCHAR *value = NULL;
+    WCHAR *wkey = latin1_to_utf16(key);
+    char *res;
     while (1) {
 	DWORD nsz;
 	if (value)
 	    efree(value);
-	value = emalloc(size);
+	value = emalloc(size*sizeof(WCHAR));
 	SetLastError(0);
-	nsz = GetEnvironmentVariable((LPCTSTR) key, (LPTSTR) value, size);
+	nsz = GetEnvironmentVariableW(wkey, value, size);
 	if (nsz == 0 && GetLastError() == ERROR_ENVVAR_NOT_FOUND) {
 	    efree(value);
+	    efree(wkey);
 	    return NULL;
 	}
-	if (nsz <= size)
-	    return value;
+	if (nsz <= size) {
+	    efree(wkey);
+	    res = utf16_to_utf8(value);
+	    efree(value);
+	    return res;
+	}
 	size = nsz;
     }
 #else
@@ -313,11 +341,11 @@ free_env_val(char *value)
 }
 
 /*
- * Add the architecture suffix to the program name if needed,
- * except on Windows, where we insert it just before ".DLL".
+ * Add the type and architecture suffix to the program name if needed.
+ * On Windows, we insert it just before ".DLL".
  */
 static char*
-add_extra_suffixes(char *prog, int type)
+add_extra_suffixes(char *prog)
 {
    char *res;
    char *p;
@@ -327,16 +355,10 @@ add_extra_suffixes(char *prog, int type)
    int dll = 0;
 #endif
 
-   if (!type) {
-       return prog;
-   }
-
    len = strlen(prog);
 
-   /* Worst-case allocation */
-   p = emalloc(len +
-	       EMU_TYPE_SUFFIX_LENGTH +
-	       + 1);
+   /* Allocate enough extra space for suffixes */
+   p = emalloc(len + 100);
    res = p;
    p = write_str(p, prog);
 
@@ -353,13 +375,11 @@ add_extra_suffixes(char *prog, int type)
    }
 #endif
 
-#ifdef __WIN32__
-   if (type & EMU_TYPE_DEBUG) {
-       p = write_str(p, DEBUG_SUFFIX);
-       type &= ~(EMU_TYPE_DEBUG);
+   if (emu_type) {
+       p = write_str(p, ".");
+       p = write_str(p, emu_type);
    }
-#endif
-   if (type == EMU_TYPE_SMP) {
+   if (start_smp_emu) {
        p = write_str(p, SMP_SUFFIX);
    }
 #ifdef __WIN32__
@@ -448,15 +468,9 @@ int main(int argc, char **argv)
      * Construct the path of the executable.
      */
     cpuinfo = erts_cpu_info_create();
-    /* '-smp auto' is default */ 
-#ifdef ERTS_HAVE_SMP_EMU
-    if (erts_get_cpu_configured(cpuinfo) > 1)
-	emu_type |= EMU_TYPE_SMP;
-#endif
 
 #if defined(__WIN32__) && defined(WIN32_ALWAYS_DEBUG)
-    emu_type_passed |= EMU_TYPE_DEBUG;
-    emu_type |= EMU_TYPE_DEBUG;
+    emu_type = "debug";
 #endif
 
     /* We need to do this before the ordinary processing. */
@@ -481,54 +495,32 @@ int main(int argc, char **argv)
 
 		if (strcmp(argv[i+1], "auto") == 0) {
 		    i++;
-		smp_auto:
-		    emu_type_passed |= EMU_TYPE_SMP;
-#ifdef ERTS_HAVE_SMP_EMU
-		    if (erts_get_cpu_configured(cpuinfo) > 1)
-			emu_type |= EMU_TYPE_SMP;
-		    else
-#endif
-			emu_type &= ~EMU_TYPE_SMP;
-		}
-		else if (strcmp(argv[i+1], "enable") == 0) {
+		} else if (strcmp(argv[i+1], "enable") == 0) {
 		    i++;
 		smp_enable:
-		    emu_type_passed |= EMU_TYPE_SMP;
-#ifdef ERTS_HAVE_SMP_EMU
-		    emu_type |= EMU_TYPE_SMP;
-#else
-		    usage_notsup("-smp enable");
-#endif
-		}
-		else if (strcmp(argv[i+1], "disable") == 0) {
+                    ;
+		} else if (strcmp(argv[i+1], "disable") == 0) {
 		    i++;
 		smp_disable:
-		    emu_type_passed |= EMU_TYPE_SMP;
-		    emu_type &= ~EMU_TYPE_SMP;
-		}
-		else {
+                    usage_notsup("-smp disable", " Use \"+S 1\" instead.");
+		} else {
 		smp:
-
-		    emu_type_passed |= EMU_TYPE_SMP;
-#ifdef ERTS_HAVE_SMP_EMU
-		    emu_type |= EMU_TYPE_SMP;
-#else
-		    usage_notsup("-smp");
-#endif
+                    ;
 		}
 	    } else if (strcmp(argv[i], "-smpenable") == 0) {
 		goto smp_enable;
 	    } else if (strcmp(argv[i], "-smpauto") == 0) {
-		goto smp_auto;
+                ;
 	    } else if (strcmp(argv[i], "-smpdisable") == 0) {
 		goto smp_disable;
-#ifdef __WIN32__
-	    } else if (strcmp(argv[i], "-debug") == 0) {
-		emu_type_passed |= EMU_TYPE_DEBUG;
-		emu_type |= EMU_TYPE_DEBUG;
-#endif
 	    } else if (strcmp(argv[i], "-extra") == 0) {
 		break;
+	    } else if (strcmp(argv[i], "-emu_type") == 0) {
+		if (i + 1 >= argc) {
+                    usage(argv[i]);
+                }
+                emu_type = argv[i+1];
+                i++;
 	    }
 	}
 	i++;
@@ -541,26 +533,55 @@ int main(int argc, char **argv)
 	if (strcmp(malloc_lib, "libc") != 0)
 	    usage("+MYm");
     }
-    emu = add_extra_suffixes(emu, emu_type);
+    emu = add_extra_suffixes(emu);
     emu_name = strsave(emu);
     erts_snprintf(tmpStr, sizeof(tmpStr), "%s" DIRSEP "%s" BINARY_EXT, bindir, emu);
     emu = strsave(tmpStr);
 
-    add_Eargs(emu);		/* Will be argv[0] -- necessary! */
+    s = get_env("ESCRIPT_NAME");
+    if(s) {
+        add_Eargs(s);         /* argv[0] = scriptname*/
+    } else {
+        add_Eargs(emu);       /* argv[0] = erl or cerl */
+    }
 
-    /*
-     * Add the bindir to the path (unless it is there already).
-     */
+    /* Add the bindir to the front of the PATH, and remove all subsequent
+     * occurrences to avoid ballooning it on repeated up/downgrades. */
 
     s = get_env("PATH");
-    if (!s) {
-	erts_snprintf(tmpStr, sizeof(tmpStr), "%s" PATHSEP "%s" DIRSEP "bin", bindir, rootdir);
-    } else if (strstr(s, bindir) == NULL) {
-	erts_snprintf(tmpStr, sizeof(tmpStr), "%s" PATHSEP "%s" DIRSEP "bin" PATHSEP "%s", bindir,
-		rootdir, s);
+
+    if (s == NULL) {
+        erts_snprintf(tmpStr, sizeof(tmpStr),
+            "%s" PATHSEP "%s" DIRSEP "bin" PATHSEP, bindir, rootdir);
+    } else if (strstr(s, rootdir) == NULL) {
+        erts_snprintf(tmpStr, sizeof(tmpStr),
+            "%s" PATHSEP "%s" DIRSEP "bin" PATHSEP "%s", bindir, rootdir, s);
     } else {
-	erts_snprintf(tmpStr, sizeof(tmpStr), "%s", s);
+        const char *bindir_slug, *bindir_slug_index;
+        int bindir_slug_length;
+        const char *in_index;
+        char *out_index;
+
+        erts_snprintf(tmpStr, sizeof(tmpStr), "%s" PATHSEP, bindir);
+
+        bindir_slug = strsave(tmpStr);
+        bindir_slug_length = strlen(bindir_slug);
+
+        out_index = &tmpStr[bindir_slug_length];
+        in_index = s;
+
+        while ((bindir_slug_index = strstr(in_index, bindir_slug))) {
+            int block_length = (bindir_slug_index - in_index);
+
+            memcpy(out_index, in_index, block_length);
+
+            in_index = bindir_slug_index + bindir_slug_length;
+            out_index += block_length;
+        }
+
+        strcpy(out_index, in_index);
     }
+
     free_env_val(s);
     set_env("PATH", tmpStr);
     
@@ -691,7 +712,7 @@ int main(int argc, char **argv)
 		     * on itself here.  We'll avoid doing that.
 		     */
 		    if (strcmp(argv[i], "-make") == 0) {
-			add_args("-noshell", "-noinput", "-s", "make", "all", NULL);
+			add_args("-noshell", "-noinput", "-s", "make", "all_or_nothing", NULL);
 			add_Eargs("-B");
 			haltAfterwards = 1;
 			i = argc; /* Skip rest of command line */
@@ -759,6 +780,24 @@ int main(int argc, char **argv)
 			    get_start_erl_data((char *) NULL);
 		    }
 #endif
+		    else if (strcmp(argv[i], "-start_epmd") == 0) {
+			if (i+1 >= argc)
+			    usage("-start_epmd");
+
+			if (strcmp(argv[i+1], "true") == 0) {
+			    /* The default */
+			    no_epmd = 0;
+			}
+			else if (strcmp(argv[i+1], "false") == 0) {
+			    no_epmd = 1;
+			}
+			else
+			    usage_format("Expected boolean argument for \'-start_epmd\'.\n");
+
+			add_arg(argv[i]);
+			add_arg(argv[i+1]);
+			i++;
+		    }
 		    else
 			add_arg(argv[i]);
 		
@@ -784,15 +823,65 @@ int main(int argc, char **argv)
 		  case 'a':
 		  case 'A':
 		  case 'b':
+		  case 'C':
+		  case 'e':
 		  case 'i':
+		  case 'n':
 		  case 'P':
-		  case 'S':
+		  case 'Q':
 		  case 't':
 		  case 'T':
 		  case 'R':
 		  case 'W':
 		  case 'K':
 		      if (argv[i][2] != '\0')
+			  goto the_default;
+		      if (i+1 >= argc)
+			  usage(argv[i]);
+		      argv[i][0] = '-';
+		      add_Eargs(argv[i]);
+		      add_Eargs(argv[i+1]);
+		      i++;
+		      break;
+		  case 'I':
+                      if (argv[i][2] == 'O' && (argv[i][3] == 't' || argv[i][3] == 'p')) {
+                          if (argv[i][4] != '\0')
+                              goto the_default;
+                          argv[i][0] = '-';
+                          add_Eargs(argv[i]);
+                          add_Eargs(argv[i+1]);
+                          i++;
+                          break;
+                      }
+                      if (argv[i][2] == 'O' && argv[i][3] == 'P' &&
+                          (argv[i][4] == 't' || argv[i][4] == 'p')) {
+                          if (argv[i][5] != '\0')
+                              goto the_default;
+                          argv[i][0] = '-';
+                          add_Eargs(argv[i]);
+                          add_Eargs(argv[i+1]);
+                          i++;
+                          break;
+                      }
+                      usage(argv[i]);
+                      break;
+		  case 'S':
+		      if (argv[i][2] == 'P') {
+			  if (argv[i][3] != '\0')
+			      goto the_default;
+		      }
+		      else if (argv[i][2] == 'D') {
+			  char* type = argv[i]+3;
+			  if (strncmp(type, "cpu", 3) != 0 &&
+			      strncmp(type, "Pcpu", 4) != 0 &&
+			      strncmp(type, "io", 2) != 0)
+			      usage(argv[i]);
+			  if ((argv[i][3] == 'c' && argv[i][6] != '\0') ||
+			      (argv[i][3] == 'P' && argv[i][7] != '\0') ||
+			      (argv[i][3] == 'i' && argv[i][5] != '\0'))
+			      goto the_default;
+		      }
+		      else if (argv[i][2] != '\0')
 			  goto the_default;
 		      if (i+1 >= argc)
 			  usage(argv[i]);
@@ -825,6 +914,19 @@ int main(int argc, char **argv)
 			    usage(argv[i]);
 			  }
 			}
+		      }
+		      add_Eargs(argv[i]);
+		      break;
+		  case 'c':
+		      argv[i][0] = '-';
+		      if (argv[i][2] == '\0' && i+1 < argc) {
+			  if (strcmp(argv[i+1], "true") == 0
+			      || strcmp(argv[i+1], "false") == 0) {
+			      add_Eargs(argv[i]);
+			      add_Eargs(argv[i+1]);
+			      i++;
+			      break;
+			  }
 		      }
 		      add_Eargs(argv[i]);
 		      break;
@@ -895,6 +997,16 @@ int main(int argc, char **argv)
 			  i++;
 		      }
 		      break;
+		  case 'p':
+		      if (argv[i][2] != 'c' || argv[i][3] != '\0')
+			  goto the_default;
+		      if (i+1 >= argc)
+			  usage(argv[i]);
+		      argv[i][0] = '-';
+		      add_Eargs(argv[i]);
+		      add_Eargs(argv[i+1]);
+		      i++;
+		      break;
 		  case 'z':
 		      if (!is_one_of_strings(&argv[i][2], plusz_val_switches)) {
 			  goto the_default;
@@ -938,7 +1050,7 @@ int main(int argc, char **argv)
 	start_epmd(epmd_prog);
 
 #if (! defined(__WIN32__)) && defined(DEBUG)
-    if (start_detached) {
+    if (start_detached && get_env("ERL_CONSOLE_MODE")) {
 	/* Start the emulator within an xterm.
 	 * Move up all arguments and insert
 	 * "xterm -e " first.
@@ -975,8 +1087,7 @@ int main(int argc, char **argv)
 
     if (print_args_exit) {
 	for (i = 1; i < EargsCnt; i++)
-	    printf("%s ", Eargsp[i]);
-	printf("\n");
+	    printf("%s\n", Eargsp[i]);
 	exit(0);
     }
 
@@ -1063,7 +1174,11 @@ int main(int argc, char **argv)
     {
 	execv(emu, Eargsp);
     }
-    error("Error %d executing \'%s\'.", errno, emu);
+    if (errno == ENOENT) {
+        error("The emulator \'%s\' does not exist.", emu);
+    } else {
+        error("Error %d executing \'%s\'.", errno, emu);
+    }
     return 1;
 #endif
 }
@@ -1078,22 +1193,16 @@ usage_aux(void)
 #ifdef __WIN32__
 	  "[-start_erl [datafile]] "
 #endif
-	  "[-smp "
-#ifdef ERTS_HAVE_SMP_EMU
-	  "[enable|"
-#endif
-	  "auto|disable"
-#ifdef ERTS_HAVE_SMP_EMU
-	  "]"
-#endif
-	  "] "
-	  "[-make] [-man [manopts] MANPAGE] [-x] [-emu_args] "
-	  "[-args_file FILENAME] [+A THREADS] [+a SIZE] [+B[c|d|i]] [+c] "
-	  "[+h HEAP_SIZE_OPTION] [+K BOOLEAN] "
-	  "[+l] [+M<SUBSWITCH> <ARGUMENT>] [+P MAX_PROCS] [+R COMPAT_REL] "
+	  "[-make] [-man [manopts] MANPAGE] [-x] [-emu_args] [-start_epmd BOOLEAN] "
+	  "[-args_file FILENAME] [+A THREADS] [+a SIZE] [+B[c|d|i]] [+c [BOOLEAN]] "
+	  "[+C MODE] [+h HEAP_SIZE_OPTION] [+K BOOLEAN] "
+	  "[+l] [+M<SUBSWITCH> <ARGUMENT>] [+P MAX_PROCS] [+Q MAX_PORTS] "
+	  "[+R COMPAT_REL] "
 	  "[+r] [+rg READER_GROUPS_LIMIT] [+s SCHEDULER_OPTION] "
-	  "[+S NO_SCHEDULERS:NO_SCHEDULERS_ONLINE] [+T LEVEL] [+V] [+v] "
-	  "[+W<i|w>] [+z MISC_OPTION] [args ...]\n");
+	  "[+S NO_SCHEDULERS:NO_SCHEDULERS_ONLINE] "
+	  "[+SP PERCENTAGE_SCHEDULERS:PERCENTAGE_SCHEDULERS_ONLINE] "
+	  "[+T LEVEL] [+V] [+v] "
+	  "[+W<i|w|e>] [+z MISC_OPTION] [args ...]\n");
   exit(1);
 }
 
@@ -1104,19 +1213,10 @@ usage(const char *switchname)
     usage_aux();
 }
 
-#if !defined(ERTS_HAVE_SMP_EMU)
 static void
-usage_notsup(const char *switchname)
+usage_notsup(const char *switchname, const char *alt)
 {
-    fprintf(stderr, "Argument \'%s\' not supported.\n", switchname);
-    usage_aux();
-}
-#endif
-
-static void
-usage_msg(const char *msg)
-{
-    fprintf(stderr, "%s\n", msg);
+    fprintf(stderr, "Argument \'%s\' not supported.%s\n", switchname, alt);
     usage_aux();
 }
 
@@ -1154,11 +1254,14 @@ start_epmd(char *epmd)
 	strcat(epmd, arg1);
     }
     {
-	STARTUPINFO start;
+	wchar_t wcepmd[MAXPATHLEN+100];
+	STARTUPINFOW start;
 	PROCESS_INFORMATION pi;
 	memset(&start, 0, sizeof (start));
 	start.cb = sizeof (start);
-	if (!CreateProcess(NULL, epmd, NULL, NULL, FALSE, 
+	MultiByteToWideChar(CP_UTF8, 0, epmd, -1, wcepmd, MAXPATHLEN+100);
+
+	if (!CreateProcessW(NULL, wcepmd, NULL, NULL, FALSE, 
 			       CREATE_DEFAULT_ERROR_MODE | DETACHED_PROCESS,
 			       NULL, NULL, &start, &pi))
 	    result = -1;
@@ -1264,7 +1367,7 @@ is_one_of_strings(char *str, char *strs[])
     return 0;
 }
 
-static char *write_str(char *to, char *from)
+static char *write_str(char *to, const char *from)
 {
     while (*from)
 	*(to++) = *(from++);
@@ -1352,53 +1455,49 @@ static void get_start_erl_data(char *file)
 }
 
 
-static char *replace_filename(char *path, char *new_base) 
+static wchar_t *replace_filename(wchar_t *path, wchar_t *new_base) 
 {
-    int plen = strlen(path);
-    char *res = emalloc((plen+strlen(new_base)+1)*sizeof(char));
-    char *p;
+    int plen = wcslen(path);
+    wchar_t *res = (wchar_t *) emalloc((plen+wcslen(new_base)+1)*sizeof(wchar_t));
+    wchar_t *p;
 
-    strcpy(res,path);
-    for (p = res+plen-1 ;p >= res && *p != '\\'; --p)
+    wcscpy(res,path);
+    for (p = res+plen-1 ;p >= res && *p != L'\\'; --p)
         ;
-    *(p+1) ='\0';
-    strcat(res,new_base);
+    *(p+1) =L'\0';
+    wcscat(res,new_base);
     return res;
 }
 
-static char *path_massage(char *long_path)
+static char *path_massage(wchar_t *long_path)
 {
      char *p;
-
-     p = emalloc(MAX_PATH+1);
-     strcpy(p, long_path);
-     GetShortPathName(p, p, MAX_PATH);
+     int len;
+     len = WideCharToMultiByte(CP_UTF8, 0, long_path, -1, NULL, 0, NULL, NULL);
+     p = emalloc(len*sizeof(char));
+     WideCharToMultiByte(CP_UTF8, 0, long_path, -1, p, len, NULL, NULL);
      return p;
 }
     
 static char *do_lookup_in_section(InitSection *inis, char *name, 
-				  char *section, char *filename, int is_path)
+				  char *section, wchar_t *filename, int is_path)
 {
     char *p = lookup_init_entry(inis, name);
 
     if (p == NULL) {
-	error("Could not find key %s in section %s of file %s",
+	error("Could not find key %s in section %s of file %S",
 	      name,section,filename);
     }
 
-    if (is_path) {
-	return path_massage(p);
-    } else {
-	return strsave(p);
-    }
+    return strsave(p);
 }
 
-
+// Setup bindir, rootdir and progname as utf8 buffers
 static void get_parameters(int argc, char** argv)
 {
-    char *p;
-    char buffer[MAX_PATH];
-    char *ini_filename;
+    wchar_t *p;
+    wchar_t buffer[MAX_PATH];
+    wchar_t *ini_filename;
     HANDLE module = GetModuleHandle(NULL); /* This might look strange, but we want the erl.ini 
 					      that resides in the same dir as erl.exe, not 
 					      an erl.ini in our directory */
@@ -1409,34 +1508,35 @@ static void get_parameters(int argc, char** argv)
         error("Cannot GetModuleHandle()");
     }
 
-    if (GetModuleFileName(module,buffer,MAX_PATH) == 0) {
+    if (GetModuleFileNameW(module,buffer,MAX_PATH) == 0) {
         error("Could not GetModuleFileName");
     }
 
     ini_filename = replace_filename(buffer,INI_FILENAME);
 
     if ((inif = load_init_file(ini_filename)) == NULL) {
+	wchar_t wbindir[MAX_PATH];
+	wchar_t wrootdir[MAX_PATH];
+
 	/* Assume that the path is absolute and that
 	   it does not contain any symbolic link */
-	
-	char buffer[MAX_PATH];
-	
+
 	/* Determine bindir */
-	if (GetEnvironmentVariable("ERLEXEC_DIR", buffer, MAX_PATH) == 0) {
-	    strcpy(buffer, ini_filename);
-	    for (p = buffer+strlen(buffer)-1; p >= buffer && *p != '\\'; --p)
+	if (GetEnvironmentVariableW(L"ERLEXEC_DIR", buffer, MAX_PATH) == 0) {
+	    wcscpy(buffer, ini_filename);
+	    for (p = buffer+wcslen(buffer)-1; p >= buffer && *p != L'\\'; --p)
 		;
-	    *p ='\0';
+	    *p = L'\0';
 	}
 	bindir = path_massage(buffer);
 
 	/* Determine rootdir */
-	for (p = buffer+strlen(buffer)-1; p >= buffer && *p != '\\'; --p)
+	for (p = buffer+wcslen(buffer)-1; p >= buffer && *p != L'\\'; --p)
 	    ;
 	p--;
-	for (;p >= buffer && *p != '\\'; --p)
+	for (;p >= buffer && *p != L'\\'; --p)
 	    ;
-	*p ='\0';
+	*p =L'\0';
 	rootdir = path_massage(buffer);
 
 	/* Hardcoded progname */
@@ -1464,17 +1564,16 @@ static void get_parameters(int argc, char** argv)
 static void
 get_home(void)
 {
-    int len;
-    char tmpstr[MAX_PATH+1];
+    wchar_t *profile;
     char* homedrive;
     char* homepath;
 
     homedrive = get_env("HOMEDRIVE");
     homepath = get_env("HOMEPATH");
     if (!homedrive || !homepath) {
-	if (len = GetWindowsDirectory(tmpstr,MAX_PATH)) {
-	    home = emalloc(len+1);
-	    strcpy(home,tmpstr);
+        if (SHGetKnownFolderPath(&FOLDERID_Profile, 0, NULL, &profile) == S_OK) {
+            home = utf16_to_utf8(profile);
+            /* CoTaskMemFree(profile); */
 	} else
 	    error("HOMEDRIVE or HOMEPATH is not set and GetWindowsDir failed");
     } else {
@@ -1794,6 +1893,7 @@ read_args_file(char *filename)
 #undef SAVE_CHAR
 }
 
+
 typedef struct {
     char **argv;
     int argc;
@@ -1948,7 +2048,7 @@ initial_argv_massage(int *argc, char ***argv)
 
     vix = 0;
 
-    av = build_args_from_env("ERL_" OTP_SYSTEM_VERSION "_FLAGS");
+    av = build_args_from_env("ERL_OTP" OTP_SYSTEM_VERSION "_FLAGS");
     if (av)
 	avv[vix++].argv = av;
 
@@ -2080,4 +2180,147 @@ possibly_quote(char* arg)
     return narg;
 }
 
+/*
+ * Unicode helpers to handle environment and command line parameters on
+ * Windows. We internally handle all environment variables in UTF8,
+ * but put and get the environment using the WCHAR (limited UTF16) interface
+ * 
+ * These are simplified to only handle Unicode characters that can fit in 
+ * Windows simplified UTF16, i.e. characters that fit in 16 bits.
+ */
+
+static int utf8_len(unsigned char first) 
+{
+    if ((first & ((unsigned char) 0x80)) == 0) {
+	return 1;
+    } else if ((first & ((unsigned char) 0xE0)) == 0xC0) {
+	return 2;
+    } else if ((first & ((unsigned char) 0xF0)) == 0xE0) {
+	return 3;
+    } else if ((first & ((unsigned char) 0xF8)) == 0xF0) {
+	return 4;
+    } 
+    return 1; /* will be a '?' */
+}
+
+static WCHAR *utf8_to_utf16(unsigned char *bytes)
+{
+    unsigned int unipoint;
+    unsigned char *tmp = bytes;
+    WCHAR *target, *res;
+    int num = 0;
+    
+    while (*tmp) {
+	num++;
+	tmp += utf8_len(*tmp);
+    }
+    res = target = emalloc((num + 1) * sizeof(WCHAR));
+    while (*bytes) {
+	if (((*bytes) & ((unsigned char) 0x80)) == 0) {
+	    unipoint = (unsigned int) *bytes;
+	    ++bytes;
+	} else if (((*bytes) & ((unsigned char) 0xE0)) == 0xC0) {
+	    unipoint = 
+		(((unsigned int) ((*bytes) & ((unsigned char) 0x1F))) << 6) |
+		((unsigned int) (bytes[1] & ((unsigned char) 0x3F)));
+	    bytes += 2;
+	} else if (((*bytes) & ((unsigned char) 0xF0)) == 0xE0) {
+	    unipoint = 
+		(((unsigned int) ((*bytes) & ((unsigned char) 0xF))) << 12) |
+		(((unsigned int) (bytes[1] & ((unsigned char) 0x3F))) << 6) |
+		((unsigned int) (bytes[2] & ((unsigned char) 0x3F)));
+	    if (unipoint > 0xFFFF) {
+		 unipoint = (unsigned int) '?';
+	    }
+	    bytes +=3;
+	} else if (((*bytes) & ((unsigned char) 0xF8)) == 0xF0) {
+	    unipoint = (unsigned int) '?'; /* Cannot put in a wchar */
+	    bytes += 4;
+	} else {
+	    unipoint = (unsigned int) '?';
+	}
+	*target++ = (WCHAR) unipoint;
+    }
+    *target = L'\0';
+    return res;
+}
+
+static int put_utf8(WCHAR ch, unsigned char *target, int sz, int *pos)
+{
+    unsigned int x = (unsigned int) ch;
+    if (x < 0x80) {
+    if (*pos >= sz) {
+	return -1;
+    }
+	target[(*pos)++] = (unsigned char) x;
+    }
+    else if (x < 0x800) {
+	if (((*pos) + 1) >= sz) {
+	    return -1;
+	}
+	target[(*pos)++] = (((unsigned char) (x >> 6)) | 
+			    ((unsigned char) 0xC0));
+	target[(*pos)++] = (((unsigned char) (x & 0x3F)) | 
+			    ((unsigned char) 0x80));
+    } else {
+	if ((x >= 0xD800 && x <= 0xDFFF) ||
+	    (x == 0xFFFE) ||
+	    (x == 0xFFFF)) { /* Invalid unicode range */
+	    return -1;
+	}
+	if (((*pos) + 2) >= sz) {
+	    return -1;
+	}
+
+	target[(*pos)++] = (((unsigned char) (x >> 12)) | 
+			    ((unsigned char) 0xE0));
+	target[(*pos)++] = ((((unsigned char) (x >> 6)) & 0x3F)  | 
+			    ((unsigned char) 0x80));
+	target[(*pos)++] = (((unsigned char) (x & 0x3F)) | 
+			    ((unsigned char) 0x80));
+    }
+    return 0;
+}
+
+static int need_bytes_for_utf8(WCHAR x)
+{
+    if (x < 0x80)
+	return 1;
+    else if (x < 0x800)
+	return 2;
+    else 
+	return 3;
+}
+
+static WCHAR *latin1_to_utf16(char *str)
+{
+    int len = strlen(str);
+    int i;
+    WCHAR *wstr = emalloc((len+1) * sizeof(WCHAR));
+    for(i=0;i<len;++i)
+	wstr[i] = (WCHAR) str[i];
+    wstr[len] = L'\0';
+    return wstr;
+}
+
+static char *utf16_to_utf8(WCHAR *wstr) 
+{
+    int len = wcslen(wstr);
+    char *result;
+    int i,pos;
+    int reslen = 0;
+    for(i=0;i<len;++i) {
+	reslen += need_bytes_for_utf8(wstr[i]);
+    }
+    result = emalloc(reslen+1);
+    pos = 0;
+    for(i=0;i<len;++i) {
+	if (put_utf8((int) wstr[i], result, reslen, &pos) < 0) {
+	    break;
+	}
+    }
+    result[pos] = '\0';
+    return result;
+}
+    
 #endif

@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  * 
- * Copyright Ericsson AB 1999-2012. All Rights Reserved.
+ * Copyright Ericsson AB 1999-2016. All Rights Reserved.
  * 
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
- * 
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  * 
  * %CopyrightEnd%
  */
@@ -34,37 +35,17 @@
 #include <stdlib.h>
 #include <string.h>
 #ifndef __WIN32__
-#    ifdef VXWORKS
-#        include <sockLib.h>
-#        include <sys/times.h>
-#        include <iosLib.h>
-#        include <taskLib.h>
-#        include <selectLib.h>
-#        include <ioLib.h>
-#        include "reclaim.h"
-#    endif 
-#        include <unistd.h>
-#        include <errno.h>
-#        include <sys/types.h>
-#        include <sys/socket.h>
-#        include <netinet/in.h>
-#        include <fcntl.h>
+# include <unistd.h>
+# include <errno.h>
+# include <sys/types.h>
+# include <sys/socket.h>
+# include <netinet/in.h>
+# include <fcntl.h>
 #endif
 
 #ifdef DEBUG
-#    ifndef __WIN32__
-         /* erl_exit is not available to dll_drivers on windows. */
-         void erl_exit(int, char *, ...);
-#        define ASSERT(X)                               \
-                    do {				\
-                        if (!(X)) {			\
-                            erl_exit(1,"%s",#X);	\
-                        } 				\
-                    } while(0) 
-#    else 
-#        include <assert.h>
-#        define ASSERT(X) assert(X)
-#    endif
+#    include <assert.h>
+#    define ASSERT(X) assert(X)
 #else 
 #    define ASSERT(X)
 #endif 
@@ -393,6 +374,7 @@ static void trace_ip_output(ErlDrvData handle, char *buff, ErlDrvSizeT bufflen)
 	}
 	return;
     }
+    ASSERT(!IS_INVALID_SOCKET(data->fd));
     if (data->que[data->questart] != NULL) {
 	trace_ip_ready_output(handle, sock2event(data->fd));
     }
@@ -431,6 +413,7 @@ static void trace_ip_ready_input(ErlDrvData handle, ErlDrvEvent fd)
 	/*
 	** Maybe accept, we are a listen port...
 	*/
+        ASSERT(IS_INVALID_SOCKET(data->fd));
 	if (!IS_INVALID_SOCKET((client = my_accept(data->listenfd)))) {
 	    data->fd = client;
 	    set_nonblocking(client);
@@ -754,6 +737,7 @@ static void close_client(TraceIpData *data)
 {
     my_driver_select(data, data->fd, FLAG_WRITE | FLAG_READ, SELECT_CLOSE);
     data->flags |= FLAG_LISTEN_PORT;
+    data->fd = INVALID_SOCKET;
     if (!(data->flags & FLAG_FILL_ALWAYS)) {
 	clean_que(data);
     }
@@ -910,7 +894,7 @@ static void stop_select(ErlDrvEvent event, void* _)
     WSACloseEvent((HANDLE)event);
 }
 
-#else /* UNIX/VXWORKS */
+#else /* UNIX */
 
 static int my_driver_select(TraceIpData *desc, SOCKET fd, int flags, enum MySelectOp op)
 {

@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2009-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2009-2016. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -96,7 +97,7 @@ end_per_testcase(_TestCase, _Config) ->
 %% N = integer() | forever
 %%--------------------------------------------------------------------
 groups() ->
-    [].
+    [{p,[parallel],[p1,p2]}].
 
 %%--------------------------------------------------------------------
 %% Function: all() -> GroupsAndTestCases | {skip,Reason}
@@ -107,7 +108,8 @@ groups() ->
 %%--------------------------------------------------------------------
 all() -> 
     [ct_fail_1, ct_fail_2, ct_fail_3, ts_fail_1, ts_fail_2,
-     killed_by_signal_1, killed_by_signal_2].
+     killed_by_signal_1, killed_by_signal_2,
+     {group,p}].
 
 ct_fail_1(_) ->
     ct:fail({error,this_is_expected}),
@@ -152,3 +154,10 @@ killed_by_signal_2(_) ->
 	       end),
     ct:sleep(1000),
     exit(this_should_not_be_seen).
+
+p1(_) ->
+    {error,parallel_group} = ct:abort_current_testcase(aborted),
+    ok.
+
+p2(_) ->
+    receive after 1000 -> ok end.

@@ -1,31 +1,32 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2001-2009. All Rights Reserved.
+%% Copyright Ericsson AB 2001-2018. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
 -module(dets_utils).
 
 %% Utility functions common to several dets file formats.
-%% To be used from dets, dets_v8 and dets_v9 only.
+%% To be used from modules dets and dets_v9 only.
 
 -export([cmp/2, msort/1, mkeysort/2, mkeysearch/3, family/1]).
 
 -export([rename/2, pread/2, pread/4, ipread/3, pwrite/2, write/2,
          truncate/2, position/2, sync/1, open/2, truncate/3, fwrite/3,
-         write_file/2, position/3, position_close/3, pwrite/4,
+         write_file/2, position/3, position_close/3,
          pwrite/3, pread_close/4, read_n/2, pread_n/3, read_4/2]).
 
 -export([code_to_type/1, type_to_code/1]).
@@ -42,8 +43,6 @@
          free/3, get_freelists/1, all_free/1, all_allocated/1,
          all_allocated_as_list/1, find_allocated/4, find_next_allocated/3,
          log2/1, make_zeros/1]).
-
--export([init_slots_from_old_file/2]).
 
 -export([list_to_tree/1, tree_to_bin/5]).
 
@@ -230,8 +229,12 @@ write_file(Head, Bin) ->
 	    {ok, Fd} ->
 		R1 = file:write(Fd, Bin),
 		R2 = file:sync(Fd),
-		file:close(Fd),
-		if R1 =:= ok -> R2; true -> R1 end;
+		R3 = file:close(Fd),
+                case {R1, R2, R3} of
+                    {ok, ok, R3} -> R3;
+                    {ok, R2, _} -> R2;
+                    {R1, _, _} -> R1
+                end;
 	    Else ->
 		Else
 	end,
@@ -277,12 +280,7 @@ open(FileSpec, Args) ->
     end.
 
 truncate(Fd, FileName, Pos) ->
-    if
-	Pos =:= cur ->
-	    ok;
-	true ->
-	    position(Fd, FileName, Pos)
-    end,
+    _ = [position(Fd, FileName, Pos) || Pos =/= cur],
     case file:truncate(Fd) of
 	ok    -> 
 	    ok;
@@ -308,12 +306,6 @@ position_close(Fd, FileName, Pos) ->
 	OK -> OK
     end.
 	    
-pwrite(Fd, FileName, Position, B) ->
-    case file:pwrite(Fd, Position, B) of
-	ok -> ok;
-	Error -> file_error(FileName, {error, Error})
-    end.
-
 pwrite(Fd, FileName, Bins) ->
     case file:pwrite(Fd, Bins) of
 	ok ->
@@ -327,10 +319,10 @@ pread_close(Fd, FileName, Pos, Size) ->
 	{error, Error} ->
 	    file_error_close(Fd, FileName, {error, Error});
 	{ok, Bin} when byte_size(Bin) < Size ->
-	    file:close(Fd),
+	    _ = file:close(Fd),
 	    throw({error, {tooshort, FileName}});
 	eof ->
-	    file:close(Fd),
+	    _ = file:close(Fd),
 	    throw({error, {tooshort, FileName}});
 	OK -> OK
     end.
@@ -339,7 +331,7 @@ file_error(FileName, {error, Reason}) ->
     throw({error, {file_error, FileName, Reason}}).
 
 file_error_close(Fd, FileName, {error, Reason}) ->
-    file:close(Fd),
+    _ = file:close(Fd),
     throw({error, {file_error, FileName, Reason}}).
 	    
 debug_mode() ->
@@ -385,7 +377,8 @@ corrupt_reason(Head, Reason0) ->
                  no_disk_map -> 
                      Reason0;
                  DM ->
-                    ST = erlang:get_stacktrace(),
+                    {current_stacktrace, ST} =
+                         erlang:process_info(self(), current_stacktrace),
                     PD = get(),
                     {Reason0, ST, PD, DM}
              end,
@@ -395,7 +388,7 @@ corrupt_reason(Head, Reason0) ->
 corrupt(Head, Error) ->
     case get(verbose) of
 	yes -> 
-	    error_logger:format("** dets: Corrupt table ~p: ~p\n", 
+	    error_logger:format("** dets: Corrupt table ~tp: ~tp\n",
 				[Head#head.name, Error]);
 	_ -> ok
     end,
@@ -448,7 +441,7 @@ reset_cache(C) ->
 		    WrTime =:= undefined ->
 			WrTime;
 		    true ->
-			now()
+			erlang:monotonic_time(1000000)
 		end,
     PK = family(C#cache.cache),
     NewC = C#cache{cache = [], csize = 0, inserts = 0, wrtime = NewWrTime},
@@ -477,20 +470,6 @@ new_cache({Delay, Size}) ->
 %%%             Data structures and algorithms by Aho, Hopcroft and
 %%%             Ullman. I think buddy systems were invented by Knuth, a long
 %%%             time ago.
-
-init_slots_from_old_file([{Slot,Addr} | T], Ftab) ->
-    init_slot(Slot+1,[{Slot,Addr} | T], Ftab);
-init_slots_from_old_file([], Ftab) ->
-    Ftab.
-
-init_slot(_Slot,[], Ftab) ->
-    Ftab; % should never happen
-init_slot(_Slot,[{_Addr,0}|T], Ftab) ->
-    init_slots_from_old_file(T, Ftab);
-init_slot(Slot,[{_Slot1,Addr}|T], Ftab) ->
-    Stree = element(Slot, Ftab),
-    %%    io:format("init_slot ~p:~p~n",[Slot, Addr]),
-    init_slot(Slot,T,setelement(Slot, Ftab, bplus_insert(Stree, Addr))).
 
 %%% The free lists are kept in RAM, and written to the end of the file
 %%% from time to time. It is possible that a considerable amount of
@@ -747,6 +726,8 @@ all_allocated([{X,Y} | L], _X0, Y0, A) when Y0 < X ->
 all_allocated_as_list(Head) ->
     all_allocated_as_list(all(get_freelists(Head)), 0, Head#head.base, []).
 
+-dialyzer({no_improper_lists, all_allocated_as_list/4}).
+
 all_allocated_as_list([], _X0, _Y0, []) ->
     [];
 all_allocated_as_list([], _X0, _Y0, A) ->
@@ -977,7 +958,8 @@ dm([{P,<<Sz:32,X:32>>} | Bs], T) ->
     true = ets:insert(T, {P,{pointer,X,Sz}}),
     if 
         Sz =:= 0 -> 
-            X = 0; 
+            X = 0,
+            true;
         true -> 
             true = ets:insert(T, {{pointer,X}, P})
     end,

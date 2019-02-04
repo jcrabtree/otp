@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2010-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2010-2017. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -21,62 +22,59 @@
 
 %% Tests receive after.
 
--include_lib("test_server/include/test_server.hrl").
+-include_lib("common_test/include/ct.hrl").
 
--export([all/0, suite/0,groups/0,init_per_suite/1, end_per_suite/1, 
-	 init_per_group/2,end_per_group/2,
-	 call_with_huge_message_queue/1,receive_in_between/1]).
+-export([all/0, suite/0,
+	 call_with_huge_message_queue/1,receive_in_between/1,
+         receive_opt_exception/1,receive_opt_recursion/1]).
 
--export([init_per_testcase/2,end_per_testcase/2]).
+suite() ->
+    [{ct_hooks,[ts_install_cth]},
+     {timetrap, {minutes, 3}}].
 
-suite() -> [{ct_hooks,[ts_install_cth]}].
-
-all() -> 
-    [call_with_huge_message_queue, receive_in_between].
-
-groups() -> 
-    [].
-
-init_per_suite(Config) ->
-    Config.
-
-end_per_suite(_Config) ->
-    ok.
-
-init_per_group(_GroupName, Config) ->
-    Config.
-
-end_per_group(_GroupName, Config) ->
-    Config.
-
-
-init_per_testcase(Func, Config) when is_atom(Func), is_list(Config) ->
-    Dog=?t:timetrap(?t:minutes(3)),
-    [{watchdog, Dog}|Config].
-
-end_per_testcase(_Func, Config) ->
-    Dog=?config(watchdog, Config),
-    ?t:timetrap_cancel(Dog).
+all() ->
+    [call_with_huge_message_queue, receive_in_between,
+     receive_opt_exception, receive_opt_recursion].
 
 call_with_huge_message_queue(Config) when is_list(Config) ->
-    ?line Pid = spawn_link(fun echo_loop/0),
-
-    ?line {Time,ok} = tc(fun() -> calls(10, Pid) end),
-
-    ?line [self() ! {msg,N} || N <- lists:seq(1, 500000)],
-    erlang:garbage_collect(),
-    ?line {NewTime,ok} = tc(fun() -> calls(10, Pid) end),
+    Pid = spawn_link(fun echo_loop/0),
+    _WarmUpTime = time_calls(Pid),
+    Time = time_calls(Pid),
+    _ = [self() ! {msg,N} || N <- lists:seq(1, 500000)],
     io:format("Time for empty message queue: ~p", [Time]),
-    io:format("Time for huge message queue: ~p", [NewTime]),
+    erlang:garbage_collect(),
+    call_with_huge_message_queue_1(Pid, Time, 5).
 
-    case (NewTime+1) / (Time+1) of
-	Q when Q < 10 ->
-	    ok;
-	Q ->
-	    io:format("Q = ~p", [Q]),
-	    ?line ?t:fail()
-    end,
-    ok.
+call_with_huge_message_queue_1(_Pid, _Time, 0) ->
+    ct:fail(bad_ratio);
+call_with_huge_message_queue_1(Pid, Time, NumTries) ->
+    HugeTime = time_calls(Pid),
+    io:format("Time for huge message queue: ~p", [HugeTime]),
+
+    case (HugeTime+1) / (Time+1) of
+        Q when Q < 10 ->
+            ok;
+        Q ->
+            io:format("Too high ratio: ~p\n", [Q]),
+            call_with_huge_message_queue_1(Pid, Time, NumTries-1)
+    end.
+
+%% Time a number calls. Try to avoid returning a zero time.
+time_calls(Pid) ->
+    time_calls(Pid, 10).
+
+time_calls(_Pid, 0) ->
+    0;
+time_calls(Pid, NumTries) ->
+    case timer:tc(fun() -> calls(Pid) end) of
+        {0,ok} ->
+            time_calls(Pid, NumTries-1);
+        {Time,ok} ->
+            Time
+    end.
+
+calls(Pid) ->
+    calls(100, Pid).
 
 calls(0, _) -> ok;
 calls(N, Pid) ->
@@ -95,8 +93,8 @@ call(Pid, Msg) ->
     end.
 
 receive_in_between(Config) when is_list(Config) ->
-    ?line Pid = spawn_link(fun echo_loop/0),
-    ?line [{ok,{a,b}} = call2(Pid, {a,b}) || _ <- lists:seq(1, 100000)],
+    Pid = spawn_link(fun echo_loop/0),
+    [{ok,{a,b}} = call2(Pid, {a,b}) || _ <- lists:seq(1, 100000)],
     ok.
 
 call2(Pid, Msg) ->
@@ -117,6 +115,60 @@ receive_one() ->
 	dummy -> ok
     end.
 
+receive_opt_exception(_Config) ->
+    Recurse = fun() ->
+                      %% Overwrite with the same mark,
+                      %% and never consume it.
+                      ThrowFun = fun() -> throw(aborted) end,
+                      aborted = (catch do_receive_opt_exception(ThrowFun)),
+                      ok
+              end,
+    do_receive_opt_exception(Recurse),
+
+    %% Eat the second message.
+    receive
+        Ref when is_reference(Ref) -> ok
+    end.
+
+do_receive_opt_exception(Disturber) ->
+    %% Create a receive mark.
+    Ref = make_ref(),
+    self() ! Ref,
+    Disturber(),
+    receive
+        Ref ->
+            ok
+    after 0 ->
+            error(the_expected_message_was_not_there)
+    end.
+
+receive_opt_recursion(_Config) ->
+    Recurse = fun() ->
+                      %% Overwrite with the same mark,
+                      %% and never consume it.
+                      NoOp = fun() -> ok end,
+                      BlackHole = spawn(NoOp),
+                      expected = do_receive_opt_recursion(BlackHole, NoOp, true),
+                      ok
+              end,
+    do_receive_opt_recursion(self(), Recurse, false),
+    ok.
+
+do_receive_opt_recursion(Recipient, Disturber, IsInner) ->
+    Ref = make_ref(),
+    Recipient ! Ref,
+    Disturber(),
+    receive
+        Ref -> ok
+    after 0 ->
+            case IsInner of
+                true ->
+                    expected;
+                false ->
+                    error(the_expected_message_was_not_there)
+            end
+    end.
+
 %%%
 %%% Common helpers.
 %%%
@@ -127,6 +179,3 @@ echo_loop() ->
 	    Pid ! {Ref,Msg},
 	    echo_loop()
     end.
-
-tc(Fun) ->
-    timer:tc(erlang, apply, [Fun,[]]).

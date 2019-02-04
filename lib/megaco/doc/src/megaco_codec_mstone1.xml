@@ -1,23 +1,24 @@
-<?xml version="1.0" encoding="latin1" ?>
+<?xml version="1.0" encoding="utf-8" ?>
 <!DOCTYPE erlref SYSTEM "erlref.dtd">
 
 <erlref>
   <header>
     <copyright>
-      <year>2002</year><year>2009</year>
+      <year>2002</year><year>2016</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
-      The contents of this file are subject to the Erlang Public License,
-      Version 1.1, (the "License"); you may not use this file except in
-      compliance with the License. You should have received a copy of the
-      Erlang Public License along with this software. If not, it can be
-      retrieved online at http://www.erlang.org/.
-    
-      Software distributed under the License is distributed on an "AS IS"
-      basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-      the License for the specific language governing rights and limitations
-      under the License.
+      Licensed under the Apache License, Version 2.0 (the "License");
+      you may not use this file except in compliance with the License.
+      You may obtain a copy of the License at
+ 
+          http://www.apache.org/licenses/LICENSE-2.0
+
+      Unless required by applicable law or agreed to in writing, software
+      distributed under the License is distributed on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+      See the License for the specific language governing permissions and
+      limitations under the License.
     
     </legalnotice>
 
@@ -31,7 +32,7 @@
     <rev>%VSN%</rev>
     <file>megaco_codec_mstone1.xml</file>
   </header>
-  <module>megaco_codec_mstone1</module>
+  <module since="">megaco_codec_mstone1</module>
   <modulesummary>This module implements a simple megaco codec-based performance tool.</modulesummary>
   <description>
     <p>This module implements the <em>mstone1</em> tool, 
@@ -43,9 +44,9 @@
 
   <funcs>
     <func>
-      <name>start() -> void()</name>
-      <name>start(MessagePackage) -> void()</name>
-      <name>start(MessagePackage, Factor) -> void()</name>
+      <name since="">start() -> void()</name>
+      <name since="">start(MessagePackage) -> void()</name>
+      <name since="">start(MessagePackage, Factor) -> void()</name>
       <fsummary></fsummary>
       <type>
         <v>MessagePackage = message_package()</v>
@@ -62,9 +63,9 @@
     </func>
 
     <func>
-      <name>start_flex() -> void()</name>
-      <name>start_flex(MessagePackage) -> void()</name>
-      <name>start_flex(MessagePackage, Factor) -> void()</name>
+      <name since="">start_flex() -> void()</name>
+      <name since="">start_flex(MessagePackage) -> void()</name>
+      <name since="">start_flex(MessagePackage, Factor) -> void()</name>
       <fsummary></fsummary>
       <type>
         <v>MessagePackage = message_package()</v>
@@ -82,9 +83,9 @@
     </func>
 
     <func>
-      <name>start_only_drv() -> void()</name>
-      <name>start_only_drv(MessagePackage) -> void()</name>
-      <name>start_only_drv(MessagePackage, Factor) -> void()</name>
+      <name since="">start_only_drv() -> void()</name>
+      <name since="">start_only_drv(MessagePackage) -> void()</name>
+      <name since="">start_only_drv(MessagePackage, Factor) -> void()</name>
       <fsummary></fsummary>
       <type>
         <v>MessagePackage = message_package()</v>
@@ -104,9 +105,9 @@
     </func>
 
     <func>
-      <name>start_no_drv() -> void()</name>
-      <name>start_no_drv(MessagePackage) -> void()</name>
-      <name>start_no_drv(MessagePackage, Factor) -> void()</name>
+      <name since="">start_no_drv() -> void()</name>
+      <name since="">start_no_drv(MessagePackage) -> void()</name>
+      <name since="">start_no_drv(MessagePackage, Factor) -> void()</name>
       <fsummary></fsummary>
       <type>
         <v>MessagePackage = message_package()</v>

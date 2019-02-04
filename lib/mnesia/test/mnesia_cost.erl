@@ -1,25 +1,26 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1996-2010. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2018. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
 
 %%
 -module(mnesia_cost).
--compile(export_all).
+-export([go/0, go/1]).
 
 %% This code exercises the mnesia system and produces a bunch
 %% of measurements on what various things cost
@@ -107,11 +108,11 @@ run(What, OtherInfo, Ops, F) ->
     run(t, What, OtherInfo, Ops, F).
 
 run(How, What, OtherInfo, Ops, F) ->
-    T1 = erlang:now(),
+    T1 = erlang:monotonic_time(),
     statistics(runtime),
     do_times(How, ?TIMES, F),
     {_, RunTime} = statistics(runtime),
-    T2 = erlang:now(),
+    T2 = erlang:monotonic_time(),
     RealTime = subtr(T1, T2),
     report(How, What, OtherInfo, Ops, RunTime, RealTime).
 
@@ -139,11 +140,7 @@ report(dirty, What, OtherInfo, Ops, RunTime, RealTime) ->
 
 
 subtr(Before, After) ->
-    E =(element(1,After)*1000000000000
-	+element(2,After)*1000000+element(3,After)) -
-        (element(1,Before)*1000000000000
-         +element(2,Before)*1000000+element(3,Before)),
-    E div 1000.
+    erlang:convert_time_unit(After-Before, native, milli_seconds).
 
 do_times(t, I, F) ->
     do_trans_times(I, F);
@@ -159,64 +156,3 @@ do_dirty(I, F) when I /= 0 ->
     F(),
     do_dirty(I-1, F);
 do_dirty(_,_) -> ok.
-
-    
-    
-table_load([N1,N2| _ ] = Ns) ->    
-    Nodes = [N1,N2],
-    rpc:multicall(Ns, mnesia, lkill, []),
-    ok = mnesia:delete_schema(Ns),
-    ok = mnesia:create_schema(Nodes),
-    rpc:multicall(Nodes, mnesia, start, []),
-    TabDef = [{disc_copies,[N1]},{ram_copies,[N2]},
-	      {attributes,record_info(fields,item)},{record_name,item}],
-    Tabs   = [list_to_atom("tab" ++ integer_to_list(I)) || I <- lists:seq(1,400)],
-    
-    [mnesia:create_table(Tab,TabDef) || Tab <- Tabs],
-
-%%     InitTab = fun(Tab) ->
-%% 		      mnesia:write_lock_table(Tab),
-%% 		      InitRec = fun(Key) -> mnesia:write(Tab,#item{a=Key},write) end,
-%% 		      lists:foreach(InitRec, lists:seq(1,100))
-%% 	      end,
-%%     
-%%    {Time,{atomic,ok}} = timer:tc(mnesia,transaction, [fun() ->lists:foreach(InitTab, Tabs) end]),
-    mnesia:dump_log(),
-%%    io:format("Init took ~p msec ~n", [Time/1000]),
-    rpc:call(N2, mnesia, stop, []),    timer:sleep(1000),
-    mnesia:stop(), timer:sleep(500),
-    %% Warmup
-    ok = mnesia:start([{no_table_loaders, 1}]),    
-    timer:tc(mnesia, wait_for_tables, [Tabs, infinity]),
-    mnesia:dump_log(),
-    rpc:call(N2, mnesia, dump_log, []),
-    io:format("Initialized ~n",[]),
-
-    mnesia:stop(), timer:sleep(1000),
-    ok = mnesia:start([{no_table_loaders, 1}]),
-    {T1, ok} = timer:tc(mnesia, wait_for_tables, [Tabs, infinity]),
-    io:format("Loading from disc with 1 loader ~p msec~n",[T1/1000]),
-    mnesia:stop(), timer:sleep(1000),
-    ok = mnesia:start([{no_table_loaders, 4}]),
-    {T2, ok} = timer:tc(mnesia, wait_for_tables, [Tabs, infinity]),
-    io:format("Loading from disc with 4 loader ~p msec~n",[T2/1000]),
-
-    %% Warmup
-    rpc:call(N2, ?MODULE, remote_load, [Tabs,4]),
-    io:format("Initialized ~n",[]),
-
-    
-    T3 = rpc:call(N2, ?MODULE, remote_load, [Tabs,1]),
-    io:format("Loading from net with 1 loader ~p msec~n",[T3/1000]),
-    
-    T4 = rpc:call(N2, ?MODULE, remote_load, [Tabs,4]),
-    io:format("Loading from net with 4 loader ~p msec~n",[T4/1000]),
-
-    ok.
-
-remote_load(Tabs,Loaders) ->
-    ok = mnesia:start([{no_table_loaders, Loaders}]),
-%%    io:format("~p ~n", [mnesia_controller:get_info(500)]),
-    {Time, ok} = timer:tc(mnesia, wait_for_tables, [Tabs, infinity]),
-    timer:sleep(1000), mnesia:stop(), timer:sleep(1000),
-    Time.

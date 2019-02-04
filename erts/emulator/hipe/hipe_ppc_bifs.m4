@@ -2,42 +2,44 @@ changecom(`/*', `*/')dnl
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2004-2011. All Rights Reserved.
+ * Copyright Ericsson AB 2004-2018. All Rights Reserved.
  *
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  * %CopyrightEnd%
  */
 
 
+#`define ASM'
 include(`hipe/hipe_ppc_asm.m4')
 #`include' "config.h"
 #`include' "hipe_literals.h"
 
-`#if defined(ERTS_ENABLE_LOCK_CHECK) && defined(ERTS_SMP)
-#  define CALL_BIF(F)	STORE_IA(CSYM(F), P_BIF_CALLEE(P), r29); bl CSYM(hipe_debug_bif_wrapper) 
+`#if defined(ERTS_ENABLE_LOCK_CHECK)
+#  define CALL_BIF(F)	STORE_IA(CSYM(nbif_impl_##F), P_BIF_CALLEE(P), r29); bl CSYM(hipe_debug_bif_wrapper) 
 #else
-#  define CALL_BIF(F)	bl	CSYM(F)
+#  define CALL_BIF(F)	bl	CSYM(nbif_impl_##F)
 #endif'
 
 	.text
 	.p2align 2
 
-define(TEST_GOT_MBUF,`LOAD r4, P_MBUF(P)	# `TEST_GOT_MBUF'
+define(TEST_GOT_MBUF,`LOAD r4, P_MBUF(P)	/* `TEST_GOT_MBUF' */
 	CMPI r4, 0
 	bne- 3f
 2:')
 define(HANDLE_GOT_MBUF,`
-3:	bl CSYM(nbif_$1_gc_after_bif)	# `HANDLE_GOT_MBUF'
+3:	bl CSYM(nbif_$1_gc_after_bif)	/* `HANDLE_GOT_MBUF' */
 	b 2b')
 
 
@@ -45,9 +47,10 @@ define(HANDLE_GOT_MBUF,`
  * standard_bif_interface_1(nbif_name, cbif_name)
  * standard_bif_interface_2(nbif_name, cbif_name)
  * standard_bif_interface_3(nbif_name, cbif_name)
+ * standard_bif_interface_4(nbif_name, cbif_name)
  * standard_bif_interface_0(nbif_name, cbif_name)
  *
- * Generate native interface for a BIF with 0-3 parameters and
+ * Generate native interface for a BIF with 0-4 parameters and
  * standard failure mode.
  */
 define(standard_bif_interface_1,
@@ -62,7 +65,7 @@ ASYM($1):
 
 	/* Save caller-save registers and call the C function. */
 	SAVE_CONTEXT_BIF
-	STORE	r4, P_ARG0(r3)		# Store BIF__ARGS in def_arg_reg[]
+	STORE	r4, P_ARG0(r3)		/* Store BIF__ARGS in def_arg_reg[] */
 	addi	r4, r3, P_ARG0
 	CALL_BIF($2)
 	TEST_GOT_MBUF
@@ -92,7 +95,7 @@ ASYM($1):
 
 	/* Save caller-save registers and call the C function. */
 	SAVE_CONTEXT_BIF
-	STORE	r4, P_ARG0(r3)		# Store BIF__ARGS in def_arg_reg[]
+	STORE	r4, P_ARG0(r3)		/* Store BIF__ARGS in def_arg_reg[] */
 	STORE	r5, P_ARG1(r3)
 	addi	r4, r3, P_ARG0
 	CALL_BIF($2)
@@ -124,7 +127,7 @@ ASYM($1):
 
 	/* Save caller-save registers and call the C function. */
 	SAVE_CONTEXT_BIF
-	STORE	r4, P_ARG0(r3)		# Store BIF__ARGS in def_arg_reg[]
+	STORE	r4, P_ARG0(r3)		/* Store BIF__ARGS in def_arg_reg[] */
 	STORE	r5, P_ARG1(r3)
 	STORE	r6, P_ARG2(r3)
 	addi	r4, r3, P_ARG0
@@ -139,6 +142,41 @@ ASYM($1):
 1:	/* workaround for bc:s small offset operand */
 	b	CSYM(nbif_3_simple_exception)
 	HANDLE_GOT_MBUF(3)
+	SET_SIZE(ASYM($1))
+	TYPE_FUNCTION(ASYM($1))
+#endif')
+
+define(standard_bif_interface_4,
+`
+#ifndef HAVE_$1
+#`define' HAVE_$1
+	GLOBAL(ASYM($1))
+ASYM($1):
+	/* Set up C argument registers. */
+	mr	r3, P
+	NBIF_ARG(r4,4,0)
+	NBIF_ARG(r5,4,1)
+	NBIF_ARG(r6,4,2)
+	NBIF_ARG(r7,4,3)
+
+	/* Save caller-save registers and call the C function. */
+	SAVE_CONTEXT_BIF
+	STORE	r4, P_ARG0(r3)		/* Store BIF__ARGS in def_arg_reg[] */
+	STORE	r5, P_ARG1(r3)
+	STORE	r6, P_ARG2(r3)
+	STORE	r7, P_ARG3(r3)
+	addi	r4, r3, P_ARG0
+	CALL_BIF($2)
+	TEST_GOT_MBUF
+
+	/* Restore registers. Check for exception. */
+	CMPI	r3, THE_NON_VALUE
+	RESTORE_CONTEXT_BIF
+	beq-	1f
+	NBIF_RET(4)
+1:	/* workaround for bc:s small offset operand */
+	b	CSYM(nbif_4_simple_exception)
+	HANDLE_GOT_MBUF(4)
 	SET_SIZE(ASYM($1))
 	TYPE_FUNCTION(ASYM($1))
 #endif')
@@ -174,8 +212,9 @@ ASYM($1):
  * gc_bif_interface_0(nbif_name, cbif_name)
  * gc_bif_interface_1(nbif_name, cbif_name)
  * gc_bif_interface_2(nbif_name, cbif_name)
+ * gc_bif_interface_3(nbif_name, cbif_name)
  *
- * Generate native interface for a BIF with 0-2 parameters and
+ * Generate native interface for a BIF with 0-3 parameters and
  * standard failure mode.
  * The BIF may do a GC.
  */
@@ -214,7 +253,7 @@ ASYM($1):
 
 	/* Save caller-save registers and call the C function. */
 	SAVE_CONTEXT_GC
-	STORE	r4, P_ARG0(r3)		# Store BIF__ARGS in def_arg_reg[]
+	STORE	r4, P_ARG0(r3)		/* Store BIF__ARGS in def_arg_reg[] */
 	addi	r4, r3, P_ARG0
 	CALL_BIF($2)
 	TEST_GOT_MBUF
@@ -244,7 +283,7 @@ ASYM($1):
 
 	/* Save caller-save registers and call the C function. */
 	SAVE_CONTEXT_GC
-	STORE	r4, P_ARG0(r3)		# Store BIF__ARGS in def_arg_reg[]
+	STORE	r4, P_ARG0(r3)		/* Store BIF__ARGS in def_arg_reg[] */
 	STORE	r5, P_ARG1(r3)
 	addi	r4, r3, P_ARG0
 	CALL_BIF($2)
@@ -258,6 +297,39 @@ ASYM($1):
 1:	/* workaround for bc:s small offset operand */
 	b	CSYM(nbif_2_simple_exception)
 	HANDLE_GOT_MBUF(2)
+	SET_SIZE(ASYM($1))
+	TYPE_FUNCTION(ASYM($1))
+#endif')
+
+define(gc_bif_interface_3,
+`
+#ifndef HAVE_$1
+#`define' HAVE_$1
+	GLOBAL(ASYM($1))
+ASYM($1):
+	/* Set up C argument registers. */
+	mr	r3, P
+	NBIF_ARG(r4,3,0)
+	NBIF_ARG(r5,3,1)
+	NBIF_ARG(r6,3,2)
+
+	/* Save caller-save registers and call the C function. */
+	SAVE_CONTEXT_GC
+	STORE	r4, P_ARG0(r3)		/* Store BIF__ARGS in def_arg_reg[] */
+	STORE	r5, P_ARG1(r3)
+	STORE	r6, P_ARG2(r3)
+	addi	r4, r3, P_ARG0
+	CALL_BIF($2)
+	TEST_GOT_MBUF
+
+	/* Restore registers. Check for exception. */
+	CMPI	r3, THE_NON_VALUE
+	RESTORE_CONTEXT_GC
+	beq-	1f
+	NBIF_RET(3)
+1:	/* workaround for bc:s small offset operand */
+	b	CSYM(nbif_3_simple_exception)
+	HANDLE_GOT_MBUF(3)
 	SET_SIZE(ASYM($1))
 	TYPE_FUNCTION(ASYM($1))
 #endif')

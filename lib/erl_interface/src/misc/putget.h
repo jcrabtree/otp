@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 1998-2010. All Rights Reserved.
+ * Copyright Ericsson AB 1998-2016. All Rights Reserved.
  *
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  *
  * %CopyrightEnd%
  *
@@ -104,6 +105,13 @@
        ((EI_ULONGLONG)((unsigned char *)(s))[-3] << 16) | \
        ((EI_ULONGLONG)((unsigned char *)(s))[-2] << 8)  | \
         (EI_ULONGLONG)((unsigned char *)(s))[-1]))
+
+int utf8_to_latin1(char* dst, const char* src, int slen, int destlen, erlang_char_encoding* res_encp);
+int latin1_to_utf8(char* dst, const char* src, int slen, int destlen, erlang_char_encoding* res_encp);
+int ei_internal_get_atom(const char** bufp, char* p, erlang_char_encoding*);
+int ei_internal_put_atom(char** bufp, const char* p, int slen, erlang_char_encoding);
+#define get_atom ei_internal_get_atom
+#define put_atom ei_internal_put_atom
 
 typedef union float_ext {
     double d;

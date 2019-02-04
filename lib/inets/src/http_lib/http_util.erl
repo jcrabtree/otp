@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2005-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2005-2017. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -26,7 +27,8 @@
 	 convert_month/1, 
 	 is_hostname/1,
 	 timestamp/0, timeout/2,
-	 html_encode/1
+	 html_encode/1,
+	 maybe_add_brackets/2
 	]).
 
 
@@ -34,10 +36,10 @@
 %%%  Internal application API
 %%%=========================================================================
 to_upper(Str) ->
-    string:to_upper(Str).
+    string:uppercase(Str).
 
 to_lower(Str) ->
-    string:to_lower(Str).
+    string:lowercase(Str).
 
 %% Example: Mon, 09-Dec-2002 13:46:00 GMT
 convert_netscapecookie_date([_D,_A,_Y, $,, $ ,
@@ -151,27 +153,11 @@ convert_netscapecookie_date([_D,_A,_Y, _SP,
     Sec=list_to_integer([S1,S2]),
     {{Year,Month,Day},{Hour,Min,Sec}}.
 
-hexlist_to_integer([]) ->
-    empty;
-%%When the string only contains one value its eaasy done.
-%% 0-9
-hexlist_to_integer([Size]) when (Size >= 48) andalso (Size =< 57) ->
-   Size - 48;
-%% A-F
-hexlist_to_integer([Size]) when (Size >= 65) andalso (Size =< 70) ->
-    Size - 55;
-%% a-f
-hexlist_to_integer([Size]) when (Size >= 97) andalso (Size =< 102) ->
-    Size - 87;
-hexlist_to_integer([_Size]) ->
-    not_a_num;
+hexlist_to_integer(List) ->
+    list_to_integer(List, 16).
 
-hexlist_to_integer(Size) ->
-    Len = string:span(Size, "1234567890abcdefABCDEF"),
-    hexlist_to_integer2(Size, 16 bsl (4 *(Len-2)),0).
-
-integer_to_hexlist(Num)->
-    integer_to_hexlist(Num, get_size(Num), []).
+integer_to_hexlist(Int) ->
+    integer_to_list(Int, 16).
 
 convert_month("Jan") -> 1;
 convert_month("Feb") -> 2;
@@ -209,54 +195,27 @@ html_encode(Chars) ->
     lists:append([char_to_html_entity(Char, Reserved) || Char <- Chars]).
 
 
+maybe_add_brackets(Addr, false) ->
+    Addr;
+maybe_add_brackets(Addr, true) when is_list(Addr) ->
+    case is_ipv6_address(Addr) of
+        true ->
+            [$[|Addr] ++ "]";
+        false ->
+            Addr
+    end;
+maybe_add_brackets(Addr, true) when is_binary(Addr) ->
+    case is_ipv6_address(Addr) of
+        true ->
+            <<$[,Addr/binary,$]>>;
+        false ->
+            Addr
+    end.
+
+
 %%%========================================================================
 %%% Internal functions
 %%%========================================================================
-hexlist_to_integer2([],_Pos,Sum)->
-    Sum;
-hexlist_to_integer2([HexVal | HexString], Pos, Sum) 
-  when HexVal >= 48, HexVal =< 57 ->
-    hexlist_to_integer2(HexString, Pos bsr 4, Sum + ((HexVal-48) * Pos));
-
-hexlist_to_integer2([HexVal | HexString], Pos, Sum) 
-  when HexVal >= 65, HexVal =<70 ->
-    hexlist_to_integer2(HexString, Pos bsr 4, Sum + ((HexVal-55) * Pos));
-
-hexlist_to_integer2([HexVal | HexString], Pos, Sum)
-  when HexVal>=97, HexVal=<102 ->
-    hexlist_to_integer2(HexString, Pos bsr 4, Sum + ((HexVal-87) * Pos));
-
-hexlist_to_integer2(_AfterHexString, _Pos, Sum)->
-    Sum.
-
-integer_to_hexlist(Num, Pot, Res) when Pot < 0 ->
-    convert_to_ascii([Num | Res]);
-
-integer_to_hexlist(Num,Pot,Res) ->
-    Position = (16 bsl (Pot*4)),
-    PosVal = Num div Position,
-    integer_to_hexlist(Num - (PosVal*Position), Pot-1, [PosVal | Res]).
-
-get_size(Num)->
-    get_size(Num, 0).
-
-get_size(Num, Pot) when Num < (16 bsl(Pot *4))  ->
-    Pot-1;
-
-get_size(Num, Pot) ->
-    get_size(Num, Pot+1).
-
-convert_to_ascii(RevesedNum) ->
-    convert_to_ascii(RevesedNum, []).
-
-convert_to_ascii([], Num)->
-    Num;
-convert_to_ascii([Num | Reversed], Number) 
-  when (Num > -1) andalso (Num < 10) ->
-    convert_to_ascii(Reversed, [Num + 48 | Number]);
-convert_to_ascii([Num | Reversed], Number) 
-  when (Num > 9) andalso (Num < 16) ->
-    convert_to_ascii(Reversed, [Num + 55 | Number]).
 
 char_to_html_entity(Char, Reserved) ->
     case sets:is_element(Char, Reserved) of
@@ -264,4 +223,15 @@ char_to_html_entity(Char, Reserved) ->
 	    "&#" ++ integer_to_list(Char) ++ ";";
 	false ->
 	    [Char]
+    end.
+
+is_ipv6_address(Addr) when is_binary(Addr) ->
+    B = binary_to_list(Addr),
+    is_ipv6_address(B);
+is_ipv6_address(Addr) when is_list(Addr) ->
+    case inet:parse_ipv6strict_address(Addr) of
+        {ok, _ } ->
+            true;
+        {error, _} ->
+            false
     end.

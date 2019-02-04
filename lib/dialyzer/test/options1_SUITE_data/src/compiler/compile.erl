@@ -1,20 +1,20 @@
-%% ``The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved via the world wide web at http://www.erlang.org/.
+%% ``Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% The Initial Developer of the Original Code is Ericsson Utvecklings AB.
 %% Portions created by Ericsson are Copyright 1999, Ericsson Utvecklings
 %% AB. All Rights Reserved.''
 %%
 %%     $Id: compile.erl,v 1.1 2008/12/17 09:53:42 mikpe Exp $
-%%
 %% Purpose: Run the Erlang compiler.
 
 -module(compile).
@@ -228,10 +228,14 @@ os_process_size() ->
     case os:type() of
 	{unix, sunos} ->
 	    Size = os:cmd("ps -o vsz -p " ++ os:getpid() ++ " | tail -1"),
-	    list_to_integer(lib:nonl(Size));
+	    list_to_integer(nonl(Size));
 	_ ->
 	    0
     end.
+
+nonl([$\n]) -> [];
+nonl([]) -> [];
+nonl([H|T]) -> [H|nonl(T)].
 
 run_tc({Name,Fun}, St) ->
     Before0 = statistics(runtime),
@@ -990,7 +994,7 @@ listing(LFun, Ext, St) ->
 	    Es = [{Lfile,[{none,compile,write_error}]}],
 	    {error,St#compile{errors=St#compile.errors ++ Es}}
     end.
-
+
 options() ->
     help(standard_passes()).
 
@@ -1022,7 +1026,7 @@ help([_|T]) ->
 help(_) ->
     ok.
 
-
+
 %% compile(AbsFileName, Outfilename, Options)
 %%   Compile entry point for erl_compile.
 

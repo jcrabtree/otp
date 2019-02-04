@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1997-2010. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2016. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -29,6 +30,7 @@
 %% Specialized file operations
 -export([get_size/1, get_file/1, set_file/2, get_file_close/1]).
 -export([compress/1, uncompress/1, uuencode/1, uudecode/1, advise/4]).
+-export([allocate/3]).
 
 -export([open_mode/1]).  %% used by ftp-file
 
@@ -72,6 +74,7 @@
 -define(RAM_FILE_UUDECODE,       36).
 -define(RAM_FILE_SIZE,           37).
 -define(RAM_FILE_ADVISE,         38).
+-define(RAM_FILE_ALLOCATE,       39).
 
 %% Open modes for RAM_FILE_OPEN
 -define(RAM_FILE_MODE_READ,       1).
@@ -381,6 +384,11 @@ advise(#file_descriptor{module = ?MODULE, data = Port}, Offset,
         {error, einval}
     end;
 advise(#file_descriptor{}, _Offset, _Length, _Advise) ->
+    {error, enotsup}.
+
+allocate(#file_descriptor{module = ?MODULE, data = Port}, Offset, Length) ->
+    call_port(Port, <<?RAM_FILE_ALLOCATE, Offset:64/signed, Length:64/signed>>);
+allocate(#file_descriptor{}, _Offset, _Length) ->
     {error, enotsup}.
 
 

@@ -1,23 +1,26 @@
 %% =====================================================================
-%% This library is free software; you can redistribute it and/or modify
-%% it under the terms of the GNU Lesser General Public License as
-%% published by the Free Software Foundation; either version 2 of the
-%% License, or (at your option) any later version.
+%% Licensed under the Apache License, Version 2.0 (the "License"); you may
+%% not use this file except in compliance with the License. You may obtain
+%% a copy of the License at <http://www.apache.org/licenses/LICENSE-2.0>
 %%
-%% This library is distributed in the hope that it will be useful, but
-%% WITHOUT ANY WARRANTY; without even the implied warranty of
-%% MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
-%% Lesser General Public License for more details.
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
-%% You should have received a copy of the GNU Lesser General Public
-%% License along with this library; if not, write to the Free Software
-%% Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307
-%% USA
+%% Alternatively, you may use this file under the terms of the GNU Lesser
+%% General Public License (the "LGPL") as published by the Free Software
+%% Foundation; either version 2.1, or (at your option) any later version.
+%% If you wish to allow use of your version of this file only under the
+%% terms of the LGPL, you should delete the provisions above and replace
+%% them with the notice and other provisions required by the LGPL; see
+%% <http://www.gnu.org/licenses/>. If you do not delete the provisions
+%% above, a recipient may use your version of this file under the terms of
+%% either the Apache License or the LGPL.
 %%
-%% $Id$
-%%
-%% @copyright 1998-2006 Richard Carlsson
-%% @author Richard Carlsson <richardc@it.uu.se>
+%% @copyright 1998-2014 Richard Carlsson
+%% @author Richard Carlsson <carlsson.richard@gmail.com>
 %% @end
 %% =====================================================================
 
@@ -153,7 +156,8 @@ default_printer(Tree, Options) ->
 %% @spec parse_transform(Forms::[syntaxTree()], Options::[term()]) ->
 %%           [syntaxTree()]
 %%
-%%         syntaxTree() = erl_syntax:syntaxTree()
+%% @type syntaxTree() = erl_syntax:syntaxTree(). An abstract syntax
+%% tree. See the {@link erl_syntax} module for details.
 %%
 %% @doc Allows Igor to work as a component of the Erlang compiler.
 %% Including the term `{parse_transform, igor}' in the
@@ -214,7 +218,7 @@ merge(Name, Files) ->
 %% @spec merge(Name::atom(), Files::[filename()], Options::[term()]) ->
 %%           [filename()]
 %%
-%%	    filename() = file:filename()
+%% @type filename() = file:filename()
 %%
 %% @doc Merges source code files to a single file. `Name'
 %% specifies the name of the resulting module - not the name of the
@@ -343,10 +347,12 @@ merge(Name, Files) ->
 
 merge(Name, Files, Opts) ->
     Opts1 = Opts ++ ?DEFAULT_MERGE_OPTS,
-    {Tree, Stubs} = merge_files(Name, Files, Opts1),
+    {Sources, Enc} = merge_files1(Files, Opts1),
+    {Tree, Stubs} = merge_sources(Name, Sources, Opts1),
     Dir = proplists:get_value(dir, Opts1, ""),
     Filename = proplists:get_value(outfile, Opts1, Name),
-    File = write_module(Tree, Filename, Dir, Opts1),
+    Encoding = [{encoding, Enc} || Enc =/= none],
+    File = write_module(Tree, Filename, Dir, Encoding ++ Opts1),
     [File | maybe_create_stubs(Stubs, Opts1)].
 
 
@@ -367,6 +373,7 @@ merge_files(Name, Files, Options) ->
 %% @spec merge_files(Name::atom(), Sources::[Forms],
 %%                   Files::[filename()], Options::[term()]) ->
 %%           {syntaxTree(), [stubDescriptor()]}
+%%
 %%     Forms = syntaxTree() | [syntaxTree()]
 %%
 %% @doc Merges source code files and syntax trees to a single syntax
@@ -410,7 +417,7 @@ merge_files(Name, Files, Options) ->
 %%
 %%     <dd>Specifies a list of rules for associating object files with
 %%     source files, to be passed to the function
-%%     `filename:find_src/2'. This can be used to change the
+%%     `filelib:find_source/2'. This can be used to change the
 %%     way Igor looks for source files. If this option is not specified,
 %%     the default system rules are used. The first occurrence of this
 %%     option completely overrides any later in the option list.</dd>
@@ -455,22 +462,27 @@ merge_files(Name, Files, Options) ->
 %% @see merge/3
 %% @see merge_files/3
 %% @see merge_sources/3
-%% @see //stdlib/filename:find_src/2
+%% @see //stdlib/filelib:find_source/2
 %% @see epp_dodger
 
 -spec merge_files(atom(), erl_syntax:forms(), [file:filename()], [option()]) ->
         {erl_syntax:syntaxTree(), [stubDescriptor()]}.
 
-merge_files(_, _Trees, [], _) ->
+merge_files(Name, Trees, Files, Opts) ->
+    {Sources, _Encoding} = merge_files1(Files, Opts),
+    merge_sources(Name, Trees ++ Sources, Opts).
+
+merge_files1([], _) ->
     report_error("no files to merge."),
     exit(badarg);
-merge_files(Name, Trees, Files, Opts) ->
+merge_files1(Files, Opts) ->
     Opts1 = Opts ++ [{includes, ?DEFAULT_INCLUDES},
 		     {macros, ?DEFAULT_MACROS},
 		     {preprocess, false},
 		     comments],
-    Sources = [read_module(F, Opts1) || F <- Files],
-    merge_sources(Name, Trees ++ Sources, Opts1).
+    SourceEncodings = [read_module(F, Opts1) || F <- Files],
+    {Sources, [Encoding | _]} = lists:unzip(SourceEncodings),
+    {Sources, Encoding}.
 
 
 %% =====================================================================
@@ -690,7 +702,7 @@ merge_files(Name, Trees, Files, Opts) ->
 		preserved  :: boolean(),
 		no_headers :: boolean(),
 		notes      :: notes(),
-		redirect   :: dict(),	% = dict(atom(), atom())
+		redirect   :: dict:dict(atom(), atom()),
 		no_imports :: ordsets:ordset(atom()),
 		options	   :: [option()]
 	       }).
@@ -722,7 +734,7 @@ merge_sources(Name, Sources, Opts) ->
 
 %% Data structure for keeping state during transformation.
 
--record(state, {export :: set()}).
+-record(state, {export :: sets:set({atom(), arity()})}).
 
 state__add_export(Name, Arity, S) ->
     S#state{export = sets:add_element({Name, Arity},
@@ -822,7 +834,7 @@ merge_sources_1(Name, Modules, Trees, Opts) ->
 		       dict:from_list(Rs);
 		   false ->
 		       report_error("bad value for `redirect' option: "
-				    "~P.",
+				    "~tP.",
 				    [Rs, 10]),
 		       exit(error)
 	       end,
@@ -1034,7 +1046,7 @@ make_stub(M, Map, Env) ->
 -type atts()      :: 'delete' | 'kill'.
 -type file_atts() :: 'delete' | 'keep' | 'kill'.
 
--record(filter, {records         :: set(),
+-record(filter, {records         :: sets:set(atom()),
 		 file_attributes :: file_atts(),
 		 attributes      :: atts()}).
 
@@ -1057,7 +1069,7 @@ filter_forms_2(Forms, Env) ->
 		    comment -> kill;
 		    _ ->
 			report_error("invalid value for option "
-				     "`file_attributes': ~w.",
+				     "`file_attributes': ~tw.",
 				     [FileAttrsOpt]),
 			exit(error)
 		end,
@@ -1168,7 +1180,7 @@ merge_namespaces(Modules, Env) ->
 	[] ->
 	    ok;
 	Fs ->
-	    report_warning("interface functions renamed:\n\t~p.", [Fs])
+	    report_warning("interface functions renamed:\n\t~tp.", [Fs])
     end,
     {M4, Acc2} = merge_namespaces_1(M2, Acc1),
     Ms = M3 ++ M4,
@@ -1583,17 +1595,18 @@ alias_expansions_2(Modules, Table) ->
 
 -record(code, {module     :: atom(),
 	       target     :: atom(),
-	       sources    :: set(),	% set(atom()),
-	       static     :: set(),	% set(atom()),
-	       safe       :: set(),	% set(atom()),
+	       sources    :: sets:set(atom()),
+	       static     :: sets:set(atom()),
+	       safe       :: sets:set(atom()),
 	       preserved  :: boolean(),
 	       no_headers :: boolean(),
 	       notes      :: notes(),
-	       map        :: map_fun(),
+	       map        :: map_fun() | 'undefined',
 	       renaming   :: fun((atom()) -> map_fun()),
-	       expand     :: dict(),	% = dict({atom(), integer()},
-					%      {atom(), {atom(), integer()}})
-	       redirect	  :: dict()	% = dict(atom(), atom())
+	       expand     :: dict:dict({atom(), integer()},
+                                       {atom(), {atom(), integer()}})
+                           | 'undefined',
+	       redirect	  :: dict:dict(atom(), atom())
 	      }).
 
 %% `Trees' must be a list of syntax trees of type `form_list'. The
@@ -1708,8 +1721,6 @@ transform(Tree, Env, St) ->
   	    transform_function(Tree, Env, St);
  	implicit_fun ->
  	    transform_implicit_fun(Tree, Env, St);
-  	rule ->
-  	    transform_rule(Tree, Env, St);
   	record_expr ->
   	    transform_record(Tree, Env, St);
   	record_index_expr ->
@@ -1767,51 +1778,35 @@ transform_function(T, Env, St) ->
     {maybe_modified(V, T1, 2, Text, Env), St1}.
 
 renaming_note(Name) ->
-    [lists:flatten(io_lib:fwrite("renamed function to `~w'",
+    [lists:flatten(io_lib:fwrite("renamed function to `~tw'",
 				 [Name]))].
 
 rename_atom(Node, Atom) ->
     rewrite(Node, erl_syntax:atom(Atom)).
 
-%% Renaming Mnemosyne rules (just like function definitions)
-
-transform_rule(T, Env, St) ->
-    {T1, St1} = default_transform(T, Env, St),
-    F = erl_syntax_lib:analyze_rule(T1),
-    {V, Text} = case (Env#code.map)(F) of
-		    F ->
-			%% Not renamed
-			{none, []};
-		    {Atom, _Arity} ->
-			%% Renamed
-			Cs = erl_syntax:rule_clauses(T1),
-			N = rename_atom(
-			      erl_syntax:rule_name(T1),
-			      Atom),
-			T2 = rewrite(T1,
-				     erl_syntax:rule(N, Cs)),
-			{{value, T2}, renaming_note(Atom)}
-		end,
-    {maybe_modified(V, T1, 2, Text, Env), St1}.
-
 %% Renaming "implicit fun" expressions (done quietly).
 
 transform_implicit_fun(T, Env, St) ->
     {T1, St1} = default_transform(T, Env, St),
-    F = erl_syntax_lib:analyze_implicit_fun(T1),
-    {V, Text} = case (Env#code.map)(F) of
-		    F ->
-			%% Not renamed
-			{none, []};
-		    {Atom, Arity} ->
-			%% Renamed
-			N = rewrite(
-			      erl_syntax:implicit_fun_name(T1),
-			      erl_syntax:arity_qualifier(
-				erl_syntax:atom(Atom),
-				erl_syntax:integer(Arity))),
-			T2 = erl_syntax:implicit_fun(N),
-			{{value, T2}, ["function was renamed"]}
+    {V, Text} = case erl_syntax:type(erl_syntax:implicit_fun_name(T1)) of
+		    arity_qualifier ->
+			F = erl_syntax_lib:analyze_implicit_fun(T1),
+			case (Env#code.map)(F) of
+			    F ->
+				%% Not renamed
+				{none, []};
+			    {Atom, Arity} ->
+				%% Renamed
+				N = rewrite(
+				      erl_syntax:implicit_fun_name(T1),
+				      erl_syntax:arity_qualifier(
+					erl_syntax:atom(Atom),
+					erl_syntax:integer(Arity))),
+				T2 = erl_syntax:implicit_fun(N),
+				{{value, T2}, ["function was renamed"]}
+			end;
+		    module_qualifier ->
+			{none, []}
 		end,
     {maybe_modified_quiet(V, T1, 2, Text, Env), St1}.
 
@@ -2493,7 +2488,7 @@ rename(Files, Renamings, Opts) ->
 	       true ->
 		   dict:from_list(Renamings);
 	       false ->
-		   report_error("bad module renaming: ~P.",
+		   report_error("bad module renaming: ~tP.",
 				[Renamings, 10]),
 		   exit(error)
 	   end,
@@ -2514,7 +2509,11 @@ rename(Files, Renamings, Opts) ->
     lists:flatmap(fun (F) -> rename_file(F, Dict, Opts1) end, Files).
 
 rename_file(File, Dict, Opts) ->
-    S = read_module(File, Opts),
+    {S, Enc} = read_module(File, Opts),
+    %% Try to avoid *two* coding: comments:
+    Encoding = [{encoding, Enc} ||
+                   Enc =/= none,
+                   not proplists:get_bool(comments, Opts)],
     M = get_module_info(S),
     Name = M#module.name,
     Name1 = case dict:find(Name, Dict) of
@@ -2528,10 +2527,10 @@ rename_file(File, Dict, Opts) ->
     Opts1 = [no_headers,
 	     {export, [Name]},
 	     {static, [Name]},
-	     {redirect, dict:to_list(Dict1)}] ++ Opts,
+	     {redirect, dict:to_list(Dict1)}] ++ Encoding ++ Opts,
     {Tree, Stubs} = merge_sources(Name1, [S], Opts1),
     Dir = filename:dirname(filename(File)),
-    File1 = write_module(Tree, Name1, Dir, Opts),
+    File1 = write_module(Tree, Name1, Dir, Opts++Encoding),
 
     %% We create the stub file in the same directory as the source file
     %% and the target file.
@@ -2620,6 +2619,19 @@ get_module_info(Forms) ->
 fold_record_fields(Rs) ->
     [{N, [fold_record_field(F) || F <- Fs]} || {N, Fs} <- Rs].
 
+fold_record_field({_Name, {none, _Type}} = None) ->
+    None;
+fold_record_field({Name, {F, Type}}) ->
+    case erl_syntax:is_literal(F) of
+	true ->
+	    {Name, {value, erl_syntax:concrete(F)}, Type};
+	false ->
+	    %% The default value for the field is not a constant, so we
+	    %% represent it by a hash value instead. (We don't want to
+	    %% do this in the general case.)
+	    {Name, {hash, erlang:phash(F, 16#ffffff)}, Type}
+    end;
+%% The following two clauses handle code before Erlang/OTP 19.0.
 fold_record_field({_Name, none} = None) ->
     None;
 fold_record_field({Name, F}) ->
@@ -2650,7 +2662,7 @@ error_text(D, Name) ->
 	{L, M, E} when is_integer(L), is_atom(M) ->
 	    case catch M:format_error(E) of
 		S when is_list(S) ->
-		    io_lib:fwrite("`~w', line ~w: ~s.",
+		    io_lib:fwrite("`~w', line ~w: ~ts.",
 				  [Name, L, S]);
 		_ ->
 		    error_text_1(D, Name)
@@ -2660,7 +2672,7 @@ error_text(D, Name) ->
     end.
 
 error_text_1(D, Name) ->
-    io_lib:fwrite("error: `~w', ~P.", [Name, D, 15]).
+    io_lib:fwrite("error: `~w', ~tP.", [Name, D, 15]).
 
 check_records(Rs, Name) ->
     case duplicates([N || {N, _} <- Rs]) of
@@ -2668,7 +2680,7 @@ check_records(Rs, Name) ->
 	    ok;
 	Ns ->
 	    report_error("in module `~w': "
-			 "multiply defined records: ~p.",
+			 "multiply defined records: ~tp.",
 			 [Name, Ns]),
 	    exit(error)
     end.
@@ -2682,7 +2694,7 @@ expand_imports(Is, Name) ->
 	    ordsets:from_list(As);
 	Ns ->
 	    report_error("in module `~w': "
-			 "multiply imported functions: ~p.",
+			 "multiply imported functions: ~tp.",
 			 [Name, Ns]),
 	    exit(error)
     end.
@@ -2708,7 +2720,17 @@ open_output_file(FName) ->
 	    exit(R)
     end.
 
-%% read_module(Name, Options) -> syntaxTree()
+output_encoding(FD, Opts) ->
+    case proplists:get_value(encoding, Opts) of
+        undefined ->
+            ok = io:setopts(FD, [{encoding, epp:default_encoding()}]);
+        Encoding ->
+            ok = io:setopts(FD, [{encoding, Encoding}]),
+            EncS = epp:encoding_to_string(Encoding),
+            ok = io:fwrite(FD, <<"%% ~s\n">>, [EncS])
+    end.
+
+%% read_module(Name, Options) -> {syntaxTree(), epp:source_encoding()}
 %%
 %% This also tries to locate the real source file, if "Name" does not
 %% point directly to a particular file.
@@ -2724,27 +2746,28 @@ read_module(Name, Options) ->
 		    %% It seems that we have no file - go on anyway,
 		    %% just to get a decent error message.
 		    read_module_1(Name, Options);
-		{Name1, _} ->
-		    read_module_1(Name1 ++ ".erl", Options)
+		{ok, Name1} ->
+		    read_module_1(Name1, Options)
 	    end
     end.
 
 read_module_1(Name, Options) ->
-    verbose("reading module `~s'.", [filename(Name)], Options),
-    Forms = read_module_2(Name, Options),
+    verbose("reading module `~ts'.", [filename(Name)], Options),
+    {Forms, Enc} = read_module_2(Name, Options),
     case proplists:get_bool(comments, Options) of
 	false ->
-	    Forms;
+	    {Forms, Enc};
 	true ->
 	    Comments = erl_comment_scan:file(Name),
-	    erl_recomment:recomment_forms(Forms, Comments)
+	    {erl_recomment:recomment_forms(Forms, Comments), Enc}
     end.
 
 read_module_2(Name, Options) ->
     case read_module_3(Name, Options) of
 	{ok, Forms} ->
 	    check_forms(Forms, Name), 
-	    Forms;
+            Enc = epp:read_encoding(Name),
+	    {Forms, Enc};
 	{error, _} = Error ->
 	    error_read_file(Name),
 	    exit(Error)
@@ -2774,7 +2797,7 @@ check_forms([F | Fs], File) ->
 		    _ ->
 			"unknown error"
 		end,
-	    report_error("in file `~s' at line ~w:\n  ~s",
+	    report_error("in file `~ts' at line ~w:\n  ~ts",
 			 [filename(File), erl_syntax:get_pos(F), S]),
 	    exit(error);
 	_ ->
@@ -2784,9 +2807,9 @@ check_forms([], _) ->
     ok.
 
 find_src(Name, undefined) ->
-    filename:find_src(filename(Name));
+    filelib:find_source(filename(Name));
 find_src(Name, Rules) ->
-    filename:find_src(filename(Name), Rules).
+    filelib:find_source(filename(Name), Rules).
 
 %% file_type(filename()) -> {value, Type} | none
 
@@ -2821,18 +2844,18 @@ write_module(Tree, Name, Dir, Opts) ->
 		       {value, directory} ->
 			   ok;
 		       {value, _} ->
-			   report_error("`~s' is not a directory.",
+			   report_error("`~ts' is not a directory.",
 					[Dir1]),
 			   exit(error);
 		       none ->
 			   case file:make_dir(Dir1) of
 			       ok ->
-				   verbose("created directory `~s'.",
+				   verbose("created directory `~ts'.",
 					   [Dir1], Opts),
 				   ok;
 			       E ->
 				   report_error("failed to create "
-						"directory `~s'.",
+						"directory `~ts'.",
 						[Dir1]),
 				   exit({make_dir, E})
 			   end
@@ -2849,7 +2872,8 @@ write_module(Tree, Name, Dir, Opts) ->
     end,
     Printer = proplists:get_value(printer, Opts),
     FD = open_output_file(File),
-    verbose("writing to file `~s'.", [File], Opts),
+    ok = output_encoding(FD, Opts),
+    verbose("writing to file `~ts'.", [File], Opts),
     V = (catch {ok, output(FD, Printer, Tree, Opts)}),
     ok = file:close(FD),
     case V of
@@ -2890,7 +2914,7 @@ backup_file_1(Name, Opts) ->
 			 filename:basename(Name1) ++ Suffix),
     case catch file:rename(Name1, Dest) of
 	ok ->
-	    verbose("made backup of file `~s'.", [Name1], Opts);
+	    verbose("made backup of file `~ts'.", [Name1], Opts);
 	{error, R} ->
 	    error_backup_file(Name1),
 	    exit({error, R});
@@ -2935,7 +2959,7 @@ timestamp() ->
 				"~2.2.0w:~2.2.0w:~2.2.0w.",
 				[Yr, Mth, Dy, Hr, Mt, Sc])).
 
-filename([C | T]) when is_integer(C), C > 0, C =< 255 ->
+filename([C | T]) when is_integer(C), C > 0 ->
     [C | filename(T)];
 filename([H|T]) ->
     filename(H) ++ filename(T);
@@ -2944,7 +2968,7 @@ filename([]) ->
 filename(N) when is_atom(N) ->
     atom_to_list(N);
 filename(N) ->
-    report_error("bad filename: `~P'.", [N, 25]),
+    report_error("bad filename: `~tP'.", [N, 25]),
     exit(error).
 
 duplicates(Xs) ->
@@ -3007,7 +3031,7 @@ split_lines_1(Cs, Cs1, Ls) ->
 %% Reporting
 
 warning_unsafe_call(Name, Module, Target) ->
-    report_warning("call to `~w' in module `~w' "
+    report_warning("call to `~tw' in module `~w' "
 		   "possibly unsafe in `~s'.", [Name, Module, Target]).
 
 warning_apply_2(Module, Target) ->
@@ -3015,19 +3039,19 @@ warning_apply_2(Module, Target) ->
 		   "possibly unsafe in `~s'.", [Module, Target]).
 
 error_open_output(Name) ->
-    report_error("cannot open file `~s' for output.", [filename(Name)]).
+    report_error("cannot open file `~ts' for output.", [filename(Name)]).
 
 error_read_file(Name) ->
-    report_error("error reading file `~s'.", [filename(Name)]).
+    report_error("error reading file `~ts'.", [filename(Name)]).
 
 error_read_file_info(Name) ->
-    report_error("error getting file info: `~s'.", [filename(Name)]).
+    report_error("error getting file info: `~ts'.", [filename(Name)]).
 
 error_write_file(Name) ->
-    report_error("error writing to file `~s'.", [filename(Name)]).
+    report_error("error writing to file `~ts'.", [filename(Name)]).
 
 error_backup_file(Name) ->
-    report_error("could not create backup of file `~s'.",
+    report_error("could not create backup of file `~ts'.",
 		 [filename(Name)]).
 
 verbose(S, Opts) ->

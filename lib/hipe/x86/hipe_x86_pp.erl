@@ -1,21 +1,16 @@
 %%% -*- erlang-indent-level: 2 -*-
 %%%
-%%% %CopyrightBegin%
-%%% 
-%%% Copyright Ericsson AB 2001-2009. All Rights Reserved.
-%%% 
-%%% The contents of this file are subject to the Erlang Public License,
-%%% Version 1.1, (the "License"); you may not use this file except in
-%%% compliance with the License. You should have received a copy of the
-%%% Erlang Public License along with this software. If not, it can be
-%%% retrieved online at http://www.erlang.org/.
-%%% 
-%%% Software distributed under the License is distributed on an "AS IS"
-%%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%%% the License for the specific language governing rights and limitations
-%%% under the License.
-%%% 
-%%% %CopyrightEnd%
+%%% Licensed under the Apache License, Version 2.0 (the "License");
+%%% you may not use this file except in compliance with the License.
+%%% You may obtain a copy of the License at
+%%%
+%%%     http://www.apache.org/licenses/LICENSE-2.0
+%%%
+%%% Unless required by applicable law or agreed to in writing, software
+%%% distributed under the License is distributed on an "AS IS" BASIS,
+%%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%%% See the License for the specific language governing permissions and
+%%% limitations under the License.
 %%%
 %%% x86 pretty-printer
 
@@ -170,7 +165,7 @@ pp_insn(Dev, I, Pre) ->
     #pseudo_tailcall{'fun'=Fun, arity=Arity, stkargs=StkArgs, linkage=Linkage} ->
       io:format(Dev, "\tpseudo_tailcall ", []),
       pp_fun(Dev, Fun),
-      io:format(Dev, "~w (", [Arity]),
+      io:format(Dev, " ~w (", [Arity]),
       pp_args(Dev, StkArgs),
       io:format(Dev, ") ~w\n", [Linkage]);
     #pseudo_tailcall_prepare{} ->
@@ -183,6 +178,12 @@ pp_insn(Dev, I, Pre) ->
       io:format(Dev, "\tret $~s\n", [to_hex(NPop)]);
     #shift{shiftop=ShiftOp, src=Src, dst=Dst} ->
       io:format(Dev, "\t~s ", [alu_op_name(ShiftOp)]),
+      pp_src(Dev, Src),
+      io:format(Dev, ", ", []),
+      pp_dst(Dev, Dst),
+      io:format(Dev, "\n", []);
+    #test{src=Src, dst=Dst} ->
+      io:format(Dev, "\ttest ", []),
       pp_src(Dev, Src),
       io:format(Dev, ", ", []),
       pp_dst(Dev, Dst),

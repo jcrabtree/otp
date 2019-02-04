@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1997-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2018. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -20,24 +21,29 @@
 
 -export([module/2]).
 
--include("v3_life.hrl").
+-include("core_parse.hrl").
+-include("v3_kernel.hrl").
+-include("beam_disasm.hrl").
 
 -import(lists, [foreach/2]).
 
-module(File, Core) when element(1, Core) == c_module ->
+-type code() :: cerl:c_module()
+              | beam_utils:module_code()
+              | #k_mdef{}
+              | [_].                            %form-based format
+
+-spec module(file:io_device(), code()) -> 'ok'.
+
+module(File, #c_module{}=Core) ->
     %% This is a core module.
     io:put_chars(File, core_pp:format(Core));
-module(File, Kern) when element(1, Kern) == k_mdef ->
+module(File, #k_mdef{}=Kern) ->
     %% This is a kernel module.
     io:put_chars(File, v3_kernel_pp:format(Kern));
     %%io:put_chars(File, io_lib:format("~p~n", [Kern]));
-module(File, {Mod,Exp,Attr,Kern}) ->
-    %% This is output from beam_life (v3).
-    io:fwrite(File, "~w.~n~p.~n~p.~n", [Mod,Exp,Attr]),
-    foreach(fun (F) -> function(File, F) end, Kern);
 module(Stream, {Mod,Exp,Attr,Code,NumLabels}) ->
-    %% This is output from beam_codegen.
-    io:format(Stream, "{module, ~p}.  %% version = ~w\n", 
+    %% This is output from v3_codegen.
+    io:format(Stream, "{module, ~p}.  %% version = ~w\n",
 	      [Mod, beam_opcodes:format_number()]),
     io:format(Stream, "\n{exports, ~p}.\n", [Exp]),
     io:format(Stream, "\n{attributes, ~p}.\n", [Attr]),
@@ -46,74 +52,14 @@ module(Stream, {Mod,Exp,Attr,Code,NumLabels}) ->
       fun ({function,Name,Arity,Entry,Asm}) ->
 	      io:format(Stream, "\n\n{function, ~w, ~w, ~w}.\n",
 			[Name, Arity, Entry]),
-	      foreach(fun(Op) -> print_op(Stream, Op) end, Asm) end,
-      Code);
-module(Stream, {Mod,Exp,Inter}) ->
-    %% Other kinds of intermediate formats.
-    io:fwrite(Stream, "~w.~n~p.~n", [Mod,Exp]),
-    foreach(fun (F) -> io:format(Stream, "~p.\n", [F]) end, Inter);
+	      io:put_chars(Stream, format_asm(Asm))
+      end, Code);
 module(Stream, [_|_]=Fs) ->
     %% Form-based abstract format.
     foreach(fun (F) -> io:format(Stream, "~p.\n", [F]) end, Fs).
 
-print_op(Stream, Label) when element(1, Label) == label ->
-    io:format(Stream, "  ~p.\n", [Label]);
-print_op(Stream, Op) ->
-    io:format(Stream, "    ~p.\n", [Op]).
-
-function(File, {function,Name,Arity,Args,Body,Vdb,_Anno}) ->
-    io:nl(File),
-    io:format(File, "function ~p/~p.\n", [Name,Arity]),
-    io:format(File, " ~p.\n", [Args]),
-    print_vdb(File, Vdb),
-    put(beam_listing_nl, false),
-    nl(File),
-    foreach(fun(F) -> format(File, F, []) end, Body),
-    nl(File),
-    erase(beam_listing_nl).
-
-format(File, #l{ke=Ke,i=I,vdb=Vdb}, Ind) ->
-    nl(File),
-    ind_format(File, Ind, "~p ", [I]),
-    print_vdb(File, Vdb),
-    nl(File),
-    format(File, Ke, Ind);
-format(File, Tuple, Ind) when is_tuple(Tuple) ->
-    ind_format(File, Ind, "{", []),
-    format_list(File, tuple_to_list(Tuple), [$\s|Ind]),
-    ind_format(File, Ind, "}", []);
-format(File, List, Ind) when is_list(List) ->
-    ind_format(File, Ind, "[", []),
-    format_list(File, List, [$\s|Ind]),
-    ind_format(File, Ind, "]", []);
-format(File, F, Ind) ->
-    ind_format(File, Ind, "~p", [F]).
-
-format_list(File, [F], Ind) ->
-    format(File, F, Ind);
-format_list(File, [F|Fs], Ind) ->
-    format(File, F, Ind),
-    ind_format(File, Ind, ",", []),
-    format_list(File, Fs, Ind);
-format_list(_, [], _) -> ok.
-
-
-print_vdb(File, [{Var,F,E}|Vs]) ->
-    io:format(File, "~p:~p..~p ", [Var,F,E]),
-    print_vdb(File, Vs);
-print_vdb(_, []) -> ok.
-
-ind_format(File, Ind, Format, Args) ->
-    case get(beam_listing_nl) of
-	true ->
-	    put(beam_listing_nl, false),
-	    io:put_chars(File, Ind);
-	false -> ok
-    end,
-    io:format(File, Format, Args).
-    
-nl(File) ->
-    case put(beam_listing_nl, true) of
-	true -> ok;
-	false -> io:nl(File)
-    end.
+format_asm([{label,L}|Is]) ->
+    ["  {label,",integer_to_list(L),"}.\n"|format_asm(Is)];
+format_asm([I|Is]) ->
+    [io_lib:format("    ~p", [I]),".\n"|format_asm(Is)];
+format_asm([]) -> [].

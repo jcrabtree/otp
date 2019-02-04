@@ -1,23 +1,24 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2008-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2008-2016. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %% This file is generated DO NOT EDIT
 
-%% @doc See external documentation: <a href="http://www.wxwidgets.org/manuals/stable/wx_wxmenubar.html">wxMenuBar</a>.
+%% @doc See external documentation: <a href="http://www.wxwidgets.org/manuals/2.8.12/wx_wxmenubar.html">wxMenuBar</a>.
 %% <p>This class is derived (and can use functions) from:
 %% <br />{@link wxWindow}
 %% <br />{@link wxEvtHandler}
@@ -35,22 +36,23 @@
   setLabelTop/3]).
 
 %% inherited exports
--export([cacheBestSize/2,captureMouse/1,center/1,center/2,centerOnParent/1,
-  centerOnParent/2,centre/1,centre/2,centreOnParent/1,centreOnParent/2,
-  clearBackground/1,clientToScreen/2,clientToScreen/3,close/1,close/2,
-  connect/2,connect/3,convertDialogToPixels/2,convertPixelsToDialog/2,
+-export([cacheBestSize/2,canSetTransparent/1,captureMouse/1,center/1,center/2,
+  centerOnParent/1,centerOnParent/2,centre/1,centre/2,centreOnParent/1,
+  centreOnParent/2,clearBackground/1,clientToScreen/2,clientToScreen/3,
+  close/1,close/2,connect/2,connect/3,convertDialogToPixels/2,convertPixelsToDialog/2,
   destroyChildren/1,disable/1,disconnect/1,disconnect/2,disconnect/3,
-  findWindow/2,fit/1,fitInside/1,freeze/1,getAcceleratorTable/1,getBackgroundColour/1,
-  getBackgroundStyle/1,getBestSize/1,getCaret/1,getCharHeight/1,getCharWidth/1,
-  getChildren/1,getClientSize/1,getContainingSizer/1,getCursor/1,getDropTarget/1,
-  getEventHandler/1,getExtraStyle/1,getFont/1,getForegroundColour/1,
-  getGrandParent/1,getHandle/1,getHelpText/1,getId/1,getMaxSize/1,getMinSize/1,
-  getName/1,getParent/1,getPosition/1,getRect/1,getScreenPosition/1,
-  getScreenRect/1,getScrollPos/2,getScrollRange/2,getScrollThumb/2,
-  getSize/1,getSizer/1,getTextExtent/2,getTextExtent/3,getToolTip/1,
-  getUpdateRegion/1,getVirtualSize/1,getWindowStyleFlag/1,getWindowVariant/1,
-  hasCapture/1,hasScrollbar/2,hasTransparentBackground/1,hide/1,inheritAttributes/1,
-  initDialog/1,invalidateBestSize/1,isExposed/2,isExposed/3,isExposed/5,
+  dragAcceptFiles/2,findWindow/2,fit/1,fitInside/1,freeze/1,getAcceleratorTable/1,
+  getBackgroundColour/1,getBackgroundStyle/1,getBestSize/1,getCaret/1,
+  getCharHeight/1,getCharWidth/1,getChildren/1,getClientSize/1,getContainingSizer/1,
+  getContentScaleFactor/1,getCursor/1,getDropTarget/1,getEventHandler/1,
+  getExtraStyle/1,getFont/1,getForegroundColour/1,getGrandParent/1,
+  getHandle/1,getHelpText/1,getId/1,getMaxSize/1,getMinSize/1,getName/1,
+  getParent/1,getPosition/1,getRect/1,getScreenPosition/1,getScreenRect/1,
+  getScrollPos/2,getScrollRange/2,getScrollThumb/2,getSize/1,getSizer/1,
+  getTextExtent/2,getTextExtent/3,getToolTip/1,getUpdateRegion/1,getVirtualSize/1,
+  getWindowStyleFlag/1,getWindowVariant/1,hasCapture/1,hasScrollbar/2,
+  hasTransparentBackground/1,hide/1,inheritAttributes/1,initDialog/1,
+  invalidateBestSize/1,isDoubleBuffered/1,isExposed/2,isExposed/3,isExposed/5,
   isRetained/1,isShown/1,isTopLevel/1,layout/1,lineDown/1,lineUp/1,lower/1,
   makeModal/1,makeModal/2,move/2,move/3,move/4,moveAfterInTabOrder/2,
   moveBeforeInTabOrder/2,navigate/1,navigate/2,pageDown/1,pageUp/1,parent_class/1,
@@ -60,14 +62,14 @@
   scrollPages/2,scrollWindow/3,scrollWindow/4,setAcceleratorTable/2,
   setAutoLayout/2,setBackgroundColour/2,setBackgroundStyle/2,setCaret/2,
   setClientSize/2,setClientSize/3,setContainingSizer/2,setCursor/2,
-  setDropTarget/2,setExtraStyle/2,setFocus/1,setFocusFromKbd/1,setFont/2,
-  setForegroundColour/2,setHelpText/2,setId/2,setMaxSize/2,setMinSize/2,
-  setName/2,setOwnBackgroundColour/2,setOwnFont/2,setOwnForegroundColour/2,
+  setDoubleBuffered/2,setDropTarget/2,setExtraStyle/2,setFocus/1,setFocusFromKbd/1,
+  setFont/2,setForegroundColour/2,setHelpText/2,setId/2,setMaxSize/2,
+  setMinSize/2,setName/2,setOwnBackgroundColour/2,setOwnFont/2,setOwnForegroundColour/2,
   setPalette/2,setScrollPos/3,setScrollPos/4,setScrollbar/5,setScrollbar/6,
   setSize/2,setSize/3,setSize/5,setSize/6,setSizeHints/2,setSizeHints/3,
   setSizeHints/4,setSizer/2,setSizer/3,setSizerAndFit/2,setSizerAndFit/3,
-  setThemeEnabled/2,setToolTip/2,setVirtualSize/2,setVirtualSize/3,
-  setVirtualSizeHints/2,setVirtualSizeHints/3,setVirtualSizeHints/4,
+  setThemeEnabled/2,setToolTip/2,setTransparent/2,setVirtualSize/2,
+  setVirtualSize/3,setVirtualSizeHints/2,setVirtualSizeHints/3,setVirtualSizeHints/4,
   setWindowStyle/2,setWindowStyleFlag/2,setWindowVariant/2,shouldInheritColours/1,
   show/1,show/2,thaw/1,transferDataFromWindow/1,transferDataToWindow/1,
   update/1,updateWindowUI/1,updateWindowUI/2,validate/1,warpPointer/3]).
@@ -79,13 +81,13 @@ parent_class(wxEvtHandler) -> true;
 parent_class(_Class) -> erlang:error({badtype, ?MODULE}).
 
 -type wxMenuBar() :: wx:wx_object().
-%% @doc See <a href="http://www.wxwidgets.org/manuals/stable/wx_wxmenubar.html#wxmenubarwxmenubar">external documentation</a>.
+%% @doc See <a href="http://www.wxwidgets.org/manuals/2.8.12/wx_wxmenubar.html#wxmenubarwxmenubar">external documentation</a>.
 -spec new() -> wxMenuBar().
 new() ->
   wxe_util:construct(?wxMenuBar_new_0,
   <<>>).
 
-%% @doc See <a href="http://www.wxwidgets.org/manuals/stable/wx_wxmenubar.html#wxmenubarwxmenubar">external documentation</a>.
+%% @doc See <a href="http://www.wxwidgets.org/manuals/2.8.12/wx_wxmenubar.html#wxmenubarwxmenubar">external documentation</a>.
 -spec new(Style) -> wxMenuBar() when
 	Style::integer().
 new(Style)
@@ -93,19 +95,19 @@ new(Style)
   wxe_util:construct(?wxMenuBar_new_1,
   <<Style:32/?UI>>).
 
-%% @doc See <a href="http://www.wxwidgets.org/manuals/stable/wx_wxmenubar.html#wxmenubarappend">external documentation</a>.
+%% @doc See <a href="http://www.wxwidgets.org/manuals/2.8.12/wx_wxmenubar.html#wxmenubarappend">external documentation</a>.
 -spec append(This, Menu, Title) -> boolean() when
 	This::wxMenuBar(), Menu::wxMenu:wxMenu(), Title::unicode:chardata().
 append(#wx_ref{type=ThisT,ref=ThisRef},#wx_ref{type=MenuT,ref=MenuRef},Title)
- when is_list(Title) ->
+ when ?is_chardata(Title) ->
   ?CLASS(ThisT,wxMenuBar),
   ?CLASS(MenuT,wxMenu),
   Title_UC = unicode:characters_to_binary([Title,0]),
   wxe_util:call(?wxMenuBar_Append,
   <<ThisRef:32/?UI,MenuRef:32/?UI,(byte_size(Title_UC)):32/?UI,(Title_UC)/binary, 0:(((8- ((4+byte_size(Title_UC)) band 16#7)) band 16#7))/unit:8>>).
 
-%% @doc See <a href="http://www.wxwidgets.org/manuals/stable/wx_wxmenubar.html#wxmenubarcheck">external documentation</a>.
--spec check(This, Itemid, Check) -> ok when
+%% @doc See <a href="http://www.wxwidgets.org/manuals/2.8.12/wx_wxmenubar.html#wxmenubarcheck">external documentation</a>.
+-spec check(This, Itemid, Check) -> 'ok' when
 	This::wxMenuBar(), Itemid::integer(), Check::boolean().
 check(#wx_ref{type=ThisT,ref=ThisRef},Itemid,Check)
  when is_integer(Itemid),is_boolean(Check) ->
@@ -121,10 +123,10 @@ enable(This)
  when is_record(This, wx_ref) ->
   enable(This, []).
 
-%% @doc See <a href="http://www.wxwidgets.org/manuals/stable/wx_wxmenubar.html#wxmenubarenable">external documentation</a>.
+%% @doc See <a href="http://www.wxwidgets.org/manuals/2.8.12/wx_wxmenubar.html#wxmenubarenable">external documentation</a>.
 -spec enable(This, [Option]) -> boolean() when
 	This::wxMenuBar(),
-	Option :: {enable, boolean()}.
+	Option :: {'enable', boolean()}.
 enable(#wx_ref{type=ThisT,ref=ThisRef}, Options)
  when is_list(Options) ->
   ?CLASS(ThisT,wxMenuBar),
@@ -134,8 +136,8 @@ enable(#wx_ref{type=ThisT,ref=ThisRef}, Options)
   wxe_util:call(?wxMenuBar_Enable_1,
   <<ThisRef:32/?UI, 0:32,BinOpt/binary>>).
 
-%% @doc See <a href="http://www.wxwidgets.org/manuals/stable/wx_wxmenubar.html#wxmenubarenable">external documentation</a>.
--spec enable(This, Itemid, Enable) -> ok when
+%% @doc See <a href="http://www.wxwidgets.org/manuals/2.8.12/wx_wxmenubar.html#wxmenubarenable">external documentation</a>.
+-spec enable(This, Itemid, Enable) -> 'ok' when
 	This::wxMenuBar(), Itemid::integer(), Enable::boolean().
 enable(#wx_ref{type=ThisT,ref=ThisRef},Itemid,Enable)
  when is_integer(Itemid),is_boolean(Enable) ->
@@ -143,8 +145,8 @@ enable(#wx_ref{type=ThisT,ref=ThisRef},Itemid,Enable)
   wxe_util:cast(?wxMenuBar_Enable_2,
   <<ThisRef:32/?UI,Itemid:32/?UI,(wxe_util:from_bool(Enable)):32/?UI>>).
 
-%% @doc See <a href="http://www.wxwidgets.org/manuals/stable/wx_wxmenubar.html#wxmenubarenabletop">external documentation</a>.
--spec enableTop(This, Pos, Flag) -> ok when
+%% @doc See <a href="http://www.wxwidgets.org/manuals/2.8.12/wx_wxmenubar.html#wxmenubarenabletop">external documentation</a>.
+-spec enableTop(This, Pos, Flag) -> 'ok' when
 	This::wxMenuBar(), Pos::integer(), Flag::boolean().
 enableTop(#wx_ref{type=ThisT,ref=ThisRef},Pos,Flag)
  when is_integer(Pos),is_boolean(Flag) ->
@@ -152,28 +154,28 @@ enableTop(#wx_ref{type=ThisT,ref=ThisRef},Pos,Flag)
   wxe_util:cast(?wxMenuBar_EnableTop,
   <<ThisRef:32/?UI,Pos:32/?UI,(wxe_util:from_bool(Flag)):32/?UI>>).
 
-%% @doc See <a href="http://www.wxwidgets.org/manuals/stable/wx_wxmenubar.html#wxmenubarfindmenu">external documentation</a>.
+%% @doc See <a href="http://www.wxwidgets.org/manuals/2.8.12/wx_wxmenubar.html#wxmenubarfindmenu">external documentation</a>.
 -spec findMenu(This, Title) -> integer() when
 	This::wxMenuBar(), Title::unicode:chardata().
 findMenu(#wx_ref{type=ThisT,ref=ThisRef},Title)
- when is_list(Title) ->
+ when ?is_chardata(Title) ->
   ?CLASS(ThisT,wxMenuBar),
   Title_UC = unicode:characters_to_binary([Title,0]),
   wxe_util:call(?wxMenuBar_FindMenu,
   <<ThisRef:32/?UI,(byte_size(Title_UC)):32/?UI,(Title_UC)/binary, 0:(((8- ((0+byte_size(Title_UC)) band 16#7)) band 16#7))/unit:8>>).
 
-%% @doc See <a href="http://www.wxwidgets.org/manuals/stable/wx_wxmenubar.html#wxmenubarfindmenuitem">external documentation</a>.
+%% @doc See <a href="http://www.wxwidgets.org/manuals/2.8.12/wx_wxmenubar.html#wxmenubarfindmenuitem">external documentation</a>.
 -spec findMenuItem(This, MenuString, ItemString) -> integer() when
 	This::wxMenuBar(), MenuString::unicode:chardata(), ItemString::unicode:chardata().
 findMenuItem(#wx_ref{type=ThisT,ref=ThisRef},MenuString,ItemString)
- when is_list(MenuString),is_list(ItemString) ->
+ when ?is_chardata(MenuString),?is_chardata(ItemString) ->
   ?CLASS(ThisT,wxMenuBar),
   MenuString_UC = unicode:characters_to_binary([MenuString,0]),
   ItemString_UC = unicode:characters_to_binary([ItemString,0]),
   wxe_util:call(?wxMenuBar_FindMenuItem,
   <<ThisRef:32/?UI,(byte_size(MenuString_UC)):32/?UI,(MenuString_UC)/binary, 0:(((8- ((0+byte_size(MenuString_UC)) band 16#7)) band 16#7))/unit:8,(byte_size(ItemString_UC)):32/?UI,(ItemString_UC)/binary, 0:(((8- ((4+byte_size(ItemString_UC)) band 16#7)) band 16#7))/unit:8>>).
 
-%% @doc See <a href="http://www.wxwidgets.org/manuals/stable/wx_wxmenubar.html#wxmenubarfinditem">external documentation</a>.
+%% @doc See <a href="http://www.wxwidgets.org/manuals/2.8.12/wx_wxmenubar.html#wxmenubarfinditem">external documentation</a>.
 -spec findItem(This, Id) -> wxMenuItem:wxMenuItem() when
 	This::wxMenuBar(), Id::integer().
 findItem(#wx_ref{type=ThisT,ref=ThisRef},Id)
@@ -182,7 +184,7 @@ findItem(#wx_ref{type=ThisT,ref=ThisRef},Id)
   wxe_util:call(?wxMenuBar_FindItem,
   <<ThisRef:32/?UI,Id:32/?UI>>).
 
-%% @doc See <a href="http://www.wxwidgets.org/manuals/stable/wx_wxmenubar.html#wxmenubargethelpstring">external documentation</a>.
+%% @doc See <a href="http://www.wxwidgets.org/manuals/2.8.12/wx_wxmenubar.html#wxmenubargethelpstring">external documentation</a>.
 -spec getHelpString(This, Itemid) -> unicode:charlist() when
 	This::wxMenuBar(), Itemid::integer().
 getHelpString(#wx_ref{type=ThisT,ref=ThisRef},Itemid)
@@ -191,7 +193,7 @@ getHelpString(#wx_ref{type=ThisT,ref=ThisRef},Itemid)
   wxe_util:call(?wxMenuBar_GetHelpString,
   <<ThisRef:32/?UI,Itemid:32/?UI>>).
 
-%% @doc See <a href="http://www.wxwidgets.org/manuals/stable/wx_wxmenubar.html#wxmenubargetlabel">external documentation</a>.
+%% @doc See <a href="http://www.wxwidgets.org/manuals/2.8.12/wx_wxmenubar.html#wxmenubargetlabel">external documentation</a>.
 -spec getLabel(This) -> unicode:charlist() when
 	This::wxMenuBar().
 getLabel(#wx_ref{type=ThisT,ref=ThisRef}) ->
@@ -199,7 +201,7 @@ getLabel(#wx_ref{type=ThisT,ref=ThisRef}) ->
   wxe_util:call(?wxMenuBar_GetLabel_0,
   <<ThisRef:32/?UI>>).
 
-%% @doc See <a href="http://www.wxwidgets.org/manuals/stable/wx_wxmenubar.html#wxmenubargetlabel">external documentation</a>.
+%% @doc See <a href="http://www.wxwidgets.org/manuals/2.8.12/wx_wxmenubar.html#wxmenubargetlabel">external documentation</a>.
 -spec getLabel(This, Itemid) -> unicode:charlist() when
 	This::wxMenuBar(), Itemid::integer().
 getLabel(#wx_ref{type=ThisT,ref=ThisRef},Itemid)
@@ -208,7 +210,7 @@ getLabel(#wx_ref{type=ThisT,ref=ThisRef},Itemid)
   wxe_util:call(?wxMenuBar_GetLabel_1,
   <<ThisRef:32/?UI,Itemid:32/?UI>>).
 
-%% @doc See <a href="http://www.wxwidgets.org/manuals/stable/wx_wxmenubar.html#wxmenubargetlabeltop">external documentation</a>.
+%% @doc See <a href="http://www.wxwidgets.org/manuals/2.8.12/wx_wxmenubar.html#wxmenubargetlabeltop">external documentation</a>.
 -spec getLabelTop(This, Pos) -> unicode:charlist() when
 	This::wxMenuBar(), Pos::integer().
 getLabelTop(#wx_ref{type=ThisT,ref=ThisRef},Pos)
@@ -217,7 +219,7 @@ getLabelTop(#wx_ref{type=ThisT,ref=ThisRef},Pos)
   wxe_util:call(?wxMenuBar_GetLabelTop,
   <<ThisRef:32/?UI,Pos:32/?UI>>).
 
-%% @doc See <a href="http://www.wxwidgets.org/manuals/stable/wx_wxmenubar.html#wxmenubargetmenu">external documentation</a>.
+%% @doc See <a href="http://www.wxwidgets.org/manuals/2.8.12/wx_wxmenubar.html#wxmenubargetmenu">external documentation</a>.
 -spec getMenu(This, Pos) -> wxMenu:wxMenu() when
 	This::wxMenuBar(), Pos::integer().
 getMenu(#wx_ref{type=ThisT,ref=ThisRef},Pos)
@@ -226,7 +228,7 @@ getMenu(#wx_ref{type=ThisT,ref=ThisRef},Pos)
   wxe_util:call(?wxMenuBar_GetMenu,
   <<ThisRef:32/?UI,Pos:32/?UI>>).
 
-%% @doc See <a href="http://www.wxwidgets.org/manuals/stable/wx_wxmenubar.html#wxmenubargetmenucount">external documentation</a>.
+%% @doc See <a href="http://www.wxwidgets.org/manuals/2.8.12/wx_wxmenubar.html#wxmenubargetmenucount">external documentation</a>.
 -spec getMenuCount(This) -> integer() when
 	This::wxMenuBar().
 getMenuCount(#wx_ref{type=ThisT,ref=ThisRef}) ->
@@ -234,18 +236,18 @@ getMenuCount(#wx_ref{type=ThisT,ref=ThisRef}) ->
   wxe_util:call(?wxMenuBar_GetMenuCount,
   <<ThisRef:32/?UI>>).
 
-%% @doc See <a href="http://www.wxwidgets.org/manuals/stable/wx_wxmenubar.html#wxmenubarinsert">external documentation</a>.
+%% @doc See <a href="http://www.wxwidgets.org/manuals/2.8.12/wx_wxmenubar.html#wxmenubarinsert">external documentation</a>.
 -spec insert(This, Pos, Menu, Title) -> boolean() when
 	This::wxMenuBar(), Pos::integer(), Menu::wxMenu:wxMenu(), Title::unicode:chardata().
 insert(#wx_ref{type=ThisT,ref=ThisRef},Pos,#wx_ref{type=MenuT,ref=MenuRef},Title)
- when is_integer(Pos),is_list(Title) ->
+ when is_integer(Pos),?is_chardata(Title) ->
   ?CLASS(ThisT,wxMenuBar),
   ?CLASS(MenuT,wxMenu),
   Title_UC = unicode:characters_to_binary([Title,0]),
   wxe_util:call(?wxMenuBar_Insert,
   <<ThisRef:32/?UI,Pos:32/?UI,MenuRef:32/?UI,(byte_size(Title_UC)):32/?UI,(Title_UC)/binary, 0:(((8- ((0+byte_size(Title_UC)) band 16#7)) band 16#7))/unit:8>>).
 
-%% @doc See <a href="http://www.wxwidgets.org/manuals/stable/wx_wxmenubar.html#wxmenubarischecked">external documentation</a>.
+%% @doc See <a href="http://www.wxwidgets.org/manuals/2.8.12/wx_wxmenubar.html#wxmenubarischecked">external documentation</a>.
 -spec isChecked(This, Itemid) -> boolean() when
 	This::wxMenuBar(), Itemid::integer().
 isChecked(#wx_ref{type=ThisT,ref=ThisRef},Itemid)
@@ -254,7 +256,7 @@ isChecked(#wx_ref{type=ThisT,ref=ThisRef},Itemid)
   wxe_util:call(?wxMenuBar_IsChecked,
   <<ThisRef:32/?UI,Itemid:32/?UI>>).
 
-%% @doc See <a href="http://www.wxwidgets.org/manuals/stable/wx_wxmenubar.html#wxmenubarisenabled">external documentation</a>.
+%% @doc See <a href="http://www.wxwidgets.org/manuals/2.8.12/wx_wxmenubar.html#wxmenubarisenabled">external documentation</a>.
 -spec isEnabled(This) -> boolean() when
 	This::wxMenuBar().
 isEnabled(#wx_ref{type=ThisT,ref=ThisRef}) ->
@@ -262,7 +264,7 @@ isEnabled(#wx_ref{type=ThisT,ref=ThisRef}) ->
   wxe_util:call(?wxMenuBar_IsEnabled_0,
   <<ThisRef:32/?UI>>).
 
-%% @doc See <a href="http://www.wxwidgets.org/manuals/stable/wx_wxmenubar.html#wxmenubarisenabled">external documentation</a>.
+%% @doc See <a href="http://www.wxwidgets.org/manuals/2.8.12/wx_wxmenubar.html#wxmenubarisenabled">external documentation</a>.
 -spec isEnabled(This, Itemid) -> boolean() when
 	This::wxMenuBar(), Itemid::integer().
 isEnabled(#wx_ref{type=ThisT,ref=ThisRef},Itemid)
@@ -271,7 +273,7 @@ isEnabled(#wx_ref{type=ThisT,ref=ThisRef},Itemid)
   wxe_util:call(?wxMenuBar_IsEnabled_1,
   <<ThisRef:32/?UI,Itemid:32/?UI>>).
 
-%% @doc See <a href="http://www.wxwidgets.org/manuals/stable/wx_wxmenubar.html#wxmenubarremove">external documentation</a>.
+%% @doc See <a href="http://www.wxwidgets.org/manuals/2.8.12/wx_wxmenubar.html#wxmenubarremove">external documentation</a>.
 -spec remove(This, Pos) -> wxMenu:wxMenu() when
 	This::wxMenuBar(), Pos::integer().
 remove(#wx_ref{type=ThisT,ref=ThisRef},Pos)
@@ -280,64 +282,74 @@ remove(#wx_ref{type=ThisT,ref=ThisRef},Pos)
   wxe_util:call(?wxMenuBar_Remove,
   <<ThisRef:32/?UI,Pos:32/?UI>>).
 
-%% @doc See <a href="http://www.wxwidgets.org/manuals/stable/wx_wxmenubar.html#wxmenubarreplace">external documentation</a>.
+%% @doc See <a href="http://www.wxwidgets.org/manuals/2.8.12/wx_wxmenubar.html#wxmenubarreplace">external documentation</a>.
 -spec replace(This, Pos, Menu, Title) -> wxMenu:wxMenu() when
 	This::wxMenuBar(), Pos::integer(), Menu::wxMenu:wxMenu(), Title::unicode:chardata().
 replace(#wx_ref{type=ThisT,ref=ThisRef},Pos,#wx_ref{type=MenuT,ref=MenuRef},Title)
- when is_integer(Pos),is_list(Title) ->
+ when is_integer(Pos),?is_chardata(Title) ->
   ?CLASS(ThisT,wxMenuBar),
   ?CLASS(MenuT,wxMenu),
   Title_UC = unicode:characters_to_binary([Title,0]),
   wxe_util:call(?wxMenuBar_Replace,
   <<ThisRef:32/?UI,Pos:32/?UI,MenuRef:32/?UI,(byte_size(Title_UC)):32/?UI,(Title_UC)/binary, 0:(((8- ((0+byte_size(Title_UC)) band 16#7)) band 16#7))/unit:8>>).
 
-%% @doc See <a href="http://www.wxwidgets.org/manuals/stable/wx_wxmenubar.html#wxmenubarsethelpstring">external documentation</a>.
--spec setHelpString(This, Itemid, HelpString) -> ok when
+%% @doc See <a href="http://www.wxwidgets.org/manuals/2.8.12/wx_wxmenubar.html#wxmenubarsethelpstring">external documentation</a>.
+-spec setHelpString(This, Itemid, HelpString) -> 'ok' when
 	This::wxMenuBar(), Itemid::integer(), HelpString::unicode:chardata().
 setHelpString(#wx_ref{type=ThisT,ref=ThisRef},Itemid,HelpString)
- when is_integer(Itemid),is_list(HelpString) ->
+ when is_integer(Itemid),?is_chardata(HelpString) ->
   ?CLASS(ThisT,wxMenuBar),
   HelpString_UC = unicode:characters_to_binary([HelpString,0]),
   wxe_util:cast(?wxMenuBar_SetHelpString,
   <<ThisRef:32/?UI,Itemid:32/?UI,(byte_size(HelpString_UC)):32/?UI,(HelpString_UC)/binary, 0:(((8- ((4+byte_size(HelpString_UC)) band 16#7)) band 16#7))/unit:8>>).
 
-%% @doc See <a href="http://www.wxwidgets.org/manuals/stable/wx_wxmenubar.html#wxmenubarsetlabel">external documentation</a>.
--spec setLabel(This, S) -> ok when
+%% @doc See <a href="http://www.wxwidgets.org/manuals/2.8.12/wx_wxmenubar.html#wxmenubarsetlabel">external documentation</a>.
+-spec setLabel(This, S) -> 'ok' when
 	This::wxMenuBar(), S::unicode:chardata().
 setLabel(#wx_ref{type=ThisT,ref=ThisRef},S)
- when is_list(S) ->
+ when ?is_chardata(S) ->
   ?CLASS(ThisT,wxMenuBar),
   S_UC = unicode:characters_to_binary([S,0]),
   wxe_util:cast(?wxMenuBar_SetLabel_1,
   <<ThisRef:32/?UI,(byte_size(S_UC)):32/?UI,(S_UC)/binary, 0:(((8- ((0+byte_size(S_UC)) band 16#7)) band 16#7))/unit:8>>).
 
-%% @doc See <a href="http://www.wxwidgets.org/manuals/stable/wx_wxmenubar.html#wxmenubarsetlabel">external documentation</a>.
--spec setLabel(This, Itemid, Label) -> ok when
+%% @doc See <a href="http://www.wxwidgets.org/manuals/2.8.12/wx_wxmenubar.html#wxmenubarsetlabel">external documentation</a>.
+-spec setLabel(This, Itemid, Label) -> 'ok' when
 	This::wxMenuBar(), Itemid::integer(), Label::unicode:chardata().
 setLabel(#wx_ref{type=ThisT,ref=ThisRef},Itemid,Label)
- when is_integer(Itemid),is_list(Label) ->
+ when is_integer(Itemid),?is_chardata(Label) ->
   ?CLASS(ThisT,wxMenuBar),
   Label_UC = unicode:characters_to_binary([Label,0]),
   wxe_util:cast(?wxMenuBar_SetLabel_2,
   <<ThisRef:32/?UI,Itemid:32/?UI,(byte_size(Label_UC)):32/?UI,(Label_UC)/binary, 0:(((8- ((4+byte_size(Label_UC)) band 16#7)) band 16#7))/unit:8>>).
 
-%% @doc See <a href="http://www.wxwidgets.org/manuals/stable/wx_wxmenubar.html#wxmenubarsetlabeltop">external documentation</a>.
--spec setLabelTop(This, Pos, Label) -> ok when
+%% @doc See <a href="http://www.wxwidgets.org/manuals/2.8.12/wx_wxmenubar.html#wxmenubarsetlabeltop">external documentation</a>.
+-spec setLabelTop(This, Pos, Label) -> 'ok' when
 	This::wxMenuBar(), Pos::integer(), Label::unicode:chardata().
 setLabelTop(#wx_ref{type=ThisT,ref=ThisRef},Pos,Label)
- when is_integer(Pos),is_list(Label) ->
+ when is_integer(Pos),?is_chardata(Label) ->
   ?CLASS(ThisT,wxMenuBar),
   Label_UC = unicode:characters_to_binary([Label,0]),
   wxe_util:cast(?wxMenuBar_SetLabelTop,
   <<ThisRef:32/?UI,Pos:32/?UI,(byte_size(Label_UC)):32/?UI,(Label_UC)/binary, 0:(((8- ((4+byte_size(Label_UC)) band 16#7)) band 16#7))/unit:8>>).
 
 %% @doc Destroys this object, do not use object again
--spec destroy(This::wxMenuBar()) -> ok.
+-spec destroy(This::wxMenuBar()) -> 'ok'.
 destroy(Obj=#wx_ref{type=Type}) ->
   ?CLASS(Type,wxMenuBar),
   wxe_util:destroy(?DESTROY_OBJECT,Obj),
   ok.
  %% From wxWindow
+%% @hidden
+getContentScaleFactor(This) -> wxWindow:getContentScaleFactor(This).
+%% @hidden
+setDoubleBuffered(This,On) -> wxWindow:setDoubleBuffered(This,On).
+%% @hidden
+isDoubleBuffered(This) -> wxWindow:isDoubleBuffered(This).
+%% @hidden
+canSetTransparent(This) -> wxWindow:canSetTransparent(This).
+%% @hidden
+setTransparent(This,Alpha) -> wxWindow:setTransparent(This,Alpha).
 %% @hidden
 warpPointer(This,X,Y) -> wxWindow:warpPointer(This,X,Y).
 %% @hidden
@@ -640,6 +652,8 @@ fitInside(This) -> wxWindow:fitInside(This).
 fit(This) -> wxWindow:fit(This).
 %% @hidden
 findWindow(This,Winid) -> wxWindow:findWindow(This,Winid).
+%% @hidden
+dragAcceptFiles(This,Accept) -> wxWindow:dragAcceptFiles(This,Accept).
 %% @hidden
 disable(This) -> wxWindow:disable(This).
 %% @hidden

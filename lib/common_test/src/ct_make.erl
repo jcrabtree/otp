@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2009-2011. All Rights Reserved.
+%% Copyright Ericsson AB 2009-2017. All Rights Reserved.
 %% 
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
+%%
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %% 
 %% %CopyrightEnd%
 %%
@@ -95,7 +96,7 @@ read_emakefile(Emakefile,Opts) ->
 	    Mods = [filename:rootname(F) ||  F <- filelib:wildcard("*.erl")],
 	    [{Mods, Opts}];
 	{error,Other} ->
-	    io:format("make: Trouble reading 'Emakefile':~n~p~n",[Other]),
+	    io:format("make: Trouble reading 'Emakefile':~n~tp~n",[Other]),
 	    error
     end.
 
@@ -150,7 +151,7 @@ get_opts_from_emakefile(Mods,Emakefile,Opts) ->
 	{error,enoent} ->
 	    [{Mods, Opts}];
 	{error,Other} ->
-	    io:format("make: Trouble reading 'Emakefile':~n~p~n",[Other]),
+	    io:format("make: Trouble reading 'Emakefile':~n~tp~n",[Other]),
 	    error
     end.
 
@@ -279,15 +280,47 @@ recompile(File, NoExec, Load, Opts) ->
 
 do_recompile(_File, true, _Load, _Opts) ->
     out_of_date;
-do_recompile(File, false, noload, Opts) ->
-    io:format("Recompile: ~s\n",[File]),
-    compile:file(File, [report_errors, report_warnings, error_summary |Opts]);
-do_recompile(File, false, load, Opts) ->
-    io:format("Recompile: ~s\n",[File]),
-    c:c(File, Opts);
-do_recompile(File, false, netload, Opts) ->
-    io:format("Recompile: ~s\n",[File]),
-    c:nc(File, Opts).
+do_recompile(File, false, Load, Opts) ->
+    io:format("Recompile: ~ts\n",[File]),
+    case compile:file(File, [report_errors, report_warnings |Opts]) of
+        Ok when is_tuple(Ok), element(1,Ok)==ok ->
+            maybe_load(element(2,Ok), Load, Opts);
+        _Error ->
+            error
+    end.
+
+maybe_load(_Mod, noload, _Opts) ->
+    ok;
+maybe_load(Mod, Load, Opts) ->
+    %% We have compiled File with options Opts. Find out where the
+    %% output file went to, and load it.
+    case compile:output_generated(Opts) of
+        true ->
+            Dir = proplists:get_value(outdir,Opts,"."),
+            do_load(Dir, Mod, Load);
+        false ->
+            io:format("** Warning: No object file created - nothing loaded **~n"),
+            ok
+    end.
+
+do_load(Dir, Mod, load) ->
+    code:purge(Mod),
+    case code:load_abs(filename:join(Dir, Mod),Mod) of
+        {module,Mod} ->
+            {ok,Mod};
+        Other ->
+            Other
+    end;
+do_load(Dir, Mod, netload) ->
+    Obj = atom_to_list(Mod) ++ code:objfile_extension(),
+    Fname = filename:join(Dir, Obj),
+    case file:read_file(Fname) of
+        {ok,Bin} ->
+            rpc:eval_everywhere(code,load_binary,[Mod,Fname,Bin]),
+            {ok,Mod};
+        Other ->
+            Other
+    end.
 
 exists(File) ->
     case file:read_file_info(File) of
@@ -323,10 +356,11 @@ check_includes(File, IncludePath, ObjMTime) ->
     end.
     
 check_includes2(Epp, File, ObjMTime) ->
+    A1 = erl_anno:new(1),
     case epp:parse_erl_form(Epp) of
-	{ok, {attribute, 1, file, {File, 1}}} ->
+	{ok, {attribute, A1, file, {File, A1}}} ->
 	    check_includes2(Epp, File, ObjMTime);
-	{ok, {attribute, 1, file, {IncFile, 1}}} ->
+	{ok, {attribute, A1, file, {IncFile, A1}}} ->
 	    case file:read_file_info(IncFile) of
 		{ok, #file_info{mtime=MTime}} when MTime>ObjMTime ->
 		    epp:close(Epp),
@@ -340,5 +374,7 @@ check_includes2(Epp, File, ObjMTime) ->
 	    epp:close(Epp),
 	    false;
 	{error, _Error} ->
+	    check_includes2(Epp, File, ObjMTime);
+	{warning, _Warning} ->
 	    check_includes2(Epp, File, ObjMTime)
     end.

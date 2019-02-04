@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2008-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2008-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -46,9 +47,9 @@ safe(What, QuitOnErr) ->
 	What(),
 	io:format("Completed successfully~n~n", []),
 	QuitOnErr andalso gen_util:halt(0)
-    catch Err:Reason ->
+    catch Err:Reason:Stacktrace ->
 	    io:format("Error ~p: ~p:~p~n  ~p~n", 
-		      [get(current_func),Err,Reason,erlang:get_stacktrace()]),
+		      [get(current_func),Err,Reason,Stacktrace]),
 	    (catch gen_util:close()),
 	    timer:sleep(1999),
 	    QuitOnErr andalso gen_util:halt(1)
@@ -185,13 +186,14 @@ parse_define([#xmlElement{name=name,content=[#xmlText{value="WINGDIAPI"++_}]}|_]
     throw(skip);
 parse_define([#xmlElement{name=name,content=[#xmlText{value=Name}]}|R], Def, Os) ->
     parse_define(R, Def#def{name=Name}, Os);
-parse_define([#xmlElement{name=initializer,content=[#xmlText{value=V}]}|_],Def,_Os) ->
-    Val0 = string:strip(V),
-    try 
+parse_define([#xmlElement{name=initializer,content=Contents}|_R],Def,_Os) ->
+    Val0 = extract_def2(Contents),
+    try
 	case Val0 of
-	    "0x" ++ Val1 -> 
-		_ = http_util:hexlist_to_integer(Val1),
-		Def#def{val=Val1, type=hex};
+	    "0x" ++ Val1 ->
+		Val2 = strip_type_cast(Val1),
+		_ = list_to_integer(Val2, 16),
+		Def#def{val=Val2, type=hex};
 	    _ ->
 		Val = list_to_integer(Val0),
 		Def#def{val=Val, type=int}
@@ -206,6 +208,32 @@ parse_define([_|R], D, Opts) ->
     parse_define(R, D, Opts);
 parse_define([], D, _Opts) ->
     D.
+
+extract_def2([#xmlText{value=Val}|R]) ->
+    strip_comment(string:strip(Val)) ++ extract_def2(R);
+extract_def2([#xmlElement{content=Cs}|R]) ->
+    extract_def2(Cs) ++ extract_def2(R);
+extract_def2([]) -> [].
+
+strip_type_cast(Int) ->
+    lists:reverse(strip_type_cast2(lists:reverse(Int))).
+
+strip_type_cast2("u"++Rest) -> Rest; %% unsigned
+strip_type_cast2("lu"++Rest) -> Rest; %% unsigned  long
+strip_type_cast2("llu"++Rest) -> Rest; %% unsigned long long
+strip_type_cast2(Rest) -> Rest.
+
+
+strip_comment("/*" ++ Rest) ->
+    strip_comment_until_end(Rest);
+strip_comment("//" ++ _) -> [];
+strip_comment([H|R]) -> [H | strip_comment(R)];
+strip_comment([]) -> [].
+
+strip_comment_until_end("*/" ++ Rest) ->
+    strip_comment(Rest);
+strip_comment_until_end([_|R]) ->
+    strip_comment_until_end(R).
 
 parse_func(Xml, Opts) ->
     {Func,_} = foldl(fun(X,Acc) -> parse_func(X,Acc,Opts) end, {#func{},1}, Xml),
@@ -326,6 +354,7 @@ handle_arg_opt({single,Opt},P=#arg{type=T}) -> P#arg{type=T#type{single=Opt}};
 handle_arg_opt({base,{Opt, Sz}},  P=#arg{type=T}) -> P#arg{type=T#type{base=Opt, size=Sz}};
 handle_arg_opt({base,Opt},  P=#arg{type=T}) -> P#arg{type=T#type{base=Opt}};
 handle_arg_opt({c_only,Opt},P) -> P#arg{where=c, alt=Opt};
+handle_arg_opt(list_binary, P) -> P#arg{alt=list_binary};
 handle_arg_opt(string,  P=#arg{type=T}) -> P#arg{type=T#type{base=string}};
 handle_arg_opt({string,Max,Sz}, P=#arg{type=T}) ->
     P#arg{type=T#type{base=string, size={Max,Sz}}}.
@@ -560,7 +589,7 @@ lookup(Name,[_|R],Def) ->
     lookup(Name,R,Def);
 lookup(_,[], Def) -> Def.
     
-setup_idx_binary(Name,Ext,_Opts) ->
+setup_idx_binary(Name,Ext, Opts) ->
     FuncName = Name ++ Ext,
     Func = #func{params=Args} = get(FuncName),
     Id = next_id(function),
@@ -579,8 +608,7 @@ setup_idx_binary(Name,Ext,_Opts) ->
 			  ok;
 		     (_) -> ok
 		  end, Args),
-
-    case setup_idx_binary(Args, []) of
+    case setup_idx_binary_1(Args, []) of
 	ignore -> 
 	    put(FuncName, Func#func{id=Id}),
 	    Name++Ext;
@@ -596,30 +624,41 @@ setup_idx_binary(Name,Ext,_Opts) ->
 	    [FuncName,Extra]
     end.
 
-setup_idx_binary([A=#arg{in=true,type=T=#type{base=idx_binary}}|R], Acc) ->
+setup_idx_binary_1([A=#arg{in=true,type=T=#type{base=idx_binary}}|R], Acc) ->
     A1 = A#arg{type=T#type{base=guard_int,size=4}},
     A2 = A#arg{type=T#type{base=binary}},
     Head = reverse(Acc),
-    case setup_idx_binary(R, []) of
+    case setup_idx_binary_1(R, []) of
 	ignore -> 
 	    {bin, Head ++ [A1|R], Head ++ [A2|R]};
 	{bin, R1,R2} ->
 	    {bin, Head ++ [A1|R1], Head ++ [A2|R2]}
     end;
-setup_idx_binary([A=#arg{in=true,type=T=#type{single={tuple,matrix}}}|R], Acc) ->
+setup_idx_binary_1([A=#arg{in=true,type=T=#type{base=int,size=4},alt=list_binary}|R], Acc) ->
+    A1 = A#arg{type=T#type{base=guard_int}},
+    A2 = A#arg{type=T#type{base=binary}},
+    Head = reverse(Acc),
+    case setup_idx_binary_1(R, []) of
+	ignore ->
+	    {bin, Head ++ [A1|R], Head ++ [A2|R]};
+	{bin, R1,R2} ->
+	    {bin, Head ++ [A1|R1], Head ++ [A2|R2]}
+    end;
+
+setup_idx_binary_1([A=#arg{in=true,type=T=#type{single={tuple,matrix}}}|R], Acc) ->
     A1 = A#arg{type=T#type{single={tuple, matrix12}}},
     A2 = A#arg{type=T#type{single={tuple, 16}}},
     Head = reverse(Acc),
-    case setup_idx_binary(R, []) of
+    case setup_idx_binary_1(R, []) of
 	ignore -> 
 	    {matrix, Head ++ [A1|R], Head ++ [A2|R]};
 	{matrix, R1,R2} ->
 	    {matrix, Head ++ [A1|R1], Head ++ [A2|R2]}
     end;
-setup_idx_binary([H|R],Acc) -> 
-    setup_idx_binary(R,[H|Acc]);
-setup_idx_binary([],_) -> ignore.
-    
+setup_idx_binary_1([H|R],Acc) ->
+    setup_idx_binary_1(R,[H|Acc]);
+setup_idx_binary_1([],_) -> ignore.
+
 is_equal(F1=#func{type=T1,params=A1},F2=#func{type=T2,params=A2}) ->
     Equal = is_equal_type(T1,T2) andalso is_equal_args(A1,A2),
     case Equal of

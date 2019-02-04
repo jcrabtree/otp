@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1999-2011. All Rights Reserved.
+%% Copyright Ericsson AB 1999-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -20,9 +21,9 @@
 
 -module(beam_jump).
 
--export([module/2,module_labels/1,
+-export([module/2,
 	 is_unreachable_after/1,is_exit_instruction/1,
-	 remove_unused_labels/1,is_label_used_in/2]).
+	 remove_unused_labels/1]).
 
 %%% The following optimisations are done:
 %%%
@@ -46,10 +47,13 @@
 %%%     such as a jump that never transfers control to the instruction
 %%%     following it.
 %%%
-%%% (2) case_end, if_end, and badmatch, and function calls that cause an
-%%%     exit (such as calls to exit/1) are moved to the end of the function.
-%%%     The purpose is to allow further optimizations at the place from
-%%%     which the code was moved.
+%%% (2) Short sequences starting with a label and ending in case_end, if_end,
+%%%     and badmatch, and function calls that cause an exit (such as calls
+%%%     to exit/1) are moved to the end of the function, but only if the
+%%%     the block is not entered via a fallthrough. The purpose of this move
+%%%     is to allow further optimizations at the place from which the
+%%%     code was moved (a jump around the block could be replaced with a
+%%%     fallthrough).
 %%%
 %%% (3) Any unreachable code is removed.  Unreachable code is code
 %%%     after jump, call_last and other instructions which never
@@ -67,9 +71,9 @@
 %%%
 %%%    jump L2
 %%%          . . .
-%%%    L1:
 %%%    L2: ...
 %%%
+%%%    and all preceding uses of L1 renamed to L2.
 %%%    If the jump is unreachable, it will be removed according to (1).
 %%%
 %%% (5) In
@@ -124,18 +128,16 @@
 %%% on the program state.
 %%% 
 
--import(lists, [reverse/1,reverse/2,foldl/3,dropwhile/2]).
+-import(lists, [dropwhile/2,reverse/1,reverse/2,foldl/3]).
+
+-type instruction() :: beam_utils:instruction().
+
+-spec module(beam_utils:module_code(), [compile:option()]) ->
+                    {'ok',beam_utils:module_code()}.
 
 module({Mod,Exp,Attr,Fs0,Lc}, _Opt) ->
     Fs = [function(F) || F <- Fs0],
     {ok,{Mod,Exp,Attr,Fs,Lc}}.
-
-module_labels({Mod,Exp,Attr,Fs,Lc}) ->
-    {Mod,Exp,Attr,[function_labels(F) || F <- Fs],Lc}.
-
-function_labels({function,Name,Arity,CLabel,Asm0}) ->
-    Asm = remove_unused_labels(Asm0),
-    {function,Name,Arity,CLabel,Asm}.    
 
 %% function(Function) -> Function'
 %%  Optimize jumps and branches.
@@ -156,20 +158,30 @@ function({function,Name,Arity,CLabel,Asm0}) ->
 share(Is0) ->
     %% We will get more sharing if we never fall through to a label.
     Is = eliminate_fallthroughs(Is0, []),
-    share_1(Is, dict:new(), [], []).
+    share_1(Is, #{}, [], []).
 
-share_1([{label,_}=Lbl|Is], Dict, [], Acc) ->
-    share_1(Is, Dict, [], [Lbl|Acc]);
-share_1([{label,L}=Lbl|Is], Dict0, Seq, Acc) ->
-    case dict:find(Seq, Dict0) of
+share_1([{label,L}=Lbl|Is], Dict0, [_|_]=Seq, Acc) ->
+    case maps:find(Seq, Dict0) of
 	error ->
-	    Dict = dict:store(Seq, L, Dict0),
+	    Dict = maps:put(Seq, L, Dict0),
 	    share_1(Is, Dict, [], [Lbl|Seq ++ Acc]);
 	{ok,Label} ->
 	    share_1(Is, Dict0, [], [Lbl,{jump,{f,Label}}|Acc])
     end;
 share_1([{func_info,_,_,_}=I|Is], _, [], Acc) ->
     reverse(Is, [I|Acc]);
+share_1([{'catch',_,_}=I|Is], Dict0, Seq, Acc) ->
+    Dict = clean_non_sharable(Dict0),
+    share_1(Is, Dict, [I|Seq], Acc);
+share_1([{'try',_,_}=I|Is], Dict0, Seq, Acc) ->
+    Dict = clean_non_sharable(Dict0),
+    share_1(Is, Dict, [I|Seq], Acc);
+share_1([{try_case,_}=I|Is], Dict0, Seq, Acc) ->
+    Dict = clean_non_sharable(Dict0),
+    share_1(Is, Dict, [I|Seq], Acc);
+share_1([{catch_end,_}=I|Is], Dict0, Seq, Acc) ->
+    Dict = clean_non_sharable(Dict0),
+    share_1(Is, Dict, [I|Seq], Acc);
 share_1([I|Is], Dict, Seq, Acc) ->
     case is_unreachable_after(I) of
 	false ->
@@ -178,24 +190,39 @@ share_1([I|Is], Dict, Seq, Acc) ->
 	    share_1(Is, Dict, [I], Acc)
     end.
 
+clean_non_sharable(Dict) ->
+    %% We are passing in or out of a 'catch' or 'try' block. Remove
+    %% sequences that should not be shared over the boundaries of the
+    %% block. Since the end of the sequence must match, the only
+    %% possible match between a sequence outside and a sequence inside
+    %% the 'catch'/'try' block is a sequence that ends with an
+    %% instruction that causes an exception. Any sequence that causes
+    %% an exception must contain a line/1 instruction.
+    maps:filter(fun(K, _V) -> sharable_with_try(K) end, Dict).
+
+sharable_with_try([{line,_}|_]) ->
+    %% This sequence may cause an exception and may potentially
+    %% match a sequence on the other side of the 'catch'/'try' block
+    %% boundary.
+    false;
+sharable_with_try([_|Is]) ->
+    sharable_with_try(Is);
+sharable_with_try([]) -> true.
 
 %% Eliminate all fallthroughs. Return the result reversed.
 
-eliminate_fallthroughs([I,{label,L}=Lbl|Is], Acc) ->
-    case is_unreachable_after(I) orelse is_label(I) of
+eliminate_fallthroughs([{label,L}=Lbl|Is], [I|_]=Acc) ->
+    case is_unreachable_after(I) of
 	false ->
 	    %% Eliminate fallthrough.
-	    eliminate_fallthroughs(Is, [Lbl,{jump,{f,L}},I|Acc]);
+	    eliminate_fallthroughs(Is, [Lbl,{jump,{f,L}}|Acc]);
 	true ->
-	    eliminate_fallthroughs(Is, [Lbl,I|Acc])
+	    eliminate_fallthroughs(Is, [Lbl|Acc])
     end;
 eliminate_fallthroughs([I|Is], Acc) ->
     eliminate_fallthroughs(Is, [I|Acc]);
 eliminate_fallthroughs([], Acc) -> Acc.
 
-is_label({label,_}) -> true;
-is_label(_) -> false.
-    
 %%%
 %%% (2) Move short code sequences ending in an instruction that causes an exit
 %%% to the end of the function.
@@ -206,24 +233,26 @@ is_label(_) -> false.
 move(Is) ->
     move_1(Is, [], []).
 
-move_1([I|Is], End0, Acc0) ->
+move_1([I|Is], Ends, Acc0) ->
     case is_exit_instruction(I) of
 	false ->
-	    move_1(Is, End0, [I|Acc0]);
+	    move_1(Is, Ends, [I|Acc0]);
 	true ->
-	    case extract_seq(Acc0, [I|End0]) of
+	    case extract_seq(Acc0, [I]) of
 		no ->
-		    move_1(Is, End0, [I|Acc0]);
+		    move_1(Is, Ends, [I|Acc0]);
 		{yes,End,Acc} ->
-		    move_1(Is, End, Acc)
+		    move_1(Is, [End|Ends], Acc)
 	    end
     end;
-move_1([], End, Acc) -> reverse(Acc, End).
+move_1([], Ends, Acc) -> reverse(Acc, lists:append(reverse(Ends))).
 
 extract_seq([{line,_}=Line|Is], Acc) ->
     extract_seq(Is, [Line|Acc]);
 extract_seq([{block,_}=Bl|Is], Acc) ->
     extract_seq_1(Is, [Bl|Acc]);
+extract_seq([{bs_context_to_binary,_}=I|Is], Acc) ->
+    extract_seq_1(Is, [I|Acc]);
 extract_seq([{label,_}|_]=Is, Acc) ->
     extract_seq_1(Is, Acc);
 extract_seq(_, _) -> no.
@@ -231,6 +260,9 @@ extract_seq(_, _) -> no.
 extract_seq_1([{line,_}=Line|Is], Acc) ->
     extract_seq_1(Is, [Line|Acc]);
 extract_seq_1([{label,_},{func_info,_,_,_}|_], _) ->
+    no;
+extract_seq_1([{label,Lbl},{jump,{f,Lbl}}|_], _) ->
+    %% Don't move a sequence which have a fallthrough entering it.
     no;
 extract_seq_1([{label,_}=Lbl|Is], Acc) ->
     {yes,[Lbl|Acc],Is};
@@ -240,17 +272,18 @@ extract_seq_1(_, _) -> no.
 %%% (3) (4) (5) (6) Jump and unreachable code optimizations.
 %%%
 
--record(st, {fc,				%Label for function class errors.
-	     entry,				%Entry label (must not be moved).
-	     mlbl,				%Moved labels.
-	     labels				%Set of referenced labels.
-	    }).
+-record(st,
+	{
+	  entry :: beam_asm:label(), %Entry label (must not be moved).
+	  replace :: #{beam_asm:label() := beam_asm:label()}, %Labels to replace.
+	  labels :: cerl_sets:set(),         %Set of referenced labels.
+          index :: beam_utils:code_index() | {lazy,[beam_utils:instruction()]} %Index built lazily only if needed
+	}).
 
-opt([{label,Fc}|_]=Is0, CLabel) ->
-    Lbls = initial_labels(Is0),
+opt(Is0, CLabel) ->
     find_fixpoint(fun(Is) ->
-			  St = #st{fc=Fc,entry=CLabel,mlbl=dict:new(),
-				   labels=Lbls},
+			  Lbls = initial_labels(Is),
+			  St = #st{entry=CLabel,replace=#{},labels=Lbls,index={lazy,Is}},
 			  opt(Is, [], St)
 		  end, Is0).
 
@@ -260,62 +293,63 @@ find_fixpoint(OptFun, Is0) ->
 	Is -> find_fixpoint(OptFun, Is)
     end.
 
-opt([{test,Test0,{f,Lnum}=Lbl,Ops}=I|Is0], Acc, St) ->
-    case Is0 of
-	[{jump,{f,Lnum}}|Is] ->
-	    %% We have
-	    %%    Test Label Ops
-	    %%    jump Label
-	    %% The test instruction is definitely not needed.
-	    %% The jump instruction is not needed if there is
-	    %% a definition of Label following the jump instruction.
-	    case is_label_defined(Is, Lnum) of
-		false ->
-		    %% The jump instruction is still needed.
-		    opt(Is0, [I|Acc], label_used(Lbl, St));
-		true ->
-		    %% Neither the test nor the jump are needed.
-		    opt(Is, Acc, St)
-	    end;
-	[{jump,To}|Is] ->
-	    case is_label_defined(Is, Lnum) of
-		false ->
-		    opt(Is0, [I|Acc], label_used(Lbl, St));
-		true ->
-		    case invert_test(Test0) of
-			not_possible ->
-			    opt(Is0, [I|Acc], label_used(Lbl, St));
-			Test ->
-			    opt([{test,Test,To,Ops}|Is], Acc, St)
-		    end
-	    end;
-	_Other ->
-	    opt(Is0, [I|Acc], label_used(Lbl, St))
+opt([{test,_,{f,L}=Lbl,_}=I|[{jump,{f,L}}|_]=Is], Acc0, St0) ->
+    %% We have
+    %%    Test Label Ops
+    %%    jump Label
+    %% The test instruction is not needed if the test is pure
+    %% (it modifies neither registers nor bit syntax state).
+    case beam_utils:is_pure_test(I) of
+	false ->
+	    %% Test is not pure; we must keep it.
+	    opt(Is, [I|Acc0], label_used(Lbl, St0));
+	true ->
+	    %% The test is pure and its failure label is the same
+	    %% as in the jump that follows -- thus it is not needed.
+            %% Check if any of the previous instructions could also be eliminated.
+            {Acc,St} = opt_useless_loads(Acc0, L, St0),
+	    opt(Is, Acc, St)
     end;
+opt([{test,_,{f,L}=Lbl,_}=I|[{label,L}|_]=Is], Acc0, St0) ->
+    %% Similar to the above, except we have a fall-through rather than jump
+    %%    Test Label Ops
+    %%    label Label
+    case beam_utils:is_pure_test(I) of
+	false ->
+	    opt(Is, [I|Acc0], label_used(Lbl, St0));
+	true ->
+            {Acc,St} = opt_useless_loads(Acc0, L, St0),
+	    opt(Is, Acc, St)
+    end;
+opt([{test,Test0,{f,L}=Lbl,Ops}=I|[{jump,To}|Is]=Is0], Acc, St) ->
+    case is_label_defined(Is, L) of
+	false ->
+	    opt(Is0, [I|Acc], label_used(Lbl, St));
+	true ->
+	    case invert_test(Test0) of
+		not_possible ->
+		    opt(Is0, [I|Acc], label_used(Lbl, St));
+		Test ->
+		    %% Invert the test and remove the jump.
+		    opt([{test,Test,To,Ops}|Is], Acc, St)
+	    end
+    end;
+opt([{test,_,{f,_}=Lbl,_}=I|Is], Acc, St) ->
+    opt(Is, [I|Acc], label_used(Lbl, St));
 opt([{test,_,{f,_}=Lbl,_,_,_}=I|Is], Acc, St) ->
     opt(Is, [I|Acc], label_used(Lbl, St));
-opt([{select_val,_R,Fail,{list,Vls}}=I|Is], Acc, St) ->
+opt([{select,_,_R,Fail,Vls}=I|Is], Acc, St) ->
     skip_unreachable(Is, [I|Acc], label_used([Fail|Vls], St));
-opt([{select_tuple_arity,_R,Fail,{list,Vls}}=I|Is], Acc, St) ->
-    skip_unreachable(Is, [I|Acc], label_used([Fail|Vls], St));
-opt([{label,L}=I|Is], Acc, #st{entry=L}=St) ->
-    %% NEVER move the entry label.
-    opt(Is, [I|Acc], St);
-opt([{label,L1},{jump,{f,L2}}=I|Is], [Prev|Acc], St0) ->
-    St = St0#st{mlbl=dict:append(L2, L1, St0#st.mlbl)},
-    opt([Prev,I|Is], Acc, label_used({f,L2}, St));
-opt([{label,Lbl}=I|Is], Acc, #st{mlbl=Mlbl}=St0) ->
-    case dict:find(Lbl, Mlbl) of
-	{ok,Lbls} ->
-	    %% Essential to remove the list of labels from the dictionary,
-	    %% since we will rescan the inserted labels.  We MUST rescan.
-	    St = St0#st{mlbl=dict:erase(Lbl, Mlbl)},
-	    insert_labels([Lbl|Lbls], Is, Acc, St);
-	error -> opt(Is, [I|Acc], St0)
-    end;
-opt([{jump,{f,Lbl}},{label,Lbl}=I|Is], Acc, St) ->
-    opt([I|Is], Acc, St);
-opt([{jump,Lbl}=I|Is], Acc, St) ->
+opt([{label,From}=I,{label,To}|Is], Acc, #st{replace=Replace}=St) ->
+    opt([I|Is], Acc, St#st{replace=Replace#{To => From}});
+opt([{jump,{f,_}=X}|[{label,_},{jump,X}|_]=Is], Acc, St) ->
+    opt(Is, Acc, St);
+opt([{jump,{f,Lbl}}|[{label,Lbl}|_]=Is], Acc, St) ->
+    opt(Is, Acc, St);
+opt([{jump,{f,L}=Lbl}=I|Is], Acc0, St0) ->
+    %% Replace all labels before this jump instruction into the
+    %% location of the jump's target.
+    {Acc,St} = collect_labels(Acc0, L, St0),
     skip_unreachable(Is, [I|Acc], label_used(Lbl, St));
 %% Optimization: quickly handle some common instructions that don't
 %% have any failure labels and where is_unreachable_after(I) =:= false.
@@ -335,22 +369,77 @@ opt([I|Is], Acc, #st{labels=Used0}=St0) ->
 	true  -> skip_unreachable(Is, [I|Acc], St);
 	false -> opt(Is, [I|Acc], St)
     end;
-opt([], Acc, #st{fc=Fc,mlbl=Mlbl}) ->
-    Code = reverse(Acc),
-    case dict:find(Fc, Mlbl) of
- 	{ok,Lbls} -> insert_fc_labels(Lbls, Mlbl, Code);
- 	error -> Code
-    end.
+opt([], Acc, #st{replace=Replace0}) when Replace0 =/= #{} ->
+    Replace = normalize_replace(maps:to_list(Replace0), Replace0, []),
+    beam_utils:replace_labels(Acc, [], Replace, fun(Old) -> Old end);
+opt([], Acc, #st{replace=Replace}) when Replace =:= #{} ->
+    reverse(Acc).
 
-insert_fc_labels([L|Ls], Mlbl, Acc0) ->
-    Acc = [{label,L}|Acc0],
-    case dict:find(L, Mlbl) of
-	error ->
-	    insert_fc_labels(Ls, Mlbl, Acc);
-	{ok,Lbls} ->
-	    insert_fc_labels(Lbls++Ls, Mlbl, Acc)
+normalize_replace([{From,To0}|Rest], Replace, Acc) ->
+    case Replace of
+        #{To0 := To} ->
+            normalize_replace([{From,To}|Rest], Replace, Acc);
+        _ ->
+            normalize_replace(Rest, Replace, [{From,To0}|Acc])
     end;
-insert_fc_labels([], _, Acc) -> Acc.
+normalize_replace([], _Replace, Acc) ->
+    maps:from_list(Acc).
+
+%% After eliminating a test, it might happen, that a register was only used
+%% in this test. Let's check if that was the case and if it was so, we can
+%% eliminate the load into the register completely.
+opt_useless_loads([{block,_}|_]=Is, L, #st{index={lazy,FIs}}=St) ->
+    opt_useless_loads(Is, L, St#st{index=beam_utils:index_labels(FIs)});
+opt_useless_loads([{block,Block0}|Is], L, #st{index=Index}=St) ->
+    case opt_useless_block_loads(Block0, L, Index) of
+        [] ->
+            opt_useless_loads(Is, L, St);
+        [_|_]=Block ->
+            {[{block,Block}|Is],St}
+    end;
+%% After eliminating the test and useless blocks, it might happen,
+%% that the previous test could also be eliminated.
+%% It might be that the label was already marked as used, even if ultimately,
+%% it never will be - we can't do much about it at that point, though
+opt_useless_loads([{test,_,{f,L},_}=I|Is], L, St) ->
+    case beam_utils:is_pure_test(I) of
+        false ->
+            {[I|Is],St};
+        true ->
+            opt_useless_loads(Is, L, St)
+    end;
+opt_useless_loads(Is, _L, St) ->
+    {Is,St}.
+
+opt_useless_block_loads([{set,[Dst],_,_}=I|Is0], L, Index) ->
+    BlockJump = [{block,Is0},{jump,{f,L}}],
+    case beam_utils:is_killed(Dst, BlockJump, Index) of
+        true ->
+            %% The register is killed and not used, we can remove the load.
+            %% Remove any `put` instructions in case we just
+            %% removed a `put_tuple` instruction.
+            Is = dropwhile(fun({set,_,_,put}) -> true;
+                              (_) -> false
+                           end, Is0),
+            opt_useless_block_loads(Is, L, Index);
+        false ->
+            [I|opt_useless_block_loads(Is0, L, Index)]
+    end;
+opt_useless_block_loads([I|Is], L, Index) ->
+    [I|opt_useless_block_loads(Is, L, Index)];
+opt_useless_block_loads([], _L, _Index) ->
+    [].
+
+collect_labels(Is, Label, #st{entry=Entry,replace=Replace} = St) ->
+    collect_labels_1(Is, Label, Entry, Replace, St).
+
+collect_labels_1([{label,Entry}|_]=Is, _Label, Entry, Acc, St) ->
+    %% Never move the entry label.
+    {Is,St#st{replace=Acc}};
+collect_labels_1([{label,L}|Is], Label, Entry, Acc, St) ->
+    collect_labels_1(Is, Label, Entry, Acc#{L => Label}, St);
+collect_labels_1(Is, _Label, _Entry, Acc, St) ->
+    {Is,St#st{replace=Acc}}.
 
 %% label_defined(Is, Label) -> true | false.
 %%  Test whether the label Label is defined at the start of the instruction
@@ -369,13 +458,6 @@ invert_test(is_ne) ->       is_eq;
 invert_test(is_eq_exact) -> is_ne_exact;
 invert_test(is_ne_exact) -> is_eq_exact;
 invert_test(_) ->           not_possible.
-
-insert_labels([L|Ls], Is, [{jump,{f,L}}|Acc], St) ->
-    insert_labels(Ls, [{label,L}|Is], Acc, St);
-insert_labels([L|Ls], Is, Acc, St) ->
-    insert_labels(Ls, [{label,L}|Is], Acc, St);
-insert_labels([], Is, Acc, St) ->
-    opt(Is, Acc, St).
 
 %% skip_unreachable([Instruction], St).
 %%  Remove all instructions (including definitions of labels
@@ -397,7 +479,7 @@ skip_unreachable([], Acc, St) ->
 
 %% Add one or more label to the set of used labels.
 
-label_used({f,L}, St) -> St#st{labels=gb_sets:add(L, St#st.labels)};
+label_used({f,L}, St) -> St#st{labels=cerl_sets:add_element(L,St#st.labels)};
 label_used([H|T], St0) -> label_used(T, label_used(H, St0));
 label_used([], St) -> St;
 label_used(_Other, St) -> St.
@@ -405,21 +487,17 @@ label_used(_Other, St) -> St.
 %% Test if label is used.
 
 is_label_used(L, St) ->
-    gb_sets:is_member(L, St#st.labels).
+    cerl_sets:is_element(L, St#st.labels).
 
 %% is_unreachable_after(Instruction) -> boolean()
 %%  Test whether the code after Instruction is unreachable.
 
+-spec is_unreachable_after(instruction()) -> boolean().
+
 is_unreachable_after({func_info,_M,_F,_A}) -> true;
 is_unreachable_after(return) -> true;
-is_unreachable_after({call_ext_last,_Ar,_ExtFunc,_D}) -> true;
-is_unreachable_after({call_ext_only,_Ar,_ExtFunc}) -> true;
-is_unreachable_after({call_last,_Ar,_Lbl,_D}) -> true;
-is_unreachable_after({call_only,_Ar,_Lbl}) -> true;
-is_unreachable_after({apply_last,_Ar,_N}) -> true;
 is_unreachable_after({jump,_Lbl}) -> true;
-is_unreachable_after({select_val,_R,_Lbl,_Cases}) -> true;
-is_unreachable_after({select_tuple_arity,_R,_Lbl,_Cases}) -> true;
+is_unreachable_after({select,_What,_R,_Lbl,_Cases}) -> true;
 is_unreachable_after({loop_rec_end,_}) -> true;
 is_unreachable_after({wait,_}) -> true;
 is_unreachable_after(I) -> is_exit_instruction(I).
@@ -428,11 +506,9 @@ is_unreachable_after(I) -> is_exit_instruction(I).
 %%  Test whether the instruction Instruction always
 %%  causes an exit/failure.
 
+-spec is_exit_instruction(instruction()) -> boolean().
+
 is_exit_instruction({call_ext,_,{extfunc,M,F,A}}) ->
-    erl_bifs:is_exit_bif(M, F, A);
-is_exit_instruction({call_ext_last,_,{extfunc,M,F,A},_}) ->
-    erl_bifs:is_exit_bif(M, F, A);
-is_exit_instruction({call_ext_only,_,{extfunc,M,F,A}}) ->
     erl_bifs:is_exit_bif(M, F, A);
 is_exit_instruction(if_end) -> true;
 is_exit_instruction({case_end,_}) -> true;
@@ -440,37 +516,11 @@ is_exit_instruction({try_case_end,_}) -> true;
 is_exit_instruction({badmatch,_}) -> true;
 is_exit_instruction(_) -> false.
 
-%% is_label_used_in(LabelNumber, [Instruction]) -> boolean()
-%%  Check whether the label is used in the instruction sequence
-%%  (including inside blocks).
-
-is_label_used_in(Lbl, Is) ->
-    is_label_used_in_1(Is, Lbl, gb_sets:empty()).
-
-is_label_used_in_1([{block,Block}|Is], Lbl, Empty) ->
-    lists:any(fun(I) -> is_label_used_in_2(I, Lbl) end, Block)
-	orelse is_label_used_in_1(Is, Lbl, Empty);
-is_label_used_in_1([I|Is], Lbl, Empty) ->
-    Used = ulbl(I, Empty),
-    gb_sets:is_member(Lbl, Used) orelse is_label_used_in_1(Is, Lbl, Empty);
-is_label_used_in_1([], _, _) -> false.
-
-is_label_used_in_2({set,_,_,Info}, Lbl) ->
-    case Info of
-	{bif,_,{f,F}} -> F =:= Lbl;
-	{alloc,_,{gc_bif,_,{f,F}}} -> F =:= Lbl;
-	{'catch',{f,F}} -> F =:= Lbl;
-	{alloc,_,_} -> false;
-	{put_tuple,_} -> false;
-	{get_tuple_element,_} -> false;
-	{set_tuple_element,_} -> false;
-	{line,_} -> false;
-	_ when is_atom(Info) -> false
-    end.
-
 %% remove_unused_labels(Instructions0) -> Instructions
 %%  Remove all unused labels. Also remove unreachable
 %%  instructions following labels that are removed.
+
+-spec remove_unused_labels([instruction()]) -> [instruction()].
 
 remove_unused_labels(Is) ->
     Used0 = initial_labels(Is),
@@ -478,13 +528,10 @@ remove_unused_labels(Is) ->
     rem_unused(Is, Used, []).
 
 rem_unused([{label,Lbl}=I|Is0], Used, [Prev|_]=Acc) ->
-    case gb_sets:is_member(Lbl, Used) of
+    case cerl_sets:is_element(Lbl, Used) of
 	false ->
 	    Is = case is_unreachable_after(Prev) of
-		     true ->
-			 dropwhile(fun({label,_}) -> false;
-				      (_) -> true
-				   end, Is0);
+		     true -> drop_upto_label(Is0);
 		     false -> Is0
 		 end,
 	    rem_unused(Is, Used, Acc);
@@ -503,7 +550,11 @@ initial_labels([{line,_}|Is], Acc) ->
 initial_labels([{label,Lbl}|Is], Acc) ->
     initial_labels(Is, [Lbl|Acc]);
 initial_labels([{func_info,_,_,_},{label,Lbl}|_], Acc) ->
-    gb_sets:from_list([Lbl|Acc]).
+    cerl_sets:from_list([Lbl|Acc]).
+
+drop_upto_label([{label,_}|_]=Is) -> Is;
+drop_upto_label([_|Is]) -> drop_upto_label(Is);
+drop_upto_label([]) -> [].
 
 %% ulbl(Instruction, UsedGbSet) -> UsedGbSet'
 %%  Update the gb_set UsedGbSet with any function-local labels
@@ -516,9 +567,7 @@ ulbl({test,_,Fail,_}, Used) ->
     mark_used(Fail, Used);
 ulbl({test,_,Fail,_,_,_}, Used) ->
     mark_used(Fail, Used);
-ulbl({select_val,_,Fail,{list,Vls}}, Used) ->
-    mark_used_list(Vls, mark_used(Fail, Used));
-ulbl({select_tuple_arity,_,Fail,{list,Vls}}, Used) ->
+ulbl({select,_,_,Fail,Vls}, Used) ->
     mark_used_list(Vls, mark_used(Fail, Used));
 ulbl({'try',_,Lbl}, Used) ->
     mark_used(Lbl, Used);
@@ -538,37 +587,21 @@ ulbl({bif,_Name,Lbl,_As,_R}, Used) ->
     mark_used(Lbl, Used);
 ulbl({gc_bif,_Name,Lbl,_Live,_As,_R}, Used) ->
     mark_used(Lbl, Used);
-ulbl({bs_init2,Lbl,_,_,_,_,_}, Used) ->
+ulbl({bs_init,Lbl,_,_,_,_}, Used) ->
     mark_used(Lbl, Used);
-ulbl({bs_init_bits,Lbl,_,_,_,_,_}, Used) ->
+ulbl({bs_put,Lbl,_,_}, Used) ->
     mark_used(Lbl, Used);
-ulbl({bs_put_integer,Lbl,_Bits,_Unit,_Fl,_Val}, Used) ->
+ulbl({put_map,Lbl,_Op,_Src,_Dst,_Live,_List}, Used) ->
     mark_used(Lbl, Used);
-ulbl({bs_put_float,Lbl,_Bits,_Unit,_Fl,_Val}, Used) ->
-    mark_used(Lbl, Used);
-ulbl({bs_put_binary,Lbl,_Bits,_Unit,_Fl,_Val}, Used) ->
-    mark_used(Lbl, Used);
-ulbl({bs_put_utf8,Lbl,_Fl,_Val}, Used) ->
-    mark_used(Lbl, Used);
-ulbl({bs_put_utf16,Lbl,_Fl,_Val}, Used) ->
-    mark_used(Lbl, Used);
-ulbl({bs_put_utf32,Lbl,_Fl,_Val}, Used) ->
-    mark_used(Lbl, Used);
-ulbl({bs_add,Lbl,_,_}, Used) ->
-    mark_used(Lbl, Used);
-ulbl({bs_append,Lbl,_,_,_,_,_,_,_}, Used) ->
-    mark_used(Lbl, Used);
-ulbl({bs_utf8_size,Lbl,_,_}, Used) ->
-    mark_used(Lbl, Used);
-ulbl({bs_utf16_size,Lbl,_,_}, Used) ->
+ulbl({get_map_elements,Lbl,_Src,_List}, Used) ->
     mark_used(Lbl, Used);
 ulbl(_, Used) -> Used.
 
 mark_used({f,0}, Used) -> Used;
-mark_used({f,L}, Used) -> gb_sets:add(L, Used).
+mark_used({f,L}, Used) -> cerl_sets:add_element(L, Used).
 
 mark_used_list([{f,L}|T], Used) ->
-    mark_used_list(T, gb_sets:add(L, Used));
+    mark_used_list(T, cerl_sets:add_element(L, Used));
 mark_used_list([_|T], Used) ->
     mark_used_list(T, Used);
 mark_used_list([], Used) -> Used.

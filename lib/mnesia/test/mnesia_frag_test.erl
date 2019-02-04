@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1999-2010. All Rights Reserved.
+%% Copyright Ericsson AB 1999-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -22,7 +23,17 @@
 -author('hakan@erix.ericsson.se').
 -include("mnesia_test_lib.hrl").
 
--compile([export_all]).
+-export([init_per_testcase/2, end_per_testcase/2,
+         init_per_group/2, end_per_group/2,
+         all/0, groups/0]).
+
+
+-export([nice_single/1, nice_multi/1, nice_access/1, iter_access/1,
+         consistency/1, evil_create/1, evil_delete/1, evil_change/1, evil_combine/1,
+         evil_loop/1, evil_delete_db_node/1]).
+
+
+-export([frag_dist/1]).
 
 init_per_testcase(Func, Conf) ->
     mnesia_test_lib:init_per_testcase(Func, Conf).
@@ -461,7 +472,7 @@ nice_iter_access(Tab, FragNames, RawRead) ->
     ExpectedLast = lists:last(Keys),
     ?match(ExpectedLast, mnesia:last(Tab)),
     
-    ExpectedAllPrev = ['$end_of_table' | lists:reverse(tl(lists:reverse(Keys)))],
+    ExpectedAllPrev = ['$end_of_table' | lists:droplast(Keys)],
     ?match(ExpectedAllPrev, lists:map(fun(K) -> mnesia:prev(Tab, K) end, Keys)),
     
     ExpectedAllNext = tl(Keys) ++ ['$end_of_table'],
@@ -477,7 +488,7 @@ evil_iter_access(Tab, FragNames, RawRead) ->
     ExpectedLast = lists:last(Keys),
     ?match(ExpectedLast, mnesia:last(Tab)),
     
-    ExpectedAllPrev = ['$end_of_table' | lists:reverse(tl(lists:reverse(Keys)))],
+    ExpectedAllPrev = ['$end_of_table' | lists:droplast(Keys)],
     ?match(ExpectedAllPrev, lists:map(fun(K) -> mnesia:prev(Tab, K) end, Keys)),
     
     ExpectedAllNext = tl(Keys) ++ ['$end_of_table'],
@@ -844,16 +855,7 @@ frag_rec_dist(Tab) ->
     Fun = fun() -> mnesia:table_info(Tab, frag_size) end,
     [Size || {_, Size} <- mnesia:activity(sync_dirty, Fun, mnesia_frag)].
 
-table_size(Tab) ->
-    Node = mnesia:table_info(Tab, where_to_read),
-    rpc:call(Node, mnesia, table_info, [Tab, size]).
-
 sort_res(List) when is_list(List) ->
     lists:sort(List);
 sort_res(Else) ->
-    Else.
-
-rev_res(List) when is_list(List) ->
-    lists:reverse(List);
-rev_res(Else) ->
     Else.

@@ -1,21 +1,17 @@
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% %CopyrightBegin%
+%%     http://www.apache.org/licenses/LICENSE-2.0
 %%
-%% Copyright Ericsson AB 2001-2010. All Rights Reserved.
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
-%%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
-%%
-%% %CopyrightEnd%
-
+%% @copyright 1999-2002 Richard Carlsson
+%% @author Richard Carlsson <carlsson.richard@gmail.com>
 %% @doc Utility functions for Core Erlang case/receive clauses.
 %%
 %% <p>Syntax trees are defined in the module <a
@@ -341,6 +337,31 @@ match(P, E, Bs) ->
 		    case type(E) of
 			literal ->
 			    case is_bitstring(concrete(E)) of
+				false ->
+				    none;
+				true ->
+				    {false, Bs}
+			    end;
+			cons ->
+			    none;
+			tuple ->
+			    none;
+			_ ->
+			    {false, Bs}
+		    end
+	    end;
+	map ->
+	    %% The most we can do is to say "definitely no match" if a
+	    %% map pattern is matched against non-map data.
+            %% (Note: See the document internal_doc/cerl-notes.md for
+            %% information why we don't try to do more here.)
+	    case E of
+		any ->
+		    {false, Bs};
+		_ ->
+		    case type(E) of
+			literal ->
+			    case is_map(concrete(E)) of
 				false ->
 				    none;
 				true ->

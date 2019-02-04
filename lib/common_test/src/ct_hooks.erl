@@ -1,25 +1,22 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2004-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2004-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
-
-%%% @doc Common Test Framework test execution control module.
-%%%
-%%% <p>This module is a proxy for calling and handling common test hooks.</p>
 
 -module(ct_hooks).
 
@@ -46,15 +43,12 @@
 %% API Functions
 %% -------------------------------------------------------------------------
 
-%% @doc Called before any suites are started
 -spec init(State :: term()) -> ok |
-			       {error, Reason :: term()}.
+			       {fail, Reason :: term()}.
 init(Opts) ->
-    call(get_new_hooks(Opts, undefined) ++ get_builtin_hooks(Opts),
+    call(get_builtin_hooks(Opts) ++ get_new_hooks(Opts, undefined),
 	 ok, init, []).
-		      
 
-%% @doc Called after all suites are done.
 -spec terminate(Hooks :: term()) ->
     ok.
 terminate(Hooks) ->
@@ -63,13 +57,18 @@ terminate(Hooks) ->
 	 ct_hooks_terminate_dummy, terminate, Hooks),
     ok.
 
-%% @doc Called as each test case is started. This includes all configuration
-%% tests.
--spec init_tc(Mod :: atom(), Func :: atom(), Args :: list()) ->
+-spec init_tc(Mod :: atom(),
+	      FuncSpec :: atom() | 
+			  {ConfigFunc :: init_per_testcase | end_per_testcase,
+			   TestCase :: atom()} |
+			  {ConfigFunc :: init_per_group | end_per_group,
+			   GroupName :: atom(),
+			   Properties :: list()},
+	      Args :: list()) ->
     NewConfig :: proplists:proplist() |
-    {skip, Reason :: term()} |
-    {auto_skip, Reason :: term()} |
-    {fail, Reason :: term()}.
+		 {skip, Reason :: term()} |
+		 {auto_skip, Reason :: term()} |
+		 {fail, Reason :: term()}.
 
 init_tc(Mod, init_per_suite, Config) ->
     Info = try proplists:get_value(ct_hooks, Mod:suite(),[]) of
@@ -83,26 +82,35 @@ init_tc(Mod, init_per_suite, Config) ->
     call(fun call_generic/3, Config ++ Info, [pre_init_per_suite, Mod]);
 init_tc(Mod, end_per_suite, Config) ->
     call(fun call_generic/3, Config, [pre_end_per_suite, Mod]);
-init_tc(Mod, {init_per_group, GroupName, Opts}, Config) ->
-    maybe_start_locker(Mod, GroupName, Opts),
-    call(fun call_generic/3, Config, [pre_init_per_group, GroupName]);
-init_tc(_Mod, {end_per_group, GroupName, _}, Config) ->
-    call(fun call_generic/3, Config, [pre_end_per_group, GroupName]);
-init_tc(_Mod, TC, Config) ->
-    call(fun call_generic/3, Config, [pre_init_per_testcase, TC]).
+init_tc(Mod, {init_per_group, GroupName, Properties}, Config) ->
+    maybe_start_locker(Mod, GroupName, Properties),
+    call(fun call_generic_fallback/3, Config,
+         [pre_init_per_group, Mod, GroupName]);
+init_tc(Mod, {end_per_group, GroupName, _}, Config) ->
+    call(fun call_generic_fallback/3, Config,
+         [pre_end_per_group, Mod, GroupName]);
+init_tc(Mod, {init_per_testcase,TC}, Config) ->
+    call(fun call_generic_fallback/3, Config, [pre_init_per_testcase, Mod, TC]);
+init_tc(Mod, {end_per_testcase,TC}, Config) ->
+    call(fun call_generic_fallback/3, Config, [pre_end_per_testcase, Mod, TC]);
+init_tc(Mod, TC = error_in_suite, Config) ->
+    call(fun call_generic_fallback/3, Config, [pre_init_per_testcase, Mod, TC]).
 
-%% @doc Called as each test case is completed. This includes all configuration
-%% tests.
 -spec end_tc(Mod :: atom(),
-	     Func :: atom(),
+	     FuncSpec :: atom() |  
+			 {ConfigFunc :: init_per_testcase | end_per_testcase,
+			  TestCase :: atom()} |
+			 {ConfigFunc :: init_per_group | end_per_group,
+			  GroupName :: atom(),
+			  Properties :: list()},
 	     Args :: list(),
 	     Result :: term(),
-	     Resturn :: term()) ->
+	     Return :: term()) ->
     NewConfig :: proplists:proplist() |
-    {skip, Reason :: term()} |
-    {auto_skip, Reason :: term()} |
-    {fail, Reason :: term()} |
-    ok | '$ct_no_change'.
+		 {skip, Reason :: term()} |
+		 {auto_skip, Reason :: term()} |
+		 {fail, Reason :: term()} |
+		 ok | '$ct_no_change'.
 
 end_tc(Mod, init_per_suite, Config, _Result, Return) ->
     call(fun call_generic/3, Return, [post_init_per_suite, Mod, Config],
@@ -110,21 +118,30 @@ end_tc(Mod, init_per_suite, Config, _Result, Return) ->
 end_tc(Mod, end_per_suite, Config, Result, _Return) ->
     call(fun call_generic/3, Result, [post_end_per_suite, Mod, Config],
 	'$ct_no_change');
-end_tc(_Mod, {init_per_group, GroupName, _}, Config, _Result, Return) ->
-    call(fun call_generic/3, Return, [post_init_per_group, GroupName, Config],
-	 '$ct_no_change');
-end_tc(Mod, {end_per_group, GroupName, Opts}, Config, Result, _Return) ->
-    Res = call(fun call_generic/3, Result,
-	       [post_end_per_group, GroupName, Config], '$ct_no_change'),
-    maybe_stop_locker(Mod, GroupName,Opts),
+end_tc(Mod, {init_per_group, GroupName, _}, Config, _Result, Return) ->
+    call(fun call_generic_fallback/3, Return,
+         [post_init_per_group, Mod, GroupName, Config], '$ct_no_change');
+end_tc(Mod, {end_per_group, GroupName, Properties}, Config, Result, _Return) ->
+    Res = call(fun call_generic_fallback/3, Result,
+	       [post_end_per_group, Mod, GroupName, Config], '$ct_no_change'),
+    maybe_stop_locker(Mod, GroupName, Properties),
     Res;
-end_tc(_Mod, TC, Config, Result, _Return) ->
-    call(fun call_generic/3, Result, [post_end_per_testcase, TC, Config],
-	'$ct_no_change').
+end_tc(Mod, {init_per_testcase,TC}, Config, Result, _Return) ->
+    call(fun call_generic_fallback/3, Result,
+         [post_init_per_testcase, Mod, TC, Config], '$ct_no_change');
+end_tc(Mod, {end_per_testcase,TC}, Config, Result, _Return) ->
+    call(fun call_generic_fallback/3, Result,
+         [post_end_per_testcase, Mod, TC, Config], '$ct_no_change');
+end_tc(Mod, TC = error_in_suite, Config, Result, _Return) ->
+    call(fun call_generic_fallback/3, Result,
+         [post_end_per_testcase, Mod, TC, Config], '$ct_no_change').
 
+
+%% Case = TestCase | {TestCase,GroupName}
 on_tc_skip(How, {Suite, Case, Reason}) ->
     call(fun call_cleanup/3, {How, Reason}, [on_tc_skip, Suite, Case]).
 
+%% Case = TestCase | {TestCase,GroupName}
 on_tc_fail(_How, {Suite, Case, Reason}) ->
     call(fun call_cleanup/3, Reason, [on_tc_fail, Suite, Case]).
 
@@ -156,15 +173,21 @@ call_terminate(#ct_hook_config{ module = Mod, state = State} = Hook, _, _) ->
     {[],Hook}.
 
 call_cleanup(#ct_hook_config{ module = Mod, state = State} = Hook,
-	     Reason, [Function, _Suite | Args]) ->
+	     Reason, [Function | Args]) ->
     NewState = catch_apply(Mod,Function, Args ++ [Reason, State],
-			   State),
+			   State, true),
     {Reason, Hook#ct_hook_config{ state = NewState } }.
 
-call_generic(#ct_hook_config{ module = Mod, state = State} = Hook,
-	     Value, [Function | Args]) ->
+call_generic(Hook, Value, Meta) ->
+    do_call_generic(Hook, Value, Meta, false).
+
+call_generic_fallback(Hook, Value, Meta) ->
+    do_call_generic(Hook, Value, Meta, true).
+
+do_call_generic(#ct_hook_config{ module = Mod, state = State} = Hook,
+                Value, [Function | Args], Fallback) ->
     {NewValue, NewState} = catch_apply(Mod, Function, Args ++ [Value, State],
-				       {Value,State}),
+				       {Value,State}, Fallback),
     {NewValue, Hook#ct_hook_config{ state = NewState } }.
 
 %% Generic call function
@@ -192,17 +215,16 @@ call([{Hook, call_id, NextFun} | Rest], Config, Meta, Hooks) ->
 	    case lists:keyfind(NewId, #ct_hook_config.id, Hooks) of
 		false when NextFun =:= undefined ->
 		    {Hooks ++ [NewHook],
-		     [{NewId, call_init} | Rest]};
+		     Rest ++ [{NewId, call_init}]};
 		ExistingHook when is_tuple(ExistingHook) ->
 		    {Hooks, Rest};
 		_ ->
 		    {Hooks ++ [NewHook],
-		     [{NewId, call_init}, {NewId,NextFun} | Rest]}
+		     Rest ++ [{NewId, call_init}, {NewId,NextFun}]}
 	    end,
 	call(resort(NewRest,NewHooks,Meta), Config, Meta, NewHooks)
-    catch Error:Reason ->
-	    Trace = erlang:get_stacktrace(),
-	    ct_logs:log("Suite Hook","Failed to start a CTH: ~p:~p",
+    catch Error:Reason:Trace ->
+	    ct_logs:log("Suite Hook","Failed to start a CTH: ~tp:~tp",
 			[Error,{Reason,Trace}]),
 	    call([], {fail,"Failed to start CTH"
 		      ", see the CT Log for details"}, Meta, Hooks)
@@ -232,13 +254,15 @@ remove(Key,List) when is_list(List) ->
 remove(_, Else) ->
     Else.
 
-%% Translate scopes, i.e. init_per_group,group1 -> end_per_group,group1 etc
-scope([pre_init_per_testcase, TC|_]) ->
-    [post_end_per_testcase, TC];
-scope([pre_init_per_group, GroupName|_]) ->
-    [post_end_per_group, GroupName];
-scope([post_init_per_group, GroupName|_]) ->
-    [post_end_per_group, GroupName];
+%% Translate scopes, i.e. is_tuplenit_per_group,group1 -> end_per_group,group1 etc
+scope([pre_init_per_testcase, SuiteName, TC|_]) ->
+    [post_init_per_testcase, SuiteName, TC];
+scope([pre_end_per_testcase, SuiteName, TC|_]) ->
+    [post_end_per_testcase, SuiteName, TC];
+scope([pre_init_per_group, SuiteName, GroupName|_]) ->
+    [post_end_per_group, SuiteName, GroupName];
+scope([post_init_per_group, SuiteName, GroupName|_]) ->
+    [post_end_per_group, SuiteName, GroupName];
 scope([pre_init_per_suite, SuiteName|_]) ->
     [post_end_per_suite, SuiteName];
 scope([post_init_per_suite, SuiteName|_]) ->
@@ -246,14 +270,29 @@ scope([post_init_per_suite, SuiteName|_]) ->
 scope(init) ->
     none.
 
-terminate_if_scope_ends(HookId, [on_tc_skip,_Suite,{end_per_group,Name}], 
+strip_config([post_init_per_testcase, SuiteName, TC|_]) ->
+    [post_init_per_testcase, SuiteName, TC];
+strip_config([post_end_per_testcase, SuiteName, TC|_]) ->
+    [post_end_per_testcase, SuiteName, TC];
+strip_config([post_init_per_group, SuiteName, GroupName|_]) ->
+    [post_init_per_group, SuiteName, GroupName];
+strip_config([post_end_per_group, SuiteName, GroupName|_]) ->
+    [post_end_per_group, SuiteName, GroupName];
+strip_config([post_init_per_suite, SuiteName|_]) ->
+    [post_init_per_suite, SuiteName];
+strip_config([post_end_per_suite, SuiteName|_]) ->
+    [post_end_per_suite, SuiteName];
+strip_config(Other) ->
+    Other.
+
+
+terminate_if_scope_ends(HookId, [on_tc_skip,Suite,{end_per_group,Name}],
 			Hooks) ->
-    terminate_if_scope_ends(HookId, [post_end_per_group, Name], Hooks);
+    terminate_if_scope_ends(HookId, [post_end_per_group, Suite, Name], Hooks);
 terminate_if_scope_ends(HookId, [on_tc_skip,Suite,end_per_suite], Hooks) ->
     terminate_if_scope_ends(HookId, [post_end_per_suite, Suite], Hooks);
-terminate_if_scope_ends(HookId, [Function,Tag|T], Hooks) when T =/= [] ->
-    terminate_if_scope_ends(HookId,[Function,Tag],Hooks);
-terminate_if_scope_ends(HookId, Function, Hooks) ->
+terminate_if_scope_ends(HookId, Function0, Hooks) ->
+    Function = strip_config(Function0),
     case lists:keyfind(HookId, #ct_hook_config.id, Hooks) of
         #ct_hook_config{ id = HookId, scope = Function} = Hook ->
             terminate([Hook]),
@@ -276,8 +315,10 @@ get_new_hooks(Config, Fun) ->
 		end, get_new_hooks(Config)).
 
 get_new_hooks(Config) when is_list(Config) ->
-    lists:flatmap(fun({?config_name, HookConfigs}) ->
+    lists:flatmap(fun({?config_name, HookConfigs}) when is_list(HookConfigs) ->
 			  HookConfigs;
+		     ({?config_name, HookConfig}) when is_atom(HookConfig) ->
+			  [HookConfig];
 		     (_) ->
 			  []
 		  end, Config);
@@ -305,7 +346,8 @@ get_hooks() ->
 %% If we are doing a cleanup call i.e. {post,pre}_end_per_*, all priorities
 %% are reversed. Probably want to make this sorting algorithm pluginable
 %% as some point...
-resort(Calls,Hooks,[F|_R]) when F == post_end_per_testcase;
+resort(Calls,Hooks,[F|_R]) when F == pre_end_per_testcase;
+				F == post_end_per_testcase;
 				F == pre_end_per_group;
 				F == post_end_per_group;
 				F == pre_end_per_suite;
@@ -353,23 +395,29 @@ pos(Id,[_|Rest],Num) ->
     pos(Id,Rest,Num+1).
 
 
-
 catch_apply(M,F,A, Default) ->
+    catch_apply(M,F,A,Default,false).
+catch_apply(M,F,A, Default, Fallback) ->
+    not erlang:module_loaded(M) andalso (catch M:module_info()),
+    case erlang:function_exported(M,F,length(A)) of
+        false when Fallback ->
+            catch_apply(M,F,tl(A),Default,false);
+        false ->
+            Default;
+        true ->
+            catch_apply(M,F,A)
+    end.
+
+catch_apply(M,F,A) ->
     try
-	apply(M,F,A)
-    catch error:Reason ->
-	    case erlang:get_stacktrace() of
-            %% Return the default if it was the CTH module which did not have the function.
-		[{M,F,A,_}|_] when Reason == undef ->
-		    Default;
-		Trace ->
-		    ct_logs:log("Suite Hook","Call to CTH failed: ~p:~p",
-				[error,{Reason,Trace}]),
-		    throw({error_in_cth_call,
-			   lists:flatten(
-			     io_lib:format("~p:~p/~p CTH call failed",
-					   [M,F,length(A)]))})
-	    end
+        erlang:apply(M,F,A)
+    catch _:Reason:Trace ->
+            ct_logs:log("Suite Hook","Call to CTH failed: ~w:~tp",
+                            [error,{Reason,Trace}]),
+            throw({error_in_cth_call,
+                   lists:flatten(
+                     io_lib:format("~w:~tw/~w CTH call failed",
+                                   [M,F,length(A)]))})
     end.
 
 
@@ -379,7 +427,8 @@ catch_apply(M,F,A, Default) ->
 maybe_start_locker(Mod,GroupName,Opts) ->
     case lists:member(parallel,Opts) of
 	true ->
-	    {ok, _Pid} = ct_hooks_lock:start({Mod,GroupName});
+	    {ok, _Pid} = ct_hooks_lock:start({Mod,GroupName}),
+	    ok;
 	false ->
 	    ok
     end.

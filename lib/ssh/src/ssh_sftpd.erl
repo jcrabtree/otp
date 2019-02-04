@@ -1,18 +1,19 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2005-2012. All Rights Reserved.
+%% Copyright Ericsson AB 2005-2018. All Rights Reserved.
 %%
-%% The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved online at http://www.erlang.org/.
+%% Licensed under the Apache License, Version 2.0 (the "License");
+%% you may not use this file except in compliance with the License.
+%% You may obtain a copy of the License at
 %%
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
+%%     http://www.apache.org/licenses/LICENSE-2.0
+%%
+%% Unless required by applicable law or agreed to in writing, software
+%% distributed under the License is distributed on an "AS IS" BASIS,
+%% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+%% See the License for the specific language governing permissions and
+%% limitations under the License.
 %%
 %% %CopyrightEnd%
 %%
@@ -23,20 +24,21 @@
 
 -module(ssh_sftpd).
 
-%%-behaviour(gen_server).
--behaviour(ssh_channel).
+-behaviour(ssh_server_channel).
 
 -include_lib("kernel/include/file.hrl").
 
 -include("ssh.hrl").
 -include("ssh_xfer.hrl").
+-include("ssh_connect.hrl"). %% For ?DEFAULT_PACKET_SIZE and ?DEFAULT_WINDOW_SIZE
 
 %%--------------------------------------------------------------------
 %% External exports
--export([subsystem_spec/1,
-	 listen/1, listen/2, listen/3, stop/1]).
+-export([subsystem_spec/1]).
 
--export([init/1, handle_ssh_msg/2, handle_msg/2, terminate/2, code_change/3]).
+-export([init/1, handle_ssh_msg/2, handle_msg/2, terminate/2]).
+
+-export([dbg_trace/3]).
 
 -record(state, {
 	  xf,   			% [{channel,ssh_xfer states}...]
@@ -47,6 +49,7 @@
 	  file_handler,			% atom() - callback module 
 	  file_state,                   % state for the file callback module
 	  max_files,                    % integer >= 0 max no files sent during READDIR
+	  options,			% from the subsystem declaration
 	  handles			% list of open handles
 	  %% handle is either {<int>, directory, {Path, unread|eof}} or
 	  %% {<int>, file, {Path, IoDevice}}
@@ -55,32 +58,11 @@
 %%====================================================================
 %% API
 %%====================================================================
+-spec subsystem_spec(list()) -> subsystem_spec().
+
 subsystem_spec(Options) ->
     {"sftp", {?MODULE, Options}}.
 
-%%% DEPRECATED START %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-%%--------------------------------------------------------------------
-%% Function: listen() -> Pid | {error,Error}
-%% Description: Starts the server
-%%--------------------------------------------------------------------
-listen(Port) ->
-    listen(any, Port, []).
-listen(Port, Options) ->
-    listen(any, Port, Options).
-listen(Addr, Port, Options) ->
-    SubSystems = [subsystem_spec(Options)],
-    ssh:daemon(Addr, Port, [{subsystems, SubSystems} |Options]).
-
-%%--------------------------------------------------------------------
-%% Function: stop(Pid) -> ok
-%% Description: Stops the listener
-%%--------------------------------------------------------------------
-stop(Pid) ->
-    ssh_cli:stop(Pid).
-
-
-%%% DEPRECATED END %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %%====================================================================
 %% subsystem callbacks
@@ -119,20 +101,11 @@ init(Options) ->
 		{Root0, State0}
 	end,
     MaxLength = proplists:get_value(max_files, Options, 0),
-
-    Vsn = proplists:get_value(vsn, Options, 5),
-
+    Vsn = proplists:get_value(sftpd_vsn, Options, 5),
     {ok,  State#state{cwd = CWD, root = Root, max_files = MaxLength,
+		      options = Options,
 		      handles = [], pending = <<>>,
 		      xf = #ssh_xfer{vsn = Vsn, ext = []}}}.
-
-
-%%--------------------------------------------------------------------
-%% Function: code_change(OldVsn, State, Extra) -> {ok, NewState}
-%% Description: 
-%%--------------------------------------------------------------------
-code_change(_OldVsn, State, _Extra) -> 
-    {ok, State}.
 
 
 %%--------------------------------------------------------------------
@@ -152,9 +125,9 @@ handle_ssh_msg({ssh_cm, _, {signal, _, _}}, State) ->
     %% Ignore signals according to RFC 4254 section 6.9.
     {ok, State};
 
-handle_ssh_msg({ssh_cm, _, {exit_signal, ChannelId, _, Error, _}}, State) ->
-    Report = io_lib:format("Connection closed by peer ~n Error ~p~n",
-			   [Error]),
+handle_ssh_msg({ssh_cm, _, {exit_signal, ChannelId, Signal, Error, _}}, State) ->
+    Report = io_lib:format("Connection closed by peer signal ~p~n Error ~p~n",
+			   [Signal,Error]),
     error_logger:error_report(Report),
     {stop, ChannelId,  State};
 
@@ -169,12 +142,14 @@ handle_ssh_msg({ssh_cm, _, {exit_status, ChannelId, Status}}, State) ->
     {stop, ChannelId, State}.
 
 %%--------------------------------------------------------------------
-%% Function: handle_ssh_msg(Args) -> {ok, State} | {stop, ChannelId, State}
+%% Function: handle_msg(Args) -> {ok, State} | {stop, ChannelId, State}
 %%                        
 %% Description: Handles other messages
 %%--------------------------------------------------------------------
 handle_msg({ssh_channel_up, ChannelId,  ConnectionManager}, 
-	   #state{xf =Xf} = State) ->
+	   #state{xf = Xf,
+		 options = Options} = State) ->
+    maybe_increase_recv_window(ConnectionManager,  ChannelId, Options),
     {ok,  State#state{xf = Xf#ssh_xfer{cm = ConnectionManager,
 				       channel = ChannelId}}}.
 
@@ -225,8 +200,7 @@ handle_op(?SSH_FXP_INIT, Version, B, State) when is_binary(B) ->
 handle_op(?SSH_FXP_REALPATH, ReqId,
 	  <<?UINT32(Rlen), RPath:Rlen/binary>>,
 	  State0) ->
-    RelPath0 = binary_to_list(RPath),
-    RelPath = relate_file_name(RelPath0, State0, _Canonicalize=false),
+    RelPath = relate_file_name(RPath, State0, _Canonicalize=false),
     {Res, State} = resolve_symlinks(RelPath, State0),
     case Res of
 	{ok, AbsPath} ->
@@ -242,7 +216,7 @@ handle_op(?SSH_FXP_OPENDIR, ReqId,
 	 <<?UINT32(RLen), RPath:RLen/binary>>,
 	  State0 = #state{xf = #ssh_xfer{vsn = Vsn}, 
 			  file_handler = FileMod, file_state = FS0}) ->
-    RelPath = binary_to_list(RPath),
+    RelPath = unicode:characters_to_list(RPath),
     AbsPath = relate_file_name(RelPath, State0),
     
     XF = State0#state.xf,
@@ -323,9 +297,8 @@ handle_op(?SSH_FXP_WRITE, ReqId,
 				    ?SSH_FX_INVALID_HANDLE),
 	    State
     end;
-handle_op(?SSH_FXP_READLINK, ReqId, <<?UINT32(PLen), BPath:PLen/binary>>, 
+handle_op(?SSH_FXP_READLINK, ReqId, <<?UINT32(PLen), RelPath:PLen/binary>>, 
 	  State = #state{file_handler = FileMod, file_state = FS0}) ->
-    RelPath = binary_to_list(BPath),
     AbsPath = relate_file_name(RelPath, State),
     {Res, FS1} = FileMod:read_link(AbsPath, FS0),
     case Res of
@@ -369,17 +342,23 @@ handle_op(?SSH_FXP_FSETSTAT, ReqId, <<?UINT32(HLen), BinHandle:HLen/binary,
 	    State0
     end;
 handle_op(?SSH_FXP_REMOVE, ReqId, <<?UINT32(PLen), BPath:PLen/binary>>, 
-	  State0 = #state{file_handler = FileMod, file_state = FS0}) ->
+	  State0 = #state{file_handler = FileMod, file_state = FS0, xf = #ssh_xfer{vsn = Vsn}}) ->
     Path = relate_file_name(BPath, State0),
-    %%  case FileMod:is_dir(Path) of %% This version 6 we still have ver 5
-    %% 	true ->
-    %% 	    ssh_xfer:xf_send_status(State#state.xf, ReqId,
-    %% 				    ?SSH_FX_FILE_IS_A_DIRECTORY); 
-    %% 	false ->
-    {Status, FS1} = FileMod:delete(Path, FS0),
-    State1 = State0#state{file_state = FS1},
-    send_status(Status, ReqId, State1);
-    %%end;
+    {IsDir, _FS1} = FileMod:is_dir(Path, FS0),
+    case IsDir of %% This version 6 we still have ver 5
+	true when Vsn > 5 ->
+	    ssh_xfer:xf_send_status(State0#state.xf, ReqId,
+				    ?SSH_FX_FILE_IS_A_DIRECTORY, "File is a directory"),
+            State0;
+	true ->
+	    ssh_xfer:xf_send_status(State0#state.xf, ReqId,
+				    ?SSH_FX_FAILURE, "File is a directory"),
+            State0;
+	false ->
+	    {Status, FS1} = FileMod:delete(Path, FS0),
+	    State1 = State0#state{file_state = FS1},
+	    send_status(Status, ReqId, State1)
+    end;
 handle_op(?SSH_FXP_RMDIR, ReqId, <<?UINT32(PLen), BPath:PLen/binary>>, 
 	  State0 = #state{file_handler = FileMod, file_state = FS0}) ->
     Path = relate_file_name(BPath, State0),
@@ -529,12 +508,9 @@ close_our_file({_,Fd}, FileMod, FS0) ->
     FS1.
 
 %%% stat: do the stat
-stat(Vsn, ReqId, Data, State, F) when Vsn =< 3->
-    <<?UINT32(BLen), BPath:BLen/binary>> = Data,
-    stat(ReqId, binary_to_list(BPath), State, F);
-stat(Vsn, ReqId, Data, State, F) when Vsn >= 4->
-    <<?UINT32(BLen), BPath:BLen/binary, ?UINT32(_Flags)>> = Data,
-    stat(ReqId, binary_to_list(BPath), State, F).
+stat(Vsn, ReqId, Data, State, F) ->
+    <<?UINT32(BLen), BPath:BLen/binary, _/binary>> = Data,
+    stat(ReqId, unicode:characters_to_list(BPath), State, F).
 
 fstat(Vsn, ReqId, Data, State) when Vsn =< 3->
     <<?UINT32(HLen), Handle:HLen/binary>> = Data,
@@ -568,100 +544,113 @@ stat(ReqId, RelPath, State0=#state{file_handler=FileMod,
 	    send_status({error, E}, ReqId, State1)
     end.
 
-decode_4_open_flag(create_new) ->
-    [write];
-decode_4_open_flag(create_truncate) ->
-    [write];
-decode_4_open_flag(truncate_existing) ->
-    [write];
-decode_4_open_flag(open_existing) ->
-    [read].
+sftp_to_erlang_flag(read, Vsn) when Vsn == 3;
+				    Vsn == 4 ->
+    read;
+sftp_to_erlang_flag(write, Vsn) when Vsn == 3;
+				     Vsn == 4 ->
+    write;
+sftp_to_erlang_flag(append, Vsn) when Vsn == 3;
+				      Vsn == 4 ->
+    append;
+sftp_to_erlang_flag(creat, Vsn) when Vsn == 3;
+				     Vsn == 4 ->
+    write;
+sftp_to_erlang_flag(trunc, Vsn) when Vsn == 3;
+				     Vsn == 4 ->
+    write;
+sftp_to_erlang_flag(excl, Vsn) when Vsn == 3;
+				    Vsn == 4 ->
+    read;
+sftp_to_erlang_flag(create_new, Vsn)  when Vsn > 4 ->
+    write;
+sftp_to_erlang_flag(create_truncate, Vsn) when Vsn > 4 ->
+    write;
+sftp_to_erlang_flag(open_existing, Vsn)  when Vsn > 4 ->
+    read;
+sftp_to_erlang_flag(open_or_create, Vsn) when Vsn > 4 ->
+    write;
+sftp_to_erlang_flag(truncate_existing, Vsn) when Vsn > 4 ->
+    write;
+sftp_to_erlang_flag(append_data, Vsn)  when Vsn > 4 ->
+    append;
+sftp_to_erlang_flag(append_data_atomic, Vsn) when Vsn > 4  ->
+    append;
+sftp_to_erlang_flag(_, _) ->
+    read.
 
-decode_4_flags([OpenFlag | Flags]) ->
-    decode_4_flags(Flags, decode_4_open_flag(OpenFlag)).
-
-decode_4_flags([], Flags) ->
-    Flags;
-decode_4_flags([append_data|R], _Flags) ->
-    decode_4_flags(R, [append]);
-decode_4_flags([append_data_atomic|R], _Flags) ->
-    decode_4_flags(R, [append]);
-decode_4_flags([_|R], Flags) ->
-    decode_4_flags(R, Flags).
-
-decode_4_access_flag(read_data) ->
-    [read];
-decode_4_access_flag(list_directory) ->
-    [read];
-decode_4_access_flag(write_data) ->
-    [write];
-decode_4_access_flag(add_file) ->
-    [write];
-decode_4_access_flag(add_subdirectory) ->
-    [read];
-decode_4_access_flag(append_data) ->
-    [append];
-decode_4_access_flag(write_attributes) ->
-    [write];
-decode_4_access_flag(_) ->
-    [read].
-
-decode_4_acess([_ | _] = Flags) ->
+sftp_to_erlang_flags(Flags, Vsn) ->
     lists:map(fun(Flag) -> 
-		      [decode_4_access_flag(Flag)]
-	      end, Flags);
-decode_4_acess([]) ->
-    [].
+		      sftp_to_erlang_flag(Flag, Vsn) 
+	      end, Flags).
+
+sftp_to_erlang_access_flag(read_data, _) ->
+    read;
+sftp_to_erlang_access_flag(list_directory, _) ->
+    read;
+sftp_to_erlang_access_flag(write_data, _) ->
+    write;
+sftp_to_erlang_access_flag(append_data, _) ->
+    append;
+sftp_to_erlang_access_flag(add_subdirectory, _) ->
+    read;
+sftp_to_erlang_access_flag(add_file, _) ->
+    write;
+sftp_to_erlang_access_flag(write_attributes, _) ->
+    write;
+sftp_to_erlang_access_flag(_, _) ->
+    read.
+sftp_to_erlang_access_flags(Flags, Vsn) ->
+    lists:map(fun(Flag) -> 
+		      sftp_to_erlang_access_flag(Flag, Vsn)
+	      end, Flags).
 
 open(Vsn, ReqId, Data, State) when Vsn =< 3 ->
     <<?UINT32(BLen), BPath:BLen/binary, ?UINT32(PFlags),
      _Attrs/binary>> = Data,
-    Path = binary_to_list(BPath),
-    Flags = ssh_xfer:decode_open_flags(Vsn, PFlags),
+    Path = unicode:characters_to_list(BPath),
+    FlagBits = ssh_xfer:decode_open_flags(Vsn, PFlags),
+    Flags = lists:usort(sftp_to_erlang_flags(FlagBits, Vsn)),
     do_open(ReqId, State, Path, Flags);
 open(Vsn, ReqId, Data, State) when Vsn >= 4 ->
     <<?UINT32(BLen), BPath:BLen/binary, ?UINT32(Access),
      ?UINT32(PFlags), _Attrs/binary>> = Data,
-    Path = binary_to_list(BPath),
+    Path = unicode:characters_to_list(BPath),
     FlagBits = ssh_xfer:decode_open_flags(Vsn, PFlags),
     AcessBits = ssh_xfer:decode_ace_mask(Access),
-    %% TODO: This is to make sure the Access flags are not ignored
-    %% but this should be thought through better. This solution should
-    %% be considered a hack in order to buy some time. At least
-    %% it works better than when the Access flags where totally ignored.
-    %% A better solution may need some code refactoring that we do
-    %% not have time for right now.
-    AcessFlags = decode_4_acess(AcessBits),
-    Flags = lists:append(lists:umerge(
-			   [[decode_4_flags(FlagBits)] | AcessFlags])),
+    %% TODO: There are still flags that are not
+    %% fully handled as SSH_FXF_ACCESS_TEXT_MODE and
+    %% a lot a ACE flags, the later we may not need 
+    %% to understand as they are NFS flags
+    AcessFlags = sftp_to_erlang_access_flags(AcessBits, Vsn),
+    Flags = lists:usort(sftp_to_erlang_flags(FlagBits, Vsn) ++ AcessFlags),
     do_open(ReqId, State, Path, Flags).
 
 do_open(ReqId, State0, Path, Flags) ->
-    #state{file_handler = FileMod, file_state = FS0, root = Root} = State0,
-    XF = State0#state.xf,
-    F = [binary | Flags],
-    %%   case FileMod:is_dir(Path) of %% This is version 6 we still have 5
-    %% 	true ->
-    %% 	    ssh_xfer:xf_send_status(State#state.xf, ReqId,
-    %% 				    ?SSH_FX_FILE_IS_A_DIRECTORY);
-    %% 	false ->
-    
-    AbsPath = case Root of
-		  "" ->
-		      Path;
-		  _ ->
-		      relate_file_name(Path, State0)  
-	      end,
-
-    {Res, FS1} = FileMod:open(AbsPath, F, FS0),
-    State1 = State0#state{file_state = FS1},
-    case Res of
-	{ok, IoDevice} ->
-	    add_handle(State1, XF, ReqId, file, {Path,IoDevice});
-	{error, Error} ->
-	    ssh_xfer:xf_send_status(State1#state.xf, ReqId,
-				    ssh_xfer:encode_erlang_status(Error)),
-	    State1
+    #state{file_handler = FileMod, file_state = FS0, xf = #ssh_xfer{vsn = Vsn}} = State0,
+    AbsPath = relate_file_name(Path, State0),
+    {IsDir, _FS1} = FileMod:is_dir(AbsPath, FS0),
+    case IsDir of 
+	true when Vsn > 5 ->
+	    ssh_xfer:xf_send_status(State0#state.xf, ReqId,
+				    ?SSH_FX_FILE_IS_A_DIRECTORY, "File is a directory"),
+	    State0;
+	true ->
+	    ssh_xfer:xf_send_status(State0#state.xf, ReqId,
+				    ?SSH_FX_FAILURE, "File is a directory"),
+	    State0;
+	false ->
+	    OpenFlags = [binary | Flags],
+	    {Res, FS1} = FileMod:open(AbsPath, OpenFlags, FS0),
+	    State1 = State0#state{file_state = FS1},
+	    case Res of
+		{ok, IoDevice} ->
+		    add_handle(State1, State0#state.xf, ReqId, file, {Path,IoDevice});
+		{error, Error} ->
+		    ssh_xfer:xf_send_status(State1#state.xf, ReqId,
+					    ssh_xfer:encode_erlang_status(Error)),
+		    State1
+	    end
     end.
 
 %% resolve all symlinks in a path
@@ -679,7 +668,7 @@ resolve_symlinks_2(["." | RestPath], State0, LinkCnt, AccPath) ->
 resolve_symlinks_2([".." | RestPath], State0, LinkCnt, AccPath) ->
     %% Remove the last path component
     AccPathComps0 = filename:split(AccPath),
-    Path =  case lists:reverse(tl(lists:reverse(AccPathComps0))) of
+    Path =  case lists:droplast(AccPathComps0) of
 		[] ->
 		    "";
 		AccPathComps ->
@@ -712,26 +701,31 @@ resolve_symlinks_2([], State, _LinkCnt, AccPath) ->
     {{ok, AccPath}, State}.
 
 
+%% The File argument is always in a user visible file system, i.e.
+%% is under Root and is relative to CWD or Root, if starts with "/".
+%% The result of the function is always an absolute path in a
+%% "backend" file system.
 relate_file_name(File, State) ->
     relate_file_name(File, State, _Canonicalize=true).
 
 relate_file_name(File, State, Canonicalize) when is_binary(File) ->
-    relate_file_name(binary_to_list(File), State, Canonicalize);
+    relate_file_name(unicode:characters_to_list(File), State, Canonicalize);
 relate_file_name(File, #state{cwd = CWD, root = ""}, Canonicalize) ->
     relate_filename_to_path(File, CWD, Canonicalize);
-relate_file_name(File, #state{root = Root}, Canonicalize) ->
-    case is_within_root(Root, File) of
-	true ->
-	    File;
-	false ->
-	    RelFile = make_relative_filename(File),
-	    NewFile = relate_filename_to_path(RelFile, Root, Canonicalize),
-	    case is_within_root(Root, NewFile) of
-		true ->
-		    NewFile;
-		false ->
-		    Root
-	    end
+relate_file_name(File, #state{cwd = CWD, root = Root}, Canonicalize) ->
+    CWD1 = case is_within_root(Root, CWD) of
+	       true  -> CWD;
+	       false -> Root
+	   end,
+    AbsFile = case make_relative_filename(File) of
+		  File ->
+		       relate_filename_to_path(File, CWD1, Canonicalize);
+		  RelFile ->
+		       relate_filename_to_path(RelFile, Root, Canonicalize)
+	      end,
+    case is_within_root(Root, AbsFile) of
+	true  -> AbsFile;
+	false -> Root
     end.
 
 is_within_root(Root, File) ->
@@ -925,3 +919,35 @@ rename(Path, Path2, ReqId, State0) ->
     {Status, FS1} = FileMod:rename(Path, Path2, FS0),
     State1 = State0#state{file_state = FS1},
     send_status(Status, ReqId, State1).
+
+
+maybe_increase_recv_window(ConnectionManager, ChannelId, Options) ->
+    WantedRecvWindowSize = 
+	proplists:get_value(recv_window_size, Options, 1000000),
+    NumPkts = WantedRecvWindowSize div ?DEFAULT_PACKET_SIZE,
+    Increment = NumPkts*?DEFAULT_PACKET_SIZE - ?DEFAULT_WINDOW_SIZE,
+
+    if
+	Increment > 0 ->
+	    ssh_connection:adjust_window(ConnectionManager, ChannelId, 
+					 Increment);
+	Increment =< 0 ->
+	    do_nothing
+    end.
+
+%%%################################################################
+%%%#
+%%%# Tracing
+%%%#
+
+dbg_trace(points,         _,  _) -> [terminate];
+
+dbg_trace(flags,  terminate,  _) -> [c];
+dbg_trace(on,     terminate,  _) -> dbg:tp(?MODULE,  terminate, 2, x);
+dbg_trace(off,    terminate,  _) -> dbg:ctpg(?MODULE, terminate, 2);
+dbg_trace(format, terminate, {call, {?MODULE,terminate, [Reason, State]}}) ->
+    ["SftpD Terminating:\n",
+     io_lib:format("Reason: ~p,~nState:~n~s", [Reason, wr_record(State)])
+    ].
+
+?wr_record(state).

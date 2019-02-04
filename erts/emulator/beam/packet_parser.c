@@ -1,18 +1,19 @@
 /*
  * %CopyrightBegin%
  * 
- * Copyright Ericsson AB 2008-2011. All Rights Reserved.
+ * Copyright Ericsson AB 2008-2018. All Rights Reserved.
  * 
- * The contents of this file are subject to the Erlang Public License,
- * Version 1.1, (the "License"); you may not use this file except in
- * compliance with the License. You should have received a copy of the
- * Erlang Public License along with this software. If not, it can be
- * retrieved online at http://www.erlang.org/.
- * 
- * Software distributed under the License is distributed on an "AS IS"
- * basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
- * the License for the specific language governing rights and limitations
- * under the License.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  * 
  * %CopyrightEnd%
  */
@@ -67,7 +68,7 @@ static int my_strncasecmp(const char *s1, const char *s2, size_t n)
 
 #define HTTP_HDR_HASH_SIZE  53
 #define HTTP_METH_HASH_SIZE 13
-#define HTTP_MAX_NAME_LEN 20
+#define HTTP_MAX_NAME_LEN 50
 
 static char tspecial[128];
 
@@ -199,7 +200,7 @@ static int http_init(void)
     for (i = 0; i < HTTP_HDR_HASH_SIZE; i++)
         http_hdr_hash[i] = NULL;
     for (i = 0; http_hdr_strings[i] != NULL; i++) {
-        ASSERT(strlen(http_hdr_strings[i]) <= HTTP_MAX_NAME_LEN);
+        ASSERT(sys_strlen(http_hdr_strings[i]) <= HTTP_MAX_NAME_LEN);
         http_hdr_table[i].index = i;
         http_hash_insert(http_hdr_strings[i], 
                          &http_hdr_table[i], 
@@ -255,6 +256,7 @@ int packet_get_length(enum PacketParseType htype,
                       const char* ptr, unsigned n, /* Bytes read so far */
                       unsigned max_plen,     /* Max packet length, 0=no limit */
                       unsigned trunc_len,    /* Truncate (lines) if longer, 0=no limit */
+                      char     delimiter,    /* Line delimiting character */
                       int*     statep)       /* Protocol specific state */
 {
     unsigned hlen, plen;
@@ -298,9 +300,9 @@ int packet_get_length(enum PacketParseType htype,
         goto remain;
 
     case TCP_PB_LINE_LF: {
-        /* TCP_PB_LINE_LF:  [Data ... \n]  */
+        /* TCP_PB_LINE_LF:  [Data ... Delimiter]  */
         const char* ptr2;
-        if ((ptr2 = memchr(ptr, '\n', n)) == NULL) {
+        if ((ptr2 = memchr(ptr, delimiter, n)) == NULL) {
             if (n > max_plen && max_plen != 0) { /* packet full */
                 DEBUGF((" => packet full (no NL)=%d\r\n", n));
                 goto error;
@@ -460,11 +462,9 @@ int packet_get_length(enum PacketParseType htype,
         hp = (struct tpkt_head*) ptr;
         if (hp->vrsn == TPKT_VRSN) {
             plen = get_int16(hp->packet_length) - hlen;
-            if (plen < 0)
-                goto error;
-        }
-        else
+        } else {
             goto error;
+	}
         goto remain;
     }
     
@@ -516,7 +516,7 @@ static http_atom_t* http_hash_lookup(const char* name, int len,
 
     while (ap != NULL) {
         if ((ap->h == h) && (ap->len == len) && 
-            (strncmp(ap->name, name, len) == 0))
+            (sys_strncmp(ap->name, name, len) == 0))
             return ap;
         ap = ap->next;
     }
@@ -656,7 +656,7 @@ int packet_parse_http(const char* buf, int len, int* statep,
     if (*statep == 0) {
         /* start-line = Request-Line | Status-Line */
 
-        if (n >= 5 && (strncmp(buf, "HTTP/", 5) == 0)) {
+        if (n >= 5 && (sys_strncmp(buf, "HTTP/", 5) == 0)) {
             int major  = 0;
             int minor  = 0;
             int status = 0;
@@ -750,7 +750,7 @@ int packet_parse_http(const char* buf, int len, int* statep,
             }
             if (n < 8)
                 return -1;
-            if (strncmp(ptr, "HTTP/", 5) != 0)
+            if (sys_strncmp(ptr, "HTTP/", 5) != 0)
                 return -1;
             ptr += 5;
             n   -= 5;
